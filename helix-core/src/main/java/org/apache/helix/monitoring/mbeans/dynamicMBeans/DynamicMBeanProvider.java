@@ -51,6 +51,7 @@ public abstract class DynamicMBeanProvider implements DynamicMBean, SensorNamePr
    * @param domain         the MBean domain name
    * @param keyValuePairs  the MBean object name components
    */
+  // TODO: 2018/6/15 b yzmyer
   protected synchronized void doRegister(Collection<DynamicMetric<?, ?>> dynamicMetrics,
       String description, String domain, String... keyValuePairs) throws JMException {
     if (_objectName != null) {

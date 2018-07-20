@@ -22,52 +22,53 @@ package org.apache.helix.model;
 /**
  * Defines a transition from one state to another
  */
+// TODO: 2018/6/4 by zmyer
 public class Transition {
-  final private String _fromState;
-  final private String _toState;
+    final private String _fromState;
+    final private String _toState;
 
-  /**
-   * Instantiate with a source and destination state
-   * @param fromState source name
-   * @param toState destination name
-   */
-  public Transition(String fromState, String toState) {
-    _fromState = fromState;
-    _toState = toState;
-  }
-
-  @Override
-  public String toString() {
-    return _fromState + "-" + _toState;
-  }
-
-  @Override
-  public int hashCode() {
-    return toString().hashCode();
-  }
-
-  @Override
-  public boolean equals(Object that) {
-    if (that == null || !(that instanceof Transition)) {
-      return false;
+    /**
+     * Instantiate with a source and destination state
+     * @param fromState source name
+     * @param toState destination name
+     */
+    public Transition(String fromState, String toState) {
+        _fromState = fromState;
+        _toState = toState;
     }
-    return this.toString().equalsIgnoreCase(that.toString());
-  }
 
-  /**
-   * Get the source state
-   * @return source state name
-   */
-  public String getFromState() {
-    return _fromState;
-  }
+    @Override
+    public String toString() {
+        return _fromState + "-" + _toState;
+    }
 
-  /**
-   * Get the destination state
-   * @return destination state name
-   */
-  public String getToState() {
-    return _toState;
-  }
+    @Override
+    public int hashCode() {
+        return toString().hashCode();
+    }
+
+    @Override
+    public boolean equals(Object that) {
+        if (that == null || !(that instanceof Transition)) {
+            return false;
+        }
+        return this.toString().equalsIgnoreCase(that.toString());
+    }
+
+    /**
+     * Get the source state
+     * @return source state name
+     */
+    public String getFromState() {
+        return _fromState;
+    }
+
+    /**
+     * Get the destination state
+     * @return destination state name
+     */
+    public String getToState() {
+        return _toState;
+    }
 
 }

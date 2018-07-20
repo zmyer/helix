@@ -25,6 +25,7 @@ package org.apache.helix;
  * for zk-based cluster managers, the getZKXXX(..zkClient) that takes a zkClient parameter
  *   are intended for session expiry test purpose
  */
+
 import org.apache.helix.manager.zk.HelixManagerStateListener;
 import org.apache.helix.manager.zk.ZKHelixManager;
 import org.slf4j.Logger;
@@ -33,36 +34,38 @@ import org.slf4j.LoggerFactory;
 /**
  * Obtain one of a set of Helix cluster managers, organized by the backing system.
  */
+// TODO: 2018/6/4 by zmyer
 public final class HelixManagerFactory {
-  private static final Logger logger = LoggerFactory.getLogger(HelixManagerFactory.class);
+    private static final Logger logger = LoggerFactory.getLogger(HelixManagerFactory.class);
 
-  /**
-   * Construct a zk-based cluster manager that enforces all types (PARTICIPANT, CONTROLLER, and
-   * SPECTATOR) to have a name
-   * @param clusterName
-   * @param instanceName
-   * @param type
-   * @param zkAddr
-   * @return a HelixManager backed by Zookeeper
-   */
-  public static HelixManager getZKHelixManager(String clusterName, String instanceName,
-      InstanceType type, String zkAddr) {
-    return new ZKHelixManager(clusterName, instanceName, type, zkAddr);
-  }
+    /**
+     * Construct a zk-based cluster manager that enforces all types (PARTICIPANT, CONTROLLER, and
+     * SPECTATOR) to have a name
+     * @param clusterName
+     * @param instanceName
+     * @param type
+     * @param zkAddr
+     * @return a HelixManager backed by Zookeeper
+     */
+    // TODO: 2018/6/4 by zmyer
+    public static HelixManager getZKHelixManager(String clusterName, String instanceName,
+            InstanceType type, String zkAddr) {
+        return new ZKHelixManager(clusterName, instanceName, type, zkAddr);
+    }
 
-  /**
-   * Construct a zk-based cluster manager that enforces all types (PARTICIPANT, CONTROLLER, and
-   * SPECTATOR) to have a name
-   * @param clusterName
-   * @param instanceName
-   * @param type
-   * @param zkAddr
-   * @param stateListener
-   * @return a HelixManager backed by Zookeeper
-   */
-  public static HelixManager getZKHelixManager(String clusterName, String instanceName,
-      InstanceType type, String zkAddr, HelixManagerStateListener stateListener) {
-    return new ZKHelixManager(clusterName, instanceName, type, zkAddr, stateListener);
-  }
+    /**
+     * Construct a zk-based cluster manager that enforces all types (PARTICIPANT, CONTROLLER, and
+     * SPECTATOR) to have a name
+     * @param clusterName
+     * @param instanceName
+     * @param type
+     * @param zkAddr
+     * @param stateListener
+     * @return a HelixManager backed by Zookeeper
+     */
+    public static HelixManager getZKHelixManager(String clusterName, String instanceName,
+            InstanceType type, String zkAddr, HelixManagerStateListener stateListener) {
+        return new ZKHelixManager(clusterName, instanceName, type, zkAddr, stateListener);
+    }
 
 }

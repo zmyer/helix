@@ -19,107 +19,106 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
-import java.util.List;
-
 import org.I0Itec.zkclient.exception.ZkInterruptedException;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixTimerTask;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.controller.GenericHelixController;
 import org.apache.helix.messaging.DefaultMessagingService;
-import org.apache.helix.messaging.handling.MessageHandlerFactory;
 import org.apache.helix.messaging.handling.MultiTypeMessageHandlerFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.List;
 
 /**
  * helper class for controller manager
  */
 public class ControllerManagerHelper {
-  private static Logger LOG = LoggerFactory.getLogger(ControllerManagerHelper.class);
+    private static Logger LOG = LoggerFactory.getLogger(ControllerManagerHelper.class);
 
-  final HelixManager _manager;
-  final DefaultMessagingService _messagingService;
-  final List<HelixTimerTask> _controllerTimerTasks;
+    final HelixManager _manager;
+    final DefaultMessagingService _messagingService;
+    final List<HelixTimerTask> _controllerTimerTasks;
 
-  public ControllerManagerHelper(HelixManager manager, List<HelixTimerTask> controllerTimerTasks) {
-    _manager = manager;
-    _messagingService = (DefaultMessagingService) manager.getMessagingService();
-    _controllerTimerTasks = controllerTimerTasks;
-  }
-
-  public void addListenersToController(GenericHelixController controller) {
-    try {
-      /**
-       * setup controller message listener and register message handlers
-       */
-      _manager.addControllerMessageListener(_messagingService.getExecutor());
-      MultiTypeMessageHandlerFactory defaultControllerMsgHandlerFactory =
-          new DefaultControllerMessageHandlerFactory();
-      for (String type : defaultControllerMsgHandlerFactory.getMessageTypes()) {
-        _messagingService.getExecutor()
-            .registerMessageHandlerFactory(type, defaultControllerMsgHandlerFactory);
-      }
-
-      MultiTypeMessageHandlerFactory defaultSchedulerMsgHandlerFactory =
-          new DefaultSchedulerMessageHandlerFactory(_manager);
-      for (String type : defaultSchedulerMsgHandlerFactory.getMessageTypes()) {
-        _messagingService.getExecutor()
-            .registerMessageHandlerFactory(type, defaultSchedulerMsgHandlerFactory);
-      }
-
-      MultiTypeMessageHandlerFactory defaultParticipantErrorMessageHandlerFactory =
-          new DefaultParticipantErrorMessageHandlerFactory(_manager);
-
-      for (String type : defaultParticipantErrorMessageHandlerFactory.getMessageTypes()) {
-        _messagingService.getExecutor()
-            .registerMessageHandlerFactory(type, defaultParticipantErrorMessageHandlerFactory);
-      }
-
-      /**
-       * setup generic-controller
-       */
-      _manager.addInstanceConfigChangeListener(controller);
-      _manager.addResourceConfigChangeListener(controller);
-      _manager.addClusterfigChangeListener(controller);
-      _manager.addLiveInstanceChangeListener(controller);
-      _manager.addIdealStateChangeListener(controller);
-      _manager.addControllerListener(controller);
-    } catch (ZkInterruptedException e) {
-      LOG.warn("zk connection is interrupted during HelixManagerMain.addListenersToController(). "
-          + e);
-    } catch (Exception e) {
-      LOG.error("Error when creating HelixManagerContollerMonitor", e);
+    public ControllerManagerHelper(HelixManager manager, List<HelixTimerTask> controllerTimerTasks) {
+        _manager = manager;
+        _messagingService = (DefaultMessagingService) manager.getMessagingService();
+        _controllerTimerTasks = controllerTimerTasks;
     }
-  }
 
-  public void removeListenersFromController(GenericHelixController controller) {
-    PropertyKey.Builder keyBuilder = new PropertyKey.Builder(_manager.getClusterName());
-    /**
-     * reset generic-controller
-     */
-    _manager.removeListener(keyBuilder.instanceConfigs(), controller);
-    _manager.removeListener(keyBuilder.resourceConfigs(), controller);
-    _manager.removeListener(keyBuilder.liveInstances(), controller);
-    _manager.removeListener(keyBuilder.idealStates(), controller);
-    _manager.removeListener(keyBuilder.controller(), controller);
+    public void addListenersToController(GenericHelixController controller) {
+        try {
+            /**
+             * setup controller message listener and register message handlers
+             */
+            _manager.addControllerMessageListener(_messagingService.getExecutor());
+            MultiTypeMessageHandlerFactory defaultControllerMsgHandlerFactory =
+                    new DefaultControllerMessageHandlerFactory();
+            for (String type : defaultControllerMsgHandlerFactory.getMessageTypes()) {
+                _messagingService.getExecutor()
+                        .registerMessageHandlerFactory(type, defaultControllerMsgHandlerFactory);
+            }
 
-    /**
-     * reset controller message listener and unregister all message handlers
-     */
-    _manager.removeListener(keyBuilder.controllerMessages(), _messagingService.getExecutor());
-  }
+            MultiTypeMessageHandlerFactory defaultSchedulerMsgHandlerFactory =
+                    new DefaultSchedulerMessageHandlerFactory(_manager);
+            for (String type : defaultSchedulerMsgHandlerFactory.getMessageTypes()) {
+                _messagingService.getExecutor()
+                        .registerMessageHandlerFactory(type, defaultSchedulerMsgHandlerFactory);
+            }
 
-  public void startControllerTimerTasks() {
-    for (HelixTimerTask task : _controllerTimerTasks) {
-      task.start();
+            MultiTypeMessageHandlerFactory defaultParticipantErrorMessageHandlerFactory =
+                    new DefaultParticipantErrorMessageHandlerFactory(_manager);
+
+            for (String type : defaultParticipantErrorMessageHandlerFactory.getMessageTypes()) {
+                _messagingService.getExecutor()
+                        .registerMessageHandlerFactory(type, defaultParticipantErrorMessageHandlerFactory);
+            }
+
+            /**
+             * setup generic-controller
+             */
+            _manager.addInstanceConfigChangeListener(controller);
+            _manager.addResourceConfigChangeListener(controller);
+            _manager.addClusterfigChangeListener(controller);
+            _manager.addLiveInstanceChangeListener(controller);
+            _manager.addIdealStateChangeListener(controller);
+            _manager.addControllerListener(controller);
+        } catch (ZkInterruptedException e) {
+            LOG.warn("zk connection is interrupted during HelixManagerMain.addListenersToController(). "
+                    + e);
+        } catch (Exception e) {
+            LOG.error("Error when creating HelixManagerContollerMonitor", e);
+        }
     }
-  }
 
-  public void stopControllerTimerTasks() {
-    for (HelixTimerTask task : _controllerTimerTasks) {
-      task.stop();
+    public void removeListenersFromController(GenericHelixController controller) {
+        PropertyKey.Builder keyBuilder = new PropertyKey.Builder(_manager.getClusterName());
+        /**
+         * reset generic-controller
+         */
+        _manager.removeListener(keyBuilder.instanceConfigs(), controller);
+        _manager.removeListener(keyBuilder.resourceConfigs(), controller);
+        _manager.removeListener(keyBuilder.liveInstances(), controller);
+        _manager.removeListener(keyBuilder.idealStates(), controller);
+        _manager.removeListener(keyBuilder.controller(), controller);
+
+        /**
+         * reset controller message listener and unregister all message handlers
+         */
+        _manager.removeListener(keyBuilder.controllerMessages(), _messagingService.getExecutor());
     }
-  }
+
+    public void startControllerTimerTasks() {
+        for (HelixTimerTask task : _controllerTimerTasks) {
+            task.start();
+        }
+    }
+
+    public void stopControllerTimerTasks() {
+        for (HelixTimerTask task : _controllerTimerTasks) {
+            task.stop();
+        }
+    }
 
 }

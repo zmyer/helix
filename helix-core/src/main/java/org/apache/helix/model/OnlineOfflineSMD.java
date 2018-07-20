@@ -19,109 +19,111 @@ package org.apache.helix.model;
  * under the License.
  */
 
+import org.apache.helix.HelixDefinedState;
+import org.apache.helix.ZNRecord;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.helix.HelixDefinedState;
-import org.apache.helix.ZNRecord;
-
 /**
  * Helix built-in Online-offline state model definition
  */
+// TODO: 2018/6/15 by zmyer
 public final class OnlineOfflineSMD extends StateModelDefinition {
-  public static final String name = "OnlineOffline";
-  public enum States {
-    ONLINE,
-    OFFLINE
-  }
+    public static final String name = "OnlineOffline";
 
-  public OnlineOfflineSMD() {
-    super(generateConfigForOnlineOffline());
-  }
-
-  /**
-   * Build OnlineOffline state model definition
-   * @return
-   */
-  public static StateModelDefinition build() {
-    StateModelDefinition.Builder builder =new StateModelDefinition.Builder(name);
-    // init state
-    builder.initialState(States.OFFLINE.name());
-
-    // add states
-    builder.addState(States.ONLINE.name(), 0);
-    builder.addState(States.OFFLINE.name(), 1);
-    for (HelixDefinedState state : HelixDefinedState.values()) {
-      builder.addState(state.name());
+    public enum States {
+        ONLINE,
+        OFFLINE
     }
 
-    // add transitions
-    builder.addTransition(States.ONLINE.name(), States.OFFLINE.name(), 0);
-    builder.addTransition(States.OFFLINE.name(), States.ONLINE.name(), 1);
-    builder.addTransition(States.OFFLINE.name(), HelixDefinedState.DROPPED.name());
-
-    // bounds
-    builder.dynamicUpperBound(States.ONLINE.name(), "R");
-
-    return builder.build();
-  }
-
-  /**
-   * Generate OnlineOffline state model definition
-   * Replaced by OnlineOfflineSMD#build()
-   * @return
-   */
-  @Deprecated
-  public static ZNRecord generateConfigForOnlineOffline() {
-    ZNRecord record = new ZNRecord("OnlineOffline");
-    record.setSimpleField(StateModelDefinitionProperty.INITIAL_STATE.toString(), "OFFLINE");
-    List<String> statePriorityList = new ArrayList<String>();
-    statePriorityList.add("ONLINE");
-    statePriorityList.add("OFFLINE");
-    statePriorityList.add("DROPPED");
-    record.setListField(StateModelDefinitionProperty.STATE_PRIORITY_LIST.toString(),
-        statePriorityList);
-    for (String state : statePriorityList) {
-      String key = state + ".meta";
-      Map<String, String> metadata = new HashMap<String, String>();
-      if (state.equals("ONLINE")) {
-        metadata.put("count", "R");
-        record.setMapField(key, metadata);
-      }
-      if (state.equals("OFFLINE")) {
-        metadata.put("count", "-1");
-        record.setMapField(key, metadata);
-      }
-      if (state.equals("DROPPED")) {
-        metadata.put("count", "-1");
-        record.setMapField(key, metadata);
-      }
+    public OnlineOfflineSMD() {
+        super(generateConfigForOnlineOffline());
     }
 
-    for (String state : statePriorityList) {
-      String key = state + ".next";
-      if (state.equals("ONLINE")) {
-        Map<String, String> metadata = new HashMap<String, String>();
-        metadata.put("OFFLINE", "OFFLINE");
-        metadata.put("DROPPED", "OFFLINE");
-        record.setMapField(key, metadata);
-      }
-      if (state.equals("OFFLINE")) {
-        Map<String, String> metadata = new HashMap<String, String>();
-        metadata.put("ONLINE", "ONLINE");
-        metadata.put("DROPPED", "DROPPED");
-        record.setMapField(key, metadata);
-      }
-    }
-    List<String> stateTransitionPriorityList = new ArrayList<String>();
-    stateTransitionPriorityList.add("OFFLINE-ONLINE");
-    stateTransitionPriorityList.add("ONLINE-OFFLINE");
-    stateTransitionPriorityList.add("OFFLINE-DROPPED");
+    /**
+     * Build OnlineOffline state model definition
+     * @return
+     */
+    public static StateModelDefinition build() {
+        StateModelDefinition.Builder builder = new StateModelDefinition.Builder(name);
+        // init state
+        builder.initialState(States.OFFLINE.name());
 
-    record.setListField(StateModelDefinitionProperty.STATE_TRANSITION_PRIORITYLIST.toString(),
-        stateTransitionPriorityList);
-    return record;
-  }
+        // add states
+        builder.addState(States.ONLINE.name(), 0);
+        builder.addState(States.OFFLINE.name(), 1);
+        for (HelixDefinedState state : HelixDefinedState.values()) {
+            builder.addState(state.name());
+        }
+
+        // add transitions
+        builder.addTransition(States.ONLINE.name(), States.OFFLINE.name(), 0);
+        builder.addTransition(States.OFFLINE.name(), States.ONLINE.name(), 1);
+        builder.addTransition(States.OFFLINE.name(), HelixDefinedState.DROPPED.name());
+
+        // bounds
+        builder.dynamicUpperBound(States.ONLINE.name(), "R");
+
+        return builder.build();
+    }
+
+    /**
+     * Generate OnlineOffline state model definition
+     * Replaced by OnlineOfflineSMD#build()
+     * @return
+     */
+    @Deprecated
+    public static ZNRecord generateConfigForOnlineOffline() {
+        ZNRecord record = new ZNRecord("OnlineOffline");
+        record.setSimpleField(StateModelDefinitionProperty.INITIAL_STATE.toString(), "OFFLINE");
+        List<String> statePriorityList = new ArrayList<String>();
+        statePriorityList.add("ONLINE");
+        statePriorityList.add("OFFLINE");
+        statePriorityList.add("DROPPED");
+        record.setListField(StateModelDefinitionProperty.STATE_PRIORITY_LIST.toString(),
+                statePriorityList);
+        for (String state : statePriorityList) {
+            String key = state + ".meta";
+            Map<String, String> metadata = new HashMap<String, String>();
+            if (state.equals("ONLINE")) {
+                metadata.put("count", "R");
+                record.setMapField(key, metadata);
+            }
+            if (state.equals("OFFLINE")) {
+                metadata.put("count", "-1");
+                record.setMapField(key, metadata);
+            }
+            if (state.equals("DROPPED")) {
+                metadata.put("count", "-1");
+                record.setMapField(key, metadata);
+            }
+        }
+
+        for (String state : statePriorityList) {
+            String key = state + ".next";
+            if (state.equals("ONLINE")) {
+                Map<String, String> metadata = new HashMap<String, String>();
+                metadata.put("OFFLINE", "OFFLINE");
+                metadata.put("DROPPED", "OFFLINE");
+                record.setMapField(key, metadata);
+            }
+            if (state.equals("OFFLINE")) {
+                Map<String, String> metadata = new HashMap<String, String>();
+                metadata.put("ONLINE", "ONLINE");
+                metadata.put("DROPPED", "DROPPED");
+                record.setMapField(key, metadata);
+            }
+        }
+        List<String> stateTransitionPriorityList = new ArrayList<String>();
+        stateTransitionPriorityList.add("OFFLINE-ONLINE");
+        stateTransitionPriorityList.add("ONLINE-OFFLINE");
+        stateTransitionPriorityList.add("OFFLINE-DROPPED");
+
+        record.setListField(StateModelDefinitionProperty.STATE_TRANSITION_PRIORITYLIST.toString(),
+                stateTransitionPriorityList);
+        return record;
+    }
 }

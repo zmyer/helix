@@ -19,7 +19,6 @@ package org.apache.helix.participant;
  * under the License.
  */
 
-import org.apache.helix.messaging.handling.MessageHandlerFactory;
 import org.apache.helix.messaging.handling.MultiTypeMessageHandlerFactory;
 import org.apache.helix.participant.statemachine.StateModel;
 import org.apache.helix.participant.statemachine.StateModelFactory;
@@ -28,60 +27,61 @@ import org.apache.helix.participant.statemachine.StateModelFactory;
  * Helix participant manager uses this class to register/remove state model factory
  * State model factory creates state model that handles state transition messages
  */
+// TODO: 2018/6/15 by zmyer
 public interface StateMachineEngine extends MultiTypeMessageHandlerFactory {
-  /**
-   * Register a default state model factory for a state model definition
-   * A state model definition could be, for example:
-   * "MasterSlave", "OnlineOffline", "LeaderStandby", etc.
-   * @param stateModelDef
-   * @param factory
-   * @return
-   */
-  public boolean registerStateModelFactory(String stateModelDef,
-      StateModelFactory<? extends StateModel> factory);
+    /**
+     * Register a default state model factory for a state model definition
+     * A state model definition could be, for example:
+     * "MasterSlave", "OnlineOffline", "LeaderStandby", etc.
+     * @param stateModelDef
+     * @param factory
+     * @return
+     */
+    public boolean registerStateModelFactory(String stateModelDef,
+            StateModelFactory<? extends StateModel> factory);
 
-  /**
-   * Register a state model factory with a name for a state model definition
-   * @param stateModelDef
-   * @param factory
-   * @param factoryName
-   * @return
-   */
-  public boolean registerStateModelFactory(String stateModelDef,
-      StateModelFactory<? extends StateModel> factory, String factoryName);
+    /**
+     * Register a state model factory with a name for a state model definition
+     * @param stateModelDef
+     * @param factory
+     * @param factoryName
+     * @return
+     */
+    public boolean registerStateModelFactory(String stateModelDef,
+            StateModelFactory<? extends StateModel> factory, String factoryName);
 
-  /**
-   * Remove the default state model factory for a state model definition
-   * @param stateModelDef
-   * @param factory
-   * @return
-   */
-  public boolean removeStateModelFactory(String stateModelDef,
-      StateModelFactory<? extends StateModel> factory);
+    /**
+     * Remove the default state model factory for a state model definition
+     * @param stateModelDef
+     * @param factory
+     * @return
+     */
+    public boolean removeStateModelFactory(String stateModelDef,
+            StateModelFactory<? extends StateModel> factory);
 
-  /**
-   * Remove the state model factory with a name for a state model definition
-   * @param stateModelDef
-   * @param factory
-   * @param factoryName
-   * @return
-   */
-  public boolean removeStateModelFactory(String stateModelDef,
-      StateModelFactory<? extends StateModel> factory, String factoryName);
+    /**
+     * Remove the state model factory with a name for a state model definition
+     * @param stateModelDef
+     * @param factory
+     * @param factoryName
+     * @return
+     */
+    public boolean removeStateModelFactory(String stateModelDef,
+            StateModelFactory<? extends StateModel> factory, String factoryName);
 
-  /**
-   * Get a default state model factory for a state model definition.
-   * @param stateModelName
-   * @return
-   */
-  public StateModelFactory<? extends StateModel> getStateModelFactory(String stateModelName);
+    /**
+     * Get a default state model factory for a state model definition.
+     * @param stateModelName
+     * @return
+     */
+    public StateModelFactory<? extends StateModel> getStateModelFactory(String stateModelName);
 
-  /**
-   * Get a default state model factory for a state model definition.
-   * @param stateModelName
-   * @param factoryName
-   * @return
-   */
-  public StateModelFactory<? extends StateModel> getStateModelFactory(String stateModelName,
-      String factoryName);
+    /**
+     * Get a default state model factory for a state model definition.
+     * @param stateModelName
+     * @param factoryName
+     * @return
+     */
+    public StateModelFactory<? extends StateModel> getStateModelFactory(String stateModelName,
+            String factoryName);
 }

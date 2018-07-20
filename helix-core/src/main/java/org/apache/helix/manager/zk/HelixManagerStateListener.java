@@ -22,22 +22,23 @@ package org.apache.helix.manager.zk;
 import org.apache.helix.HelixManager;
 
 
+// TODO: 2018/6/4 by zmyer
 public interface HelixManagerStateListener {
 
-  /**
-   * Placeholder method for ensure backward compatible.
-   * User will need to implement this method when Helix support async connecting to zookeeper.
-   *
-   * Invoked when the HelixManager connection to zookeeper is established
-   * @param helixManager HelixManager that is successfully connected
-   */
-  void onConnected(HelixManager helixManager) throws Exception;
+    /**
+     * Placeholder method for ensure backward compatible.
+     * User will need to implement this method when Helix support async connecting to zookeeper.
+     *
+     * Invoked when the HelixManager connection to zookeeper is established
+     * @param helixManager HelixManager that is successfully connected
+     */
+    void onConnected(HelixManager helixManager) throws Exception;
 
-  /**
-   * Invoked when the HelixManager connection to zookeeper is disconnected
-   *
-   * @param helixManager HelixManager that fails to be connected
-   * @param error connection error
-   */
-  void onDisconnected(HelixManager helixManager, Throwable error) throws Exception;
+    /**
+     * Invoked when the HelixManager connection to zookeeper is disconnected
+     *
+     * @param helixManager HelixManager that fails to be connected
+     * @param error connection error
+     */
+    void onDisconnected(HelixManager helixManager, Throwable error) throws Exception;
 }

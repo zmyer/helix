@@ -22,6 +22,7 @@ package org.apache.helix.messaging.handling;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.Message;
 
+// TODO: 2018/6/15 by zmyer
 @Deprecated
 public interface MessageHandlerFactory {
   MessageHandler createHandler(Message message, NotificationContext context);

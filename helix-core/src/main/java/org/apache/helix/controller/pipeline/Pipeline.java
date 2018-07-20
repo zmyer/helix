@@ -19,65 +19,66 @@ package org.apache.helix.controller.pipeline;
  * under the License.
  */
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.helix.controller.stages.AttributeName;
 import org.apache.helix.controller.stages.ClusterEvent;
 import org.apache.helix.monitoring.mbeans.ClusterStatusMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
+
+// TODO: 2018/6/15 by zmyer
 public class Pipeline {
-  private static final Logger logger = LoggerFactory.getLogger(Pipeline.class.getName());
-  private final String _pipelineType;
-  List<Stage> _stages;
+    private static final Logger logger = LoggerFactory.getLogger(Pipeline.class.getName());
+    private final String _pipelineType;
+    List<Stage> _stages;
 
-  public Pipeline() {
-    this("");
-  }
-
-  public Pipeline(String pipelineType) {
-    _stages = new ArrayList<>();
-    _pipelineType = pipelineType;
-  }
-
-  public void addStage(Stage stage) {
-    _stages.add(stage);
-    StageContext context = null;
-    stage.init(context);
-  }
-
-  public void handle(ClusterEvent event) throws Exception {
-    if (_stages == null) {
-      return;
+    public Pipeline() {
+        this("");
     }
-    for (Stage stage : _stages) {
-      long startTime = System.currentTimeMillis();
 
-      stage.preProcess();
-      stage.process(event);
-      stage.postProcess();
-
-      long endTime = System.currentTimeMillis();
-      long duration = endTime - startTime;
-      logger.info(String
-          .format("END %s for %s pipeline for cluster %s. took: %d ms ", stage.getStageName(),
-              _pipelineType, event.getClusterName(), duration));
-
-      ClusterStatusMonitor clusterStatusMonitor =
-          event.getAttribute(AttributeName.clusterStatusMonitor.name());
-      if (clusterStatusMonitor != null) {
-        clusterStatusMonitor.updateClusterEventDuration(stage.getStageName(), duration);
-      }
+    public Pipeline(String pipelineType) {
+        _stages = new ArrayList<>();
+        _pipelineType = pipelineType;
     }
-  }
 
-  public void finish() {
+    public void addStage(Stage stage) {
+        _stages.add(stage);
+        StageContext context = null;
+        stage.init(context);
+    }
 
-  }
+    public void handle(ClusterEvent event) throws Exception {
+        if (_stages == null) {
+            return;
+        }
+        for (Stage stage : _stages) {
+            long startTime = System.currentTimeMillis();
 
-  public List<Stage> getStages() {
-    return _stages;
-  }
+            stage.preProcess();
+            stage.process(event);
+            stage.postProcess();
+
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+            logger.info(String
+                    .format("END %s for %s pipeline for cluster %s. took: %d ms ", stage.getStageName(),
+                            _pipelineType, event.getClusterName(), duration));
+
+            ClusterStatusMonitor clusterStatusMonitor =
+                    event.getAttribute(AttributeName.clusterStatusMonitor.name());
+            if (clusterStatusMonitor != null) {
+                clusterStatusMonitor.updateClusterEventDuration(stage.getStageName(), duration);
+            }
+        }
+    }
+
+    public void finish() {
+
+    }
+
+    public List<Stage> getStages() {
+        return _stages;
+    }
 }

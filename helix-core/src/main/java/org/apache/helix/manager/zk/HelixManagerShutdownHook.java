@@ -28,19 +28,20 @@ import org.slf4j.LoggerFactory;
  * Working for kill -2/-15
  * NOT working for kill -9
  */
+// TODO: 2018/6/15 by zmyer
 public class HelixManagerShutdownHook extends Thread {
-  private static Logger LOG = LoggerFactory.getLogger(HelixManagerShutdownHook.class);
+    private static Logger LOG = LoggerFactory.getLogger(HelixManagerShutdownHook.class);
 
-  final HelixManager _manager;
+    final HelixManager _manager;
 
-  public HelixManagerShutdownHook(HelixManager manager) {
-    _manager = manager;
-  }
+    public HelixManagerShutdownHook(HelixManager manager) {
+        _manager = manager;
+    }
 
-  @Override
-  public void run() {
-    LOG.info("HelixControllerMainShutdownHook invoked on manager: " + _manager.getClusterName()
-        + ", " + _manager.getInstanceName());
-    _manager.disconnect();
-  }
+    @Override
+    public void run() {
+        LOG.info("HelixControllerMainShutdownHook invoked on manager: " + _manager.getClusterName()
+                + ", " + _manager.getInstanceName());
+        _manager.disconnect();
+    }
 }

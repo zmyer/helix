@@ -18,48 +18,50 @@ package org.apache.helix.controller.pipeline;
  * specific language governing permissions and limitations
  * under the License.
  */
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
 
 import org.apache.helix.controller.stages.ClusterEvent;
 
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+
+// TODO: 2018/6/15 by zmyer
 public class AbstractBaseStage implements Stage {
-  @Override
-  public void init(StageContext context) {
+    @Override
+    public void init(StageContext context) {
 
-  }
-
-  @Override
-  public void preProcess() {
-    // TODO Auto-generated method stub
-
-  }
-
-  @Override
-  public void process(ClusterEvent event) throws Exception {
-
-  }
-
-  @Override
-  public void postProcess() {
-
-  }
-
-  @Override
-  public void release() {
-
-  }
-
-  @Override
-  public String getStageName() {
-    // default stage name will be the class name
-    String className = this.getClass().getSimpleName();
-    return className;
-  }
-
-  public static <T> void asyncExecute(ExecutorService service, Callable<T> task) {
-    if (service != null) {
-      service.submit(task);
     }
-  }
+
+    @Override
+    public void preProcess() {
+        // TODO Auto-generated method stub
+
+    }
+
+    @Override
+    public void process(ClusterEvent event) throws Exception {
+
+    }
+
+    @Override
+    public void postProcess() {
+
+    }
+
+    @Override
+    public void release() {
+
+    }
+
+    @Override
+    public String getStageName() {
+        // default stage name will be the class name
+        String className = this.getClass().getSimpleName();
+        return className;
+    }
+
+    public static <T> void asyncExecute(ExecutorService service, Callable<T> task) {
+        if (service != null) {
+            service.submit(task);
+        }
+    }
 }

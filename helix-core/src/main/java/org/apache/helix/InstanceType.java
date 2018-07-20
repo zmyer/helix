@@ -19,10 +19,10 @@ package org.apache.helix;
  * under the License.
  */
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
 import org.apache.helix.monitoring.mbeans.MonitorDomainNames;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * CONTROLLER: cluster managing component is a controller
@@ -32,43 +32,44 @@ import org.apache.helix.monitoring.mbeans.MonitorDomainNames;
  * special participant that competes for the leader of CONTROLLER_CLUSTER
  * used in cluster controller of distributed mode {@HelixControllerMain}
  */
+// TODO: 2018/6/4 by zmyer
 public enum InstanceType {
-  CONTROLLER(new String[] {
-      MonitorDomainNames.ClusterStatus.name(),
-      MonitorDomainNames.HelixZkClient.name(),
-      MonitorDomainNames.HelixCallback.name()
-  }),
+    CONTROLLER(new String[]{
+            MonitorDomainNames.ClusterStatus.name(),
+            MonitorDomainNames.HelixZkClient.name(),
+            MonitorDomainNames.HelixCallback.name()
+    }),
 
-  PARTICIPANT(new String[] {
-      MonitorDomainNames.CLMParticipantReport.name(),
-      MonitorDomainNames.HelixZkClient.name(),
-      MonitorDomainNames.HelixCallback.name(),
-      MonitorDomainNames.HelixThreadPoolExecutor.name()
-  }),
+    PARTICIPANT(new String[]{
+            MonitorDomainNames.CLMParticipantReport.name(),
+            MonitorDomainNames.HelixZkClient.name(),
+            MonitorDomainNames.HelixCallback.name(),
+            MonitorDomainNames.HelixThreadPoolExecutor.name()
+    }),
 
-  CONTROLLER_PARTICIPANT(new String[] {
-      MonitorDomainNames.ClusterStatus.name(),
-      MonitorDomainNames.HelixZkClient.name(),
-      MonitorDomainNames.HelixCallback.name(),
-      MonitorDomainNames.HelixThreadPoolExecutor.name(),
-      MonitorDomainNames.CLMParticipantReport.name()
-  }),
+    CONTROLLER_PARTICIPANT(new String[]{
+            MonitorDomainNames.ClusterStatus.name(),
+            MonitorDomainNames.HelixZkClient.name(),
+            MonitorDomainNames.HelixCallback.name(),
+            MonitorDomainNames.HelixThreadPoolExecutor.name(),
+            MonitorDomainNames.CLMParticipantReport.name()
+    }),
 
-  SPECTATOR(new String[] {
-      MonitorDomainNames.HelixZkClient.name()
-  }),
+    SPECTATOR(new String[]{
+            MonitorDomainNames.HelixZkClient.name()
+    }),
 
-  ADMINISTRATOR(new String[] {
-      MonitorDomainNames.HelixZkClient.name()
-  });
+    ADMINISTRATOR(new String[]{
+            MonitorDomainNames.HelixZkClient.name()
+    });
 
-  private final String[] _monitorDomains;
+    private final String[] _monitorDomains;
 
-  InstanceType(String[] monitorDomains) {
-    _monitorDomains = monitorDomains;
-  }
+    InstanceType(String[] monitorDomains) {
+        _monitorDomains = monitorDomains;
+    }
 
-  public List<String> getActiveMBeanDomains() {
-    return Arrays.asList(_monitorDomains);
-  }
+    public List<String> getActiveMBeanDomains() {
+        return Arrays.asList(_monitorDomains);
+    }
 }

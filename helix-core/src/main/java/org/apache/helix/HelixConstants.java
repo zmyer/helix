@@ -22,52 +22,53 @@ package org.apache.helix;
 /*
  * Identifying constants of the components in a Helix-managed cluster
  */
+// TODO: 2018/6/4 by zmyer
 public interface HelixConstants {
-  // TODO: ChangeType and PropertyType are duplicated, consider unifying
-  enum ChangeType {
-    // @formatter:off
-    IDEAL_STATE (PropertyType.IDEALSTATES),
-    CONFIG (PropertyType.CONFIGS),
-    INSTANCE_CONFIG (PropertyType.CONFIGS),
-    RESOURCE_CONFIG (PropertyType.CONFIGS),
-    CLUSTER_CONFIG (PropertyType.CONFIGS),
-    LIVE_INSTANCE (PropertyType.LIVEINSTANCES),
-    CURRENT_STATE (PropertyType.CURRENTSTATES),
-    MESSAGE (PropertyType.MESSAGES),
-    EXTERNAL_VIEW (PropertyType.EXTERNALVIEW),
-    TARGET_EXTERNAL_VIEW (PropertyType.TARGETEXTERNALVIEW),
-    CONTROLLER (PropertyType.CONTROLLER),
-    MESSAGES_CONTROLLER (PropertyType.MESSAGES_CONTROLLER),
-    HEALTH (PropertyType.HEALTHREPORT);
-    // @formatter:on
+    // TODO: ChangeType and PropertyType are duplicated, consider unifying
+    enum ChangeType {
+        // @formatter:off
+        IDEAL_STATE(PropertyType.IDEALSTATES),
+        CONFIG(PropertyType.CONFIGS),
+        INSTANCE_CONFIG(PropertyType.CONFIGS),
+        RESOURCE_CONFIG(PropertyType.CONFIGS),
+        CLUSTER_CONFIG(PropertyType.CONFIGS),
+        LIVE_INSTANCE(PropertyType.LIVEINSTANCES),
+        CURRENT_STATE(PropertyType.CURRENTSTATES),
+        MESSAGE(PropertyType.MESSAGES),
+        EXTERNAL_VIEW(PropertyType.EXTERNALVIEW),
+        TARGET_EXTERNAL_VIEW(PropertyType.TARGETEXTERNALVIEW),
+        CONTROLLER(PropertyType.CONTROLLER),
+        MESSAGES_CONTROLLER(PropertyType.MESSAGES_CONTROLLER),
+        HEALTH(PropertyType.HEALTHREPORT);
+        // @formatter:on
 
-    private final PropertyType _propertyType;
+        private final PropertyType _propertyType;
 
-    ChangeType(PropertyType propertyType) {
-      _propertyType = propertyType;
+        ChangeType(PropertyType propertyType) {
+            _propertyType = propertyType;
+        }
+
+        public PropertyType getPropertyType() {
+            return _propertyType;
+        }
     }
 
-    public PropertyType getPropertyType() {
-      return _propertyType;
+    /**
+     * Use IdealState.PreferentListToken instead.
+     */
+    @Deprecated
+    enum StateModelToken {
+        ANY_LIVEINSTANCE
     }
-  }
 
-  /**
-   * Use IdealState.PreferentListToken instead.
-   */
-  @Deprecated
-  enum StateModelToken {
-    ANY_LIVEINSTANCE
-  }
+    /**
+     * Please use ClusterConfig instead
+     */
+    @Deprecated
+    enum ClusterConfigType {
+        HELIX_DISABLE_PIPELINE_TRIGGERS,
+        PERSIST_BEST_POSSIBLE_ASSIGNMENT
+    }
 
-  /**
-   * Please use ClusterConfig instead
-   */
-  @Deprecated
-  enum ClusterConfigType {
-    HELIX_DISABLE_PIPELINE_TRIGGERS,
-    PERSIST_BEST_POSSIBLE_ASSIGNMENT
-  }
-
-  String DEFAULT_STATE_MODEL_FACTORY = "DEFAULT";
+    String DEFAULT_STATE_MODEL_FACTORY = "DEFAULT";
 }

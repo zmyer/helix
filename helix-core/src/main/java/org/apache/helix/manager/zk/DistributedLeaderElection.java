@@ -19,16 +19,13 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
-import java.lang.management.ManagementFactory;
-import java.util.List;
-
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixTimerTask;
 import org.apache.helix.InstanceType;
 import org.apache.helix.NotificationContext;
-import org.apache.helix.PropertyType;
 import org.apache.helix.PropertyKey.Builder;
+import org.apache.helix.PropertyType;
 import org.apache.helix.api.listeners.ControllerChangeListener;
 import org.apache.helix.controller.GenericHelixController;
 import org.apache.helix.model.LeaderHistory;
@@ -36,128 +33,131 @@ import org.apache.helix.model.LiveInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.management.ManagementFactory;
+import java.util.List;
+
 
 /**
  * do distributed leader election
  */
 public class DistributedLeaderElection implements ControllerChangeListener {
-  private static Logger LOG = LoggerFactory.getLogger(DistributedLeaderElection.class);
+    private static Logger LOG = LoggerFactory.getLogger(DistributedLeaderElection.class);
 
-  final HelixManager _manager;
-  final GenericHelixController _controller;
-  final List<HelixTimerTask> _controllerTimerTasks;
+    final HelixManager _manager;
+    final GenericHelixController _controller;
+    final List<HelixTimerTask> _controllerTimerTasks;
 
-  public DistributedLeaderElection(HelixManager manager, GenericHelixController controller,
-      List<HelixTimerTask> controllerTimerTasks) {
-    _manager = manager;
-    _controller = controller;
-    _controllerTimerTasks = controllerTimerTasks;
-  }
-
-  /**
-   * may be accessed by multiple threads: zk-client thread and
-   * ZkHelixManager.disconnect()->reset() TODO: Refactor accessing
-   * HelixMangerMain class statically
-   */
-  @Override
-  public synchronized void onControllerChange(NotificationContext changeContext) {
-    HelixManager manager = changeContext.getManager();
-    if (manager == null) {
-      LOG.error("missing attributes in changeContext. requires HelixManager");
-      return;
+    public DistributedLeaderElection(HelixManager manager, GenericHelixController controller,
+            List<HelixTimerTask> controllerTimerTasks) {
+        _manager = manager;
+        _controller = controller;
+        _controllerTimerTasks = controllerTimerTasks;
     }
 
-    InstanceType type = manager.getInstanceType();
-    if (type != InstanceType.CONTROLLER && type != InstanceType.CONTROLLER_PARTICIPANT) {
-      LOG.error("fail to become controller because incorrect instanceType (was " + type.toString()
-          + ", requires CONTROLLER | CONTROLLER_PARTICIPANT)");
-      return;
+    /**
+     * may be accessed by multiple threads: zk-client thread and
+     * ZkHelixManager.disconnect()->reset() TODO: Refactor accessing
+     * HelixMangerMain class statically
+     */
+    @Override
+    public synchronized void onControllerChange(NotificationContext changeContext) {
+        HelixManager manager = changeContext.getManager();
+        if (manager == null) {
+            LOG.error("missing attributes in changeContext. requires HelixManager");
+            return;
+        }
+
+        InstanceType type = manager.getInstanceType();
+        if (type != InstanceType.CONTROLLER && type != InstanceType.CONTROLLER_PARTICIPANT) {
+            LOG.error("fail to become controller because incorrect instanceType (was " + type.toString()
+                    + ", requires CONTROLLER | CONTROLLER_PARTICIPANT)");
+            return;
+        }
+
+        ControllerManagerHelper controllerHelper =
+                new ControllerManagerHelper(_manager, _controllerTimerTasks);
+        try {
+            if (changeContext.getType().equals(NotificationContext.Type.INIT)
+                    || changeContext.getType().equals(NotificationContext.Type.CALLBACK)) {
+                LOG.info(_manager.getInstanceName() + " is trying to acquire leadership for cluster: "
+                        + _manager.getClusterName());
+                HelixDataAccessor accessor = manager.getHelixDataAccessor();
+                Builder keyBuilder = accessor.keyBuilder();
+
+                while (accessor.getProperty(keyBuilder.controllerLeader()) == null) {
+                    boolean success = tryUpdateController(manager);
+                    if (success) {
+                        LOG.info(_manager.getInstanceName() + " acquired leadership for cluster: "
+                                + _manager.getClusterName());
+
+                        updateHistory(manager);
+                        _manager.getHelixDataAccessor().getBaseDataAccessor().reset();
+                        controllerHelper.addListenersToController(_controller);
+                        controllerHelper.startControllerTimerTasks();
+                    }
+                }
+            } else if (changeContext.getType().equals(NotificationContext.Type.FINALIZE)) {
+                LOG.info(_manager.getInstanceName() + " relinquish leadership for cluster: "
+                        + _manager.getClusterName());
+                controllerHelper.stopControllerTimerTasks();
+                controllerHelper.removeListenersFromController(_controller);
+
+                /**
+                 * clear write-through cache
+                 */
+                _manager.getHelixDataAccessor().getBaseDataAccessor().reset();
+            }
+
+        } catch (Exception e) {
+            LOG.error("Exception when trying to become leader", e);
+        }
     }
 
-    ControllerManagerHelper controllerHelper =
-        new ControllerManagerHelper(_manager, _controllerTimerTasks);
-    try {
-      if (changeContext.getType().equals(NotificationContext.Type.INIT)
-          || changeContext.getType().equals(NotificationContext.Type.CALLBACK)) {
-        LOG.info(_manager.getInstanceName() + " is trying to acquire leadership for cluster: "
-            + _manager.getClusterName());
+    private boolean tryUpdateController(HelixManager manager) {
         HelixDataAccessor accessor = manager.getHelixDataAccessor();
         Builder keyBuilder = accessor.keyBuilder();
 
-        while (accessor.getProperty(keyBuilder.controllerLeader()) == null) {
-          boolean success = tryUpdateController(manager);
-          if (success) {
-            LOG.info(_manager.getInstanceName() + " acquired leadership for cluster: "
-                + _manager.getClusterName());
-
-            updateHistory(manager);
-            _manager.getHelixDataAccessor().getBaseDataAccessor().reset();
-            controllerHelper.addListenersToController(_controller);
-            controllerHelper.startControllerTimerTasks();
-          }
+        LiveInstance leader = new LiveInstance(manager.getInstanceName());
+        try {
+            leader.setLiveInstance(ManagementFactory.getRuntimeMXBean().getName());
+            leader.setSessionId(manager.getSessionId());
+            leader.setHelixVersion(manager.getVersion());
+            boolean success = accessor.createControllerLeader(leader);
+            if (success) {
+                return true;
+            } else {
+                LOG.info("Unable to become leader probably because some other controller becames the leader");
+            }
+        } catch (Exception e) {
+            LOG.error(
+                    "Exception when trying to updating leader record in cluster:" + manager.getClusterName()
+                            + ". Need to check again whether leader node has been created or not", e);
         }
-      } else if (changeContext.getType().equals(NotificationContext.Type.FINALIZE)) {
-        LOG.info(_manager.getInstanceName() + " relinquish leadership for cluster: "
-            + _manager.getClusterName());
-        controllerHelper.stopControllerTimerTasks();
-        controllerHelper.removeListenersFromController(_controller);
 
-        /**
-         * clear write-through cache
-         */
-        _manager.getHelixDataAccessor().getBaseDataAccessor().reset();
-      }
+        leader = accessor.getProperty(keyBuilder.controllerLeader());
+        if (leader != null) {
+            String leaderSessionId = leader.getSessionId();
+            LOG.info("Leader exists for cluster: " + manager.getClusterName() + ", currentLeader: "
+                    + leader.getInstanceName() + ", leaderSessionId: " + leaderSessionId);
 
-    } catch (Exception e) {
-      LOG.error("Exception when trying to become leader", e);
-    }
-  }
-
-  private boolean tryUpdateController(HelixManager manager) {
-    HelixDataAccessor accessor = manager.getHelixDataAccessor();
-    Builder keyBuilder = accessor.keyBuilder();
-
-    LiveInstance leader = new LiveInstance(manager.getInstanceName());
-    try {
-      leader.setLiveInstance(ManagementFactory.getRuntimeMXBean().getName());
-      leader.setSessionId(manager.getSessionId());
-      leader.setHelixVersion(manager.getVersion());
-      boolean success = accessor.createControllerLeader(leader);
-      if (success) {
-        return true;
-      } else {
-        LOG.info("Unable to become leader probably because some other controller becames the leader");
-      }
-    } catch (Exception e) {
-      LOG.error(
-          "Exception when trying to updating leader record in cluster:" + manager.getClusterName()
-              + ". Need to check again whether leader node has been created or not", e);
+            if (leaderSessionId != null && leaderSessionId.equals(manager.getSessionId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    leader = accessor.getProperty(keyBuilder.controllerLeader());
-    if (leader != null) {
-      String leaderSessionId = leader.getSessionId();
-      LOG.info("Leader exists for cluster: " + manager.getClusterName() + ", currentLeader: "
-          + leader.getInstanceName() + ", leaderSessionId: " + leaderSessionId);
+    private void updateHistory(HelixManager manager) {
+        HelixDataAccessor accessor = manager.getHelixDataAccessor();
+        Builder keyBuilder = accessor.keyBuilder();
 
-      if (leaderSessionId != null && leaderSessionId.equals(manager.getSessionId())) {
-        return true;
-      }
+        LeaderHistory history = accessor.getProperty(keyBuilder.controllerLeaderHistory());
+        if (history == null) {
+            history = new LeaderHistory(PropertyType.HISTORY.toString());
+        }
+        history.updateHistory(manager.getClusterName(), manager.getInstanceName(), manager.getVersion());
+        if (!accessor.setProperty(keyBuilder.controllerLeaderHistory(), history)) {
+            LOG.error("Failed to persist leader history to ZK!");
+        }
     }
-    return false;
-  }
-
-  private void updateHistory(HelixManager manager) {
-    HelixDataAccessor accessor = manager.getHelixDataAccessor();
-    Builder keyBuilder = accessor.keyBuilder();
-
-    LeaderHistory history = accessor.getProperty(keyBuilder.controllerLeaderHistory());
-    if (history == null) {
-      history = new LeaderHistory(PropertyType.HISTORY.toString());
-    }
-    history.updateHistory(manager.getClusterName(), manager.getInstanceName(), manager.getVersion());
-    if(!accessor.setProperty(keyBuilder.controllerLeaderHistory(), history)) {
-      LOG.error("Failed to persist leader history to ZK!");
-    }
-  }
 }

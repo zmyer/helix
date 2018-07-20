@@ -19,114 +19,115 @@ package org.apache.helix.model;
  * under the License.
  */
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.manager.zk.DefaultSchedulerMessageHandlerFactory;
 import org.apache.helix.model.builder.StateTransitionTableBuilder;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
  * Helix built-in SchedulerTaskQueue state model definition
  */
+// TODO: 2018/6/15 by zmyer
 public final class ScheduledTaskSMD extends StateModelDefinition {
-  public static final String name = DefaultSchedulerMessageHandlerFactory.SCHEDULER_TASK_QUEUE;
+    public static final String name = DefaultSchedulerMessageHandlerFactory.SCHEDULER_TASK_QUEUE;
 
-  public enum States {
-    COMPLETED,
-    OFFLINE
-  }
-
-  public ScheduledTaskSMD() {
-    super(generateConfigForScheduledTaskQueue());
-  }
-
-  /**
-   * Build SchedulerTaskQueue state model definition
-   * @return
-   */
-  public static StateModelDefinition build() {
-    StateModelDefinition.Builder builder =new StateModelDefinition.Builder(name);
-    // init state
-    builder.initialState(States.OFFLINE.name());
-
-    // add states
-    builder.addState(States.COMPLETED.name(), 0);
-    builder.addState(States.OFFLINE.name(), 1);
-    for (HelixDefinedState state : HelixDefinedState.values()) {
-      builder.addState(state.name());
+    public enum States {
+        COMPLETED,
+        OFFLINE
     }
 
-    // add transitions
-    builder.addTransition(States.COMPLETED.name(), States.OFFLINE.name(), 0);
-    builder.addTransition(States.OFFLINE.name(), States.COMPLETED.name(), 1);
-    builder.addTransition(States.OFFLINE.name(), HelixDefinedState.DROPPED.name());
-
-    // bounds
-    builder.dynamicUpperBound(States.COMPLETED.name(), "1");
-
-    return builder.build();
-  }
-
-  /**
-   * Generate SchedulerTaskQueue state model definition
-   * Replaced by SchedulerTaskQueueSMD#build()
-   * @return
-   */
-  @Deprecated
-  public static ZNRecord generateConfigForScheduledTaskQueue() {
-    ZNRecord record = new ZNRecord(DefaultSchedulerMessageHandlerFactory.SCHEDULER_TASK_QUEUE);
-    record.setSimpleField(StateModelDefinitionProperty.INITIAL_STATE.toString(), "OFFLINE");
-    List<String> statePriorityList = new ArrayList<String>();
-    statePriorityList.add("COMPLETED");
-    statePriorityList.add("OFFLINE");
-    statePriorityList.add("DROPPED");
-    record.setListField(StateModelDefinitionProperty.STATE_PRIORITY_LIST.toString(),
-        statePriorityList);
-    for (String state : statePriorityList) {
-      String key = state + ".meta";
-      Map<String, String> metadata = new HashMap<String, String>();
-      if (state.equals("COMPLETED")) {
-        metadata.put("count", "1");
-        record.setMapField(key, metadata);
-      }
-      if (state.equals("OFFLINE")) {
-        metadata.put("count", "-1");
-        record.setMapField(key, metadata);
-      }
-      if (state.equals("DROPPED")) {
-        metadata.put("count", "-1");
-        record.setMapField(key, metadata);
-      }
+    public ScheduledTaskSMD() {
+        super(generateConfigForScheduledTaskQueue());
     }
 
-    List<String> states = new ArrayList<String>();
-    states.add("COMPLETED");
-    states.add("DROPPED");
-    states.add("OFFLINE");
+    /**
+     * Build SchedulerTaskQueue state model definition
+     * @return
+     */
+    public static StateModelDefinition build() {
+        StateModelDefinition.Builder builder = new StateModelDefinition.Builder(name);
+        // init state
+        builder.initialState(States.OFFLINE.name());
 
-    List<Transition> transitions = new ArrayList<Transition>();
-    transitions.add(new Transition("OFFLINE", "COMPLETED"));
-    transitions.add(new Transition("OFFLINE", "DROPPED"));
-    transitions.add(new Transition("COMPLETED", "DROPPED"));
+        // add states
+        builder.addState(States.COMPLETED.name(), 0);
+        builder.addState(States.OFFLINE.name(), 1);
+        for (HelixDefinedState state : HelixDefinedState.values()) {
+            builder.addState(state.name());
+        }
 
-    StateTransitionTableBuilder builder = new StateTransitionTableBuilder();
-    Map<String, Map<String, String>> next = builder.buildTransitionTable(states, transitions);
+        // add transitions
+        builder.addTransition(States.COMPLETED.name(), States.OFFLINE.name(), 0);
+        builder.addTransition(States.OFFLINE.name(), States.COMPLETED.name(), 1);
+        builder.addTransition(States.OFFLINE.name(), HelixDefinedState.DROPPED.name());
 
-    for (String state : statePriorityList) {
-      String key = state + ".next";
-      record.setMapField(key, next.get(state));
+        // bounds
+        builder.dynamicUpperBound(States.COMPLETED.name(), "1");
+
+        return builder.build();
     }
-    List<String> stateTransitionPriorityList = new ArrayList<String>();
-    stateTransitionPriorityList.add("OFFLINE-COMPLETED");
-    stateTransitionPriorityList.add("OFFLINE-DROPPED");
-    stateTransitionPriorityList.add("COMPLETED-DROPPED");
 
-    record.setListField(StateModelDefinitionProperty.STATE_TRANSITION_PRIORITYLIST.toString(),
-        stateTransitionPriorityList);
-    return record;
-  }
+    /**
+     * Generate SchedulerTaskQueue state model definition
+     * Replaced by SchedulerTaskQueueSMD#build()
+     * @return
+     */
+    @Deprecated
+    public static ZNRecord generateConfigForScheduledTaskQueue() {
+        ZNRecord record = new ZNRecord(DefaultSchedulerMessageHandlerFactory.SCHEDULER_TASK_QUEUE);
+        record.setSimpleField(StateModelDefinitionProperty.INITIAL_STATE.toString(), "OFFLINE");
+        List<String> statePriorityList = new ArrayList<String>();
+        statePriorityList.add("COMPLETED");
+        statePriorityList.add("OFFLINE");
+        statePriorityList.add("DROPPED");
+        record.setListField(StateModelDefinitionProperty.STATE_PRIORITY_LIST.toString(),
+                statePriorityList);
+        for (String state : statePriorityList) {
+            String key = state + ".meta";
+            Map<String, String> metadata = new HashMap<String, String>();
+            if (state.equals("COMPLETED")) {
+                metadata.put("count", "1");
+                record.setMapField(key, metadata);
+            }
+            if (state.equals("OFFLINE")) {
+                metadata.put("count", "-1");
+                record.setMapField(key, metadata);
+            }
+            if (state.equals("DROPPED")) {
+                metadata.put("count", "-1");
+                record.setMapField(key, metadata);
+            }
+        }
+
+        List<String> states = new ArrayList<String>();
+        states.add("COMPLETED");
+        states.add("DROPPED");
+        states.add("OFFLINE");
+
+        List<Transition> transitions = new ArrayList<Transition>();
+        transitions.add(new Transition("OFFLINE", "COMPLETED"));
+        transitions.add(new Transition("OFFLINE", "DROPPED"));
+        transitions.add(new Transition("COMPLETED", "DROPPED"));
+
+        StateTransitionTableBuilder builder = new StateTransitionTableBuilder();
+        Map<String, Map<String, String>> next = builder.buildTransitionTable(states, transitions);
+
+        for (String state : statePriorityList) {
+            String key = state + ".next";
+            record.setMapField(key, next.get(state));
+        }
+        List<String> stateTransitionPriorityList = new ArrayList<String>();
+        stateTransitionPriorityList.add("OFFLINE-COMPLETED");
+        stateTransitionPriorityList.add("OFFLINE-DROPPED");
+        stateTransitionPriorityList.add("COMPLETED-DROPPED");
+
+        record.setListField(StateModelDefinitionProperty.STATE_TRANSITION_PRIORITYLIST.toString(),
+                stateTransitionPriorityList);
+        return record;
+    }
 }

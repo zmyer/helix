@@ -35,7 +35,8 @@ package org.apache.helix;
  * then sends initial-state->DROPPED transition
  * @see HELIX-43: add support for dropping partitions in error state
  */
+// TODO: 2018/6/15 by zmyer
 public enum HelixDefinedState {
-  ERROR,
-  DROPPED
+    ERROR,
+    DROPPED
 }

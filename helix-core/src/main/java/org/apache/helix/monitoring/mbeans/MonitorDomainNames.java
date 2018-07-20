@@ -22,10 +22,11 @@ package org.apache.helix.monitoring.mbeans;
 /**
  * This enum defines all of domain names used with various Helix monitor mbeans.
  */
+// TODO: 2018/6/4 by zmyer
 public enum MonitorDomainNames {
-  ClusterStatus,
-  HelixZkClient,
-  HelixThreadPoolExecutor,
-  HelixCallback,
-  CLMParticipantReport
+    ClusterStatus,
+    HelixZkClient,
+    HelixThreadPoolExecutor,
+    HelixCallback,
+    CLMParticipantReport
 }

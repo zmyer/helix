@@ -25,9 +25,9 @@ import org.apache.helix.NotificationContext;
  * Interface to implement to respond to controller changes.
  */
 public interface ControllerChangeListener {
-  /**
-   * Invoked when controller changes
-   * @param changeContext description of the event and state
-   */
-  void onControllerChange(NotificationContext changeContext);
+    /**
+     * Invoked when controller changes
+     * @param changeContext description of the event and state
+     */
+    void onControllerChange(NotificationContext changeContext);
 }

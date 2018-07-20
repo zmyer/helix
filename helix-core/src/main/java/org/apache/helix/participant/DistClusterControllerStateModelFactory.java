@@ -21,17 +21,18 @@ package org.apache.helix.participant;
 
 import org.apache.helix.participant.statemachine.StateModelFactory;
 
+// TODO: 2018/6/15 by zmyer
 public class DistClusterControllerStateModelFactory extends
-    StateModelFactory<DistClusterControllerStateModel> {
-  private final String _zkAddr;
+        StateModelFactory<DistClusterControllerStateModel> {
+    private final String _zkAddr;
 
-  public DistClusterControllerStateModelFactory(String zkAddr) {
-    _zkAddr = zkAddr;
-  }
+    public DistClusterControllerStateModelFactory(String zkAddr) {
+        _zkAddr = zkAddr;
+    }
 
-  @Override
-  public DistClusterControllerStateModel createNewStateModel(String resourceName, String partitionKey) {
-    return new DistClusterControllerStateModel(_zkAddr);
-  }
+    @Override
+    public DistClusterControllerStateModel createNewStateModel(String resourceName, String partitionKey) {
+        return new DistClusterControllerStateModel(_zkAddr);
+    }
 
 }

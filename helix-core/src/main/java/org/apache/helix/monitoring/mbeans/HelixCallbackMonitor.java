@@ -30,76 +30,78 @@ import org.apache.helix.monitoring.mbeans.dynamicMBeans.SimpleDynamicMetric;
 
 import javax.management.JMException;
 import java.util.ArrayList;
-import java.util.concurrent.TimeUnit;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
+// TODO: 2018/6/15 by zmyer
 public class HelixCallbackMonitor extends DynamicMBeanProvider {
-  public static final String MONITOR_TYPE = "Type";
-  public static final String MONITOR_KEY = "Key";
-  public static final String MONITOR_CHANGE_TYPE = "Change";
+    public static final String MONITOR_TYPE = "Type";
+    public static final String MONITOR_KEY = "Key";
+    public static final String MONITOR_CHANGE_TYPE = "Change";
 
-  private static final String MBEAN_DESCRIPTION = "Helix Callback Monitor";
-  private final String _sensorName;
-  private final HelixConstants.ChangeType _changeType;
-  private final InstanceType _type;
-  private final String _clusterName;
-  private final String _instanceName;
+    private static final String MBEAN_DESCRIPTION = "Helix Callback Monitor";
+    private final String _sensorName;
+    private final HelixConstants.ChangeType _changeType;
+    private final InstanceType _type;
+    private final String _clusterName;
+    private final String _instanceName;
 
-  private SimpleDynamicMetric<Long> _counter;
-  private SimpleDynamicMetric<Long> _unbatchedCounter;
-  private SimpleDynamicMetric<Long> _totalLatencyCounter;
+    private SimpleDynamicMetric<Long> _counter;
+    private SimpleDynamicMetric<Long> _unbatchedCounter;
+    private SimpleDynamicMetric<Long> _totalLatencyCounter;
 
-  private HistogramDynamicMetric _latencyGauge;
+    private HistogramDynamicMetric _latencyGauge;
 
-  public HelixCallbackMonitor(InstanceType type, String clusterName, String instanceName,
-      HelixConstants.ChangeType changeType) throws JMException {
-    _changeType = changeType;
-    _type = type;
-    _clusterName = clusterName;
-    _instanceName = instanceName;
+    public HelixCallbackMonitor(InstanceType type, String clusterName, String instanceName,
+            HelixConstants.ChangeType changeType) throws JMException {
+        _changeType = changeType;
+        _type = type;
+        _clusterName = clusterName;
+        _instanceName = instanceName;
 
-    // Don't put instanceName into sensor name. This detail information is in the MBean name already.
-    _sensorName = String
-        .format("%s.%s.%s.%s", MonitorDomainNames.HelixCallback.name(), type.name(), clusterName,
-            changeType.name());
+        // Don't put instanceName into sensor name. This detail information is in the MBean name already.
+        _sensorName = String
+                .format("%s.%s.%s.%s", MonitorDomainNames.HelixCallback.name(), type.name(), clusterName,
+                        changeType.name());
 
-    _latencyGauge = new HistogramDynamicMetric("LatencyGauge", new Histogram(
-        new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
-    _totalLatencyCounter = new SimpleDynamicMetric("LatencyCounter", 0l);
-    _unbatchedCounter = new SimpleDynamicMetric("UnbatchedCounter", 0l);
-    _counter = new SimpleDynamicMetric("Counter", 0l);
-  }
+        _latencyGauge = new HistogramDynamicMetric("LatencyGauge", new Histogram(
+                new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+        _totalLatencyCounter = new SimpleDynamicMetric("LatencyCounter", 0l);
+        _unbatchedCounter = new SimpleDynamicMetric("UnbatchedCounter", 0l);
+        _counter = new SimpleDynamicMetric("Counter", 0l);
+    }
 
-  @Override
-  public String getSensorName() {
-    return _sensorName;
-  }
+    @Override
+    public String getSensorName() {
+        return _sensorName;
+    }
 
-  public HelixConstants.ChangeType getChangeType() {
-    return _changeType;
-  }
+    public HelixConstants.ChangeType getChangeType() {
+        return _changeType;
+    }
 
-  public void increaseCallbackCounters(long time) {
-    _counter.updateValue(_counter.getValue() + 1);
-    _totalLatencyCounter.updateValue(_totalLatencyCounter.getValue() + time);
-    _latencyGauge.updateValue(time);
-  }
+    public void increaseCallbackCounters(long time) {
+        _counter.updateValue(_counter.getValue() + 1);
+        _totalLatencyCounter.updateValue(_totalLatencyCounter.getValue() + time);
+        _latencyGauge.updateValue(time);
+    }
 
-  public void increaseCallbackUnbatchedCounters() {
-    _unbatchedCounter.updateValue(_unbatchedCounter.getValue() + 1);
-  }
+    public void increaseCallbackUnbatchedCounters() {
+        _unbatchedCounter.updateValue(_unbatchedCounter.getValue() + 1);
+    }
 
-  @Override
-  public HelixCallbackMonitor register() throws JMException {
-    List<DynamicMetric<?, ?>> attributeList = new ArrayList<>();
-    attributeList.add(_counter);
-    attributeList.add(_unbatchedCounter);
-    attributeList.add(_totalLatencyCounter);
-    attributeList.add(_latencyGauge);
-    doRegister(attributeList, MBEAN_DESCRIPTION, MonitorDomainNames.HelixCallback.name(),
-        MONITOR_TYPE, _type.name(), MONITOR_KEY,
-        _clusterName + (_instanceName == null ? "" : "." + _instanceName), MONITOR_CHANGE_TYPE,
-        _changeType.name());
-    return this;
-  }
+    // TODO: 2018/6/15 by zmyer
+    @Override
+    public HelixCallbackMonitor register() throws JMException {
+        List<DynamicMetric<?, ?>> attributeList = new ArrayList<>();
+        attributeList.add(_counter);
+        attributeList.add(_unbatchedCounter);
+        attributeList.add(_totalLatencyCounter);
+        attributeList.add(_latencyGauge);
+        doRegister(attributeList, MBEAN_DESCRIPTION, MonitorDomainNames.HelixCallback.name(),
+                MONITOR_TYPE, _type.name(), MONITOR_KEY,
+                _clusterName + (_instanceName == null ? "" : "." + _instanceName), MONITOR_CHANGE_TYPE,
+                _changeType.name());
+        return this;
+    }
 }

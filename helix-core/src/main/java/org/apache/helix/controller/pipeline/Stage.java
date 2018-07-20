@@ -26,37 +26,37 @@ import org.apache.helix.controller.stages.ClusterEvent;
  */
 public interface Stage {
 
-  /**
-   * Initialize a stage
-   * @param context
-   */
-  void init(StageContext context);
+    /**
+     * Initialize a stage
+     * @param context
+     */
+    void init(StageContext context);
 
-  /**
-   * Called before process() on each callback
-   */
-  void preProcess();
+    /**
+     * Called before process() on each callback
+     */
+    void preProcess();
 
-  /**
-   * Actual callback processing logic
-   * @param event
-   * @throws Exception
-   */
-  public void process(ClusterEvent event) throws Exception;
+    /**
+     * Actual callback processing logic
+     * @param event
+     * @throws Exception
+     */
+    public void process(ClusterEvent event) throws Exception;
 
-  /**
-   * Called after process() on each callback
-   */
-  void postProcess();
+    /**
+     * Called after process() on each callback
+     */
+    void postProcess();
 
-  /**
-   * Destruct a stage
-   */
-  void release();
+    /**
+     * Destruct a stage
+     */
+    void release();
 
-  /**
-   * Get the name of the stage
-   * @return
-   */
-  String getStageName();
+    /**
+     * Get the name of the stage
+     * @return
+     */
+    String getStageName();
 }

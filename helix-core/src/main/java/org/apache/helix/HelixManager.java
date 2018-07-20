@@ -68,6 +68,7 @@ import org.apache.helix.api.listeners.ControllerChangeListener;
  * @see RoutingTableProvider RoutingTableProvider for spectator
  * @see GenericHelixController RoutingTableProvider for controller
  */
+// TODO: 2018/6/7 by zmyer
 public interface HelixManager {
   @Deprecated
   String ALLOW_PARTICIPANT_AUTO_JOIN =
