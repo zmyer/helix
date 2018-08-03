@@ -74,6 +74,7 @@ public class ConfigAccessor {
      * Initialize an accessor with a Zookeeper client
      * @param zkClient
      */
+    // TODO: 2018/7/25 by zmyer
     public ConfigAccessor(ZkClient zkClient) {
         this.zkClient = zkClient;
     }
@@ -160,6 +161,7 @@ public class ConfigAccessor {
      * @param keys the identifiers of the configuration entries
      * @return the configuration entries, organized by key
      */
+    // TODO: 2018/7/25 by zmyer
     public Map<String, String> get(HelixConfigScope scope, List<String> keys) {
         if (scope == null || scope.getType() == null || !scope.isFullKey()) {
             LOG.error("fail to get configs. invalid config scope. scope: " + scope + ", keys: " + keys);
@@ -197,6 +199,7 @@ public class ConfigAccessor {
         return map;
     }
 
+    // TODO: 2018/7/25 by zmyer
     private ZNRecord getConfigZnRecord(HelixConfigScope scope) {
         String clusterName = scope.getClusterName();
         if (!ZKUtil.isClusterSetup(clusterName, zkClient)) {

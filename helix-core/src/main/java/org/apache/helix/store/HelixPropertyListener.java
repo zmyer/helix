@@ -19,22 +19,23 @@ package org.apache.helix.store;
  * under the License.
  */
 
+// TODO: 2018/7/27 by zmyer
 public interface HelixPropertyListener {
-  /**
-   * Invoked on data change
-   * @param path
-   */
-  void onDataChange(String path);
+    /**
+     * Invoked on data change
+     * @param path
+     */
+    void onDataChange(String path);
 
-  /**
-   * Invoked on data creation
-   * @param path
-   */
-  void onDataCreate(String path);
+    /**
+     * Invoked on data creation
+     * @param path
+     */
+    void onDataCreate(String path);
 
-  /**
-   * Invoked on data deletion
-   * @param path
-   */
-  void onDataDelete(String path);
+    /**
+     * Invoked on data deletion
+     * @param path
+     */
+    void onDataDelete(String path);
 }

@@ -29,21 +29,22 @@ import org.apache.helix.model.IdealState;
  * This will be invoked on all changes that happen in the cluster.<br/>
  * Simply return the newIdealState for a resource in this method.<br/>
  */
+// TODO: 2018/7/25 by zmyer
 public interface Rebalancer {
-  void init(HelixManager manager);
+    void init(HelixManager manager);
 
-  /**
-   * This method provides all the relevant information needed to rebalance a resource.
-   * If you need additional information use manager.getAccessor to read the cluster data.
-   * This allows one to compute the newIdealState according to app specific requirement.
-   * @param resourceName Name of the resource to be rebalanced
-   * @param currentIdealState
-   * @param currentStateOutput
-   *          Provides the current state and pending state transition for all
-   *          partitions
-   * @param clusterData Provides additional methods to retrieve cluster data.
-   * @return
-   */
-  IdealState computeNewIdealState(String resourceName, IdealState currentIdealState,
-      final CurrentStateOutput currentStateOutput, final ClusterDataCache clusterData);
+    /**
+     * This method provides all the relevant information needed to rebalance a resource.
+     * If you need additional information use manager.getAccessor to read the cluster data.
+     * This allows one to compute the newIdealState according to app specific requirement.
+     * @param resourceName Name of the resource to be rebalanced
+     * @param currentIdealState
+     * @param currentStateOutput
+     *          Provides the current state and pending state transition for all
+     *          partitions
+     * @param clusterData Provides additional methods to retrieve cluster data.
+     * @return
+     */
+    IdealState computeNewIdealState(String resourceName, IdealState currentIdealState,
+            final CurrentStateOutput currentStateOutput, final ClusterDataCache clusterData);
 }

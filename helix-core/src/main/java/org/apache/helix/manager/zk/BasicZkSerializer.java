@@ -25,19 +25,20 @@ import org.I0Itec.zkclient.serialize.ZkSerializer;
  * Basic path based serializer which ignores the path and delegates
  * serialization into a regular {@link ZkSerializer}
  */
+// TODO: 2018/7/25 by zmyer
 public class BasicZkSerializer implements PathBasedZkSerializer {
-  private final ZkSerializer _delegate;
+    private final ZkSerializer _delegate;
 
-  public BasicZkSerializer(ZkSerializer delegate) {
-    _delegate = delegate;
-  }
+    public BasicZkSerializer(ZkSerializer delegate) {
+        _delegate = delegate;
+    }
 
-  public byte[] serialize(Object data, String path) {
-    return _delegate.serialize(data);
-  }
+    public byte[] serialize(Object data, String path) {
+        return _delegate.serialize(data);
+    }
 
-  @Override
-  public Object deserialize(byte[] bytes, String path) {
-    return _delegate.deserialize(bytes);
-  }
+    @Override
+    public Object deserialize(byte[] bytes, String path) {
+        return _delegate.deserialize(bytes);
+    }
 }

@@ -19,6 +19,7 @@ package org.apache.helix.monitoring;
  * under the License.
  */
 
+// TODO: 2018/7/24 by zmyer
 public interface SensorNameProvider {
-  String getSensorName();
+    String getSensorName();
 }

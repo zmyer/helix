@@ -19,15 +19,10 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
+import com.google.common.collect.Maps;
 import org.apache.helix.AccessOption;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
-import org.apache.helix.HelixProperty;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.controller.common.PartitionStateMap;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
@@ -38,92 +33,97 @@ import org.apache.helix.model.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.collect.Maps;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
+// TODO: 2018/7/25 by zmyer
 public class TargetExteralViewCalcStage extends AbstractBaseStage {
-  private static final Logger LOG = LoggerFactory.getLogger(TargetExteralViewCalcStage.class);
+    private static final Logger LOG = LoggerFactory.getLogger(TargetExteralViewCalcStage.class);
 
-  @Override
-  public void process(ClusterEvent event) throws Exception {
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-    ClusterConfig clusterConfig = cache.getClusterConfig();
+    @Override
+    public void process(ClusterEvent event) throws Exception {
+        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+        ClusterConfig clusterConfig = cache.getClusterConfig();
 
-    if (cache.isTaskCache() || !clusterConfig.isTargetExternalViewEnabled()) {
-      return;
-    }
-
-    HelixManager helixManager = event.getAttribute(AttributeName.helixmanager.name());
-    HelixDataAccessor accessor = helixManager.getHelixDataAccessor();
-
-    if (!accessor.getBaseDataAccessor()
-        .exists(accessor.keyBuilder().targetExternalViews().getPath(), AccessOption.PERSISTENT)) {
-      accessor.getBaseDataAccessor()
-          .create(accessor.keyBuilder().targetExternalViews().getPath(), null,
-              AccessOption.PERSISTENT);
-    }
-
-    BestPossibleStateOutput bestPossibleAssignments =
-        event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
-
-    IntermediateStateOutput intermediateAssignments =
-        event.getAttribute(AttributeName.INTERMEDIATE_STATE.name());
-    Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
-
-    List<PropertyKey> keys = new ArrayList<>();
-    List<ExternalView> targetExternalViews = new ArrayList<>();
-
-    for (String resourceName : bestPossibleAssignments.resourceSet()) {
-      if (cache.getIdealState(resourceName) == null || cache.getIdealState(resourceName).isExternalViewDisabled()) {
-        continue;
-      }
-      Resource resource = resourceMap.get(resourceName);
-      if (resource != null) {
-        PartitionStateMap partitionStateMap =
-            intermediateAssignments.getPartitionStateMap(resourceName);
-        Map<String, Map<String, String>> intermediateAssignment = convertToMapFields(
-            partitionStateMap.getStateMap());
-
-        Map<String, List<String>> preferenceLists =
-            bestPossibleAssignments.getPreferenceLists(resourceName);
-
-        boolean needPersist = false;
-        ExternalView targetExternalView = cache.getTargetExternalView(resourceName);
-        if (targetExternalView == null) {
-          targetExternalView = new ExternalView(resourceName);
-          targetExternalView.getRecord()
-              .getSimpleFields()
-              .putAll(cache.getIdealState(resourceName).getRecord().getSimpleFields());
-          needPersist = true;
+        if (cache.isTaskCache() || !clusterConfig.isTargetExternalViewEnabled()) {
+            return;
         }
 
-        if (preferenceLists != null && !targetExternalView.getRecord().getListFields()
-            .equals(preferenceLists)) {
-          targetExternalView.getRecord().setListFields(preferenceLists);
-          needPersist = true;
+        HelixManager helixManager = event.getAttribute(AttributeName.helixmanager.name());
+        HelixDataAccessor accessor = helixManager.getHelixDataAccessor();
+
+        if (!accessor.getBaseDataAccessor()
+                .exists(accessor.keyBuilder().targetExternalViews().getPath(), AccessOption.PERSISTENT)) {
+            accessor.getBaseDataAccessor()
+                    .create(accessor.keyBuilder().targetExternalViews().getPath(), null,
+                            AccessOption.PERSISTENT);
         }
 
-        if (intermediateAssignment != null && !targetExternalView.getRecord().getMapFields()
-            .equals(intermediateAssignment)) {
-          targetExternalView.getRecord().setMapFields(intermediateAssignment);
-          needPersist = true;
-        }
+        BestPossibleStateOutput bestPossibleAssignments =
+                event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
 
-        if (needPersist) {
-          keys.add(accessor.keyBuilder().targetExternalView(resourceName));
-          targetExternalViews.add(targetExternalView);
-          cache.updateTargetExternalView(resourceName, targetExternalView);
+        IntermediateStateOutput intermediateAssignments =
+                event.getAttribute(AttributeName.INTERMEDIATE_STATE.name());
+        Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
+
+        List<PropertyKey> keys = new ArrayList<>();
+        List<ExternalView> targetExternalViews = new ArrayList<>();
+
+        for (String resourceName : bestPossibleAssignments.resourceSet()) {
+            if (cache.getIdealState(resourceName) == null || cache.getIdealState(resourceName)
+                    .isExternalViewDisabled()) {
+                continue;
+            }
+            Resource resource = resourceMap.get(resourceName);
+            if (resource != null) {
+                PartitionStateMap partitionStateMap =
+                        intermediateAssignments.getPartitionStateMap(resourceName);
+                Map<String, Map<String, String>> intermediateAssignment = convertToMapFields(
+                        partitionStateMap.getStateMap());
+
+                Map<String, List<String>> preferenceLists =
+                        bestPossibleAssignments.getPreferenceLists(resourceName);
+
+                boolean needPersist = false;
+                ExternalView targetExternalView = cache.getTargetExternalView(resourceName);
+                if (targetExternalView == null) {
+                    targetExternalView = new ExternalView(resourceName);
+                    targetExternalView.getRecord()
+                            .getSimpleFields()
+                            .putAll(cache.getIdealState(resourceName).getRecord().getSimpleFields());
+                    needPersist = true;
+                }
+
+                if (preferenceLists != null && !targetExternalView.getRecord().getListFields()
+                        .equals(preferenceLists)) {
+                    targetExternalView.getRecord().setListFields(preferenceLists);
+                    needPersist = true;
+                }
+
+                if (intermediateAssignment != null && !targetExternalView.getRecord().getMapFields()
+                        .equals(intermediateAssignment)) {
+                    targetExternalView.getRecord().setMapFields(intermediateAssignment);
+                    needPersist = true;
+                }
+
+                if (needPersist) {
+                    keys.add(accessor.keyBuilder().targetExternalView(resourceName));
+                    targetExternalViews.add(targetExternalView);
+                    cache.updateTargetExternalView(resourceName, targetExternalView);
+                }
+            }
         }
-      }
+        accessor.setChildren(keys, targetExternalViews);
     }
-    accessor.setChildren(keys, targetExternalViews);
-  }
 
-  private Map<String, Map<String, String>> convertToMapFields(
-      Map<Partition, Map<String, String>> partitionMapMap) {
-    Map<String, Map<String, String>> mapFields = Maps.newHashMap();
-    for (Partition p : partitionMapMap.keySet()) {
-      mapFields.put(p.getPartitionName(), new HashMap<>(partitionMapMap.get(p)));
+    private Map<String, Map<String, String>> convertToMapFields(
+            Map<Partition, Map<String, String>> partitionMapMap) {
+        Map<String, Map<String, String>> mapFields = Maps.newHashMap();
+        for (Partition p : partitionMapMap.keySet()) {
+            mapFields.put(p.getPartitionName(), new HashMap<>(partitionMapMap.get(p)));
+        }
+        return mapFields;
     }
-    return mapFields;
-  }
 }

@@ -22,23 +22,24 @@ package org.apache.helix.task;
 /**
  * Enumeration of the states in the "Task" state model.
  */
+// TODO: 2018/7/25 by zmyer
 public enum TaskPartitionState {
-  /** The initial state of the state model. */
-  INIT,
-  /** Indicates that the task is currently running. */
-  RUNNING,
-  /** Indicates that the task was stopped by the controller. */
-  STOPPED,
-  /** Indicates that the task completed normally. */
-  COMPLETED,
-  /** Indicates that the task timed out. */
-  TIMED_OUT,
-  /** Indicates an error occurred during task execution, but the task can be retried. */
-  TASK_ERROR,
-  /** Indicates an error occurred during task execution, and the task should not be retried. */
-  TASK_ABORTED,
-  /** Helix's own internal error state. */
-  ERROR,
-  /** A Helix internal state. */
-  DROPPED
+    /** The initial state of the state model. */
+    INIT,
+    /** Indicates that the task is currently running. */
+    RUNNING,
+    /** Indicates that the task was stopped by the controller. */
+    STOPPED,
+    /** Indicates that the task completed normally. */
+    COMPLETED,
+    /** Indicates that the task timed out. */
+    TIMED_OUT,
+    /** Indicates an error occurred during task execution, but the task can be retried. */
+    TASK_ERROR,
+    /** Indicates an error occurred during task execution, and the task should not be retried. */
+    TASK_ABORTED,
+    /** Helix's own internal error state. */
+    ERROR,
+    /** A Helix internal state. */
+    DROPPED
 }

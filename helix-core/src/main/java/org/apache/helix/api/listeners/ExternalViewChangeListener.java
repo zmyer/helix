@@ -19,21 +19,23 @@ package org.apache.helix.api.listeners;
  * under the License.
  */
 
-import java.util.List;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.ExternalView;
+
+import java.util.List;
 
 /**
  * Interface to implement to be notified of changes to the external view
  */
+// TODO: 2018/7/25 by zmyer
 public interface ExternalViewChangeListener {
 
-  /**
-   * Invoked when external view changes
-   * @param externalViewList a list of ExternalViews
-   * @param changeContext the change event and state
-   */
-  void onExternalViewChange(List<ExternalView> externalViewList,
-      NotificationContext changeContext);
+    /**
+     * Invoked when external view changes
+     * @param externalViewList a list of ExternalViews
+     * @param changeContext the change event and state
+     */
+    void onExternalViewChange(List<ExternalView> externalViewList,
+            NotificationContext changeContext);
 
 }

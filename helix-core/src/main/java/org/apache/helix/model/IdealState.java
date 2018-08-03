@@ -367,6 +367,7 @@ public class IdealState extends HelixProperty {
      * Get all of the partitions
      * @return a set of partition names
      */
+    // TODO: 2018/7/25 by zmyer
     public Set<String> getPartitionSet() {
         if (getRebalanceMode() == RebalanceMode.SEMI_AUTO
                 || getRebalanceMode() == RebalanceMode.FULL_AUTO
@@ -497,6 +498,7 @@ public class IdealState extends HelixProperty {
      * Get the state model associated with this resource
      * @return an identifier of the state model
      */
+    // TODO: 2018/7/25 by zmyer
     public String getStateModelDefRef() {
         return _record.getSimpleField(IdealStateProperty.STATE_MODEL_DEF_REF.toString());
     }

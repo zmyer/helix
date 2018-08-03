@@ -32,17 +32,18 @@ package org.apache.helix.api.rebalancer.constraint.dataprovider;
  * Moreover, while this provider is used together with a {@link org.apache.helix.api.rebalancer.constraint.dataprovider.PartitionWeightProvider PartitionWeightProvider},
  * both providers are supposed to return values in the same unit so they can be used to estimate the resource usage of an proposed assignment.
  */
+// TODO: 2018/7/27 by zmyer
 public interface CapacityProvider {
 
-  /**
-   * @param participant
-   * @return The total participant capacity.
-   */
-  int getParticipantCapacity(String participant);
+    /**
+     * @param participant
+     * @return The total participant capacity.
+     */
+    int getParticipantCapacity(String participant);
 
-  /**
-   * @param participant
-   * @return The participant usage.
-   */
-  int getParticipantUsage(String participant);
+    /**
+     * @param participant
+     * @return The participant usage.
+     */
+    int getParticipantUsage(String participant);
 }

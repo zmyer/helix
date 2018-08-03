@@ -30,66 +30,67 @@ import java.util.Set;
  * Hold the Resource -> partition -> instance -> state mapping for all resources.
  * This is the base class for BestPossibleStateOutput, IdealState
  */
+// TODO: 2018/7/25 by zmyer
 public class ResourcesStateMap {
-  // Map of resource->PartitionStateMap
-  protected Map<String, PartitionStateMap> _resourceStateMap;
+    // Map of resource->PartitionStateMap
+    protected Map<String, PartitionStateMap> _resourceStateMap;
 
-  public ResourcesStateMap() {
-    _resourceStateMap = new HashMap<String, PartitionStateMap>();
-  }
-
-  public Set<String> resourceSet() {
-    return _resourceStateMap.keySet();
-  }
-
-  public void setState(String resourceName, Partition partition,
-      Map<String, String> instanceStateMappingForPartition) {
-    if (!_resourceStateMap.containsKey(resourceName)) {
-      _resourceStateMap.put(resourceName, new PartitionStateMap(resourceName));
+    public ResourcesStateMap() {
+        _resourceStateMap = new HashMap<String, PartitionStateMap>();
     }
-    PartitionStateMap partitionStateMap = _resourceStateMap.get(resourceName);
-    partitionStateMap.setState(partition, instanceStateMappingForPartition);
-  }
 
-  public void setState(String resourceName,
-      Map<Partition, Map<String, String>> instanceStateMappingForResource) {
-    _resourceStateMap
-        .put(resourceName, new PartitionStateMap(resourceName, instanceStateMappingForResource));
-  }
-
-  public void setState(String resourceName, PartitionStateMap partitionStateMapForResource) {
-    _resourceStateMap.put(resourceName, partitionStateMapForResource);
-  }
-
-  public void setState(String resourceName, Partition partition, String instance, String state) {
-    if (!_resourceStateMap.containsKey(resourceName)) {
-      _resourceStateMap.put(resourceName, new PartitionStateMap(resourceName));
+    public Set<String> resourceSet() {
+        return _resourceStateMap.keySet();
     }
-    _resourceStateMap.get(resourceName).setState(partition, instance, state);
-  }
 
-  public Map<String, String> getInstanceStateMap(String resourceName, Partition partition) {
-    PartitionStateMap stateMap = _resourceStateMap.get(resourceName);
-    if (stateMap != null) {
-      return stateMap.getPartitionMap(partition);
+    public void setState(String resourceName, Partition partition,
+            Map<String, String> instanceStateMappingForPartition) {
+        if (!_resourceStateMap.containsKey(resourceName)) {
+            _resourceStateMap.put(resourceName, new PartitionStateMap(resourceName));
+        }
+        PartitionStateMap partitionStateMap = _resourceStateMap.get(resourceName);
+        partitionStateMap.setState(partition, instanceStateMappingForPartition);
     }
-    return Collections.emptyMap();
-  }
 
-  public PartitionStateMap getPartitionStateMap(String resourceName) {
-    PartitionStateMap stateMap = _resourceStateMap.get(resourceName);
-    if (stateMap != null) {
-      return stateMap;
+    public void setState(String resourceName,
+            Map<Partition, Map<String, String>> instanceStateMappingForResource) {
+        _resourceStateMap
+                .put(resourceName, new PartitionStateMap(resourceName, instanceStateMappingForResource));
     }
-    return new PartitionStateMap(resourceName);
-  }
 
-  public Map<String, PartitionStateMap> getResourceStatesMap() {
-    return _resourceStateMap;
-  }
+    public void setState(String resourceName, PartitionStateMap partitionStateMapForResource) {
+        _resourceStateMap.put(resourceName, partitionStateMapForResource);
+    }
 
-  @Override
-  public String toString() {
-    return _resourceStateMap.toString();
-  }
+    public void setState(String resourceName, Partition partition, String instance, String state) {
+        if (!_resourceStateMap.containsKey(resourceName)) {
+            _resourceStateMap.put(resourceName, new PartitionStateMap(resourceName));
+        }
+        _resourceStateMap.get(resourceName).setState(partition, instance, state);
+    }
+
+    public Map<String, String> getInstanceStateMap(String resourceName, Partition partition) {
+        PartitionStateMap stateMap = _resourceStateMap.get(resourceName);
+        if (stateMap != null) {
+            return stateMap.getPartitionMap(partition);
+        }
+        return Collections.emptyMap();
+    }
+
+    public PartitionStateMap getPartitionStateMap(String resourceName) {
+        PartitionStateMap stateMap = _resourceStateMap.get(resourceName);
+        if (stateMap != null) {
+            return stateMap;
+        }
+        return new PartitionStateMap(resourceName);
+    }
+
+    public Map<String, PartitionStateMap> getResourceStatesMap() {
+        return _resourceStateMap;
+    }
+
+    @Override
+    public String toString() {
+        return _resourceStateMap.toString();
+    }
 }

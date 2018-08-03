@@ -35,6 +35,7 @@ public class PipelineRegistry {
         _map = new HashMap<>();
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void register(ClusterEventType eventType, Pipeline... pipelines) {
         if (!_map.containsKey(eventType)) {
             _map.put(eventType, new ArrayList<Pipeline>());
@@ -45,6 +46,7 @@ public class PipelineRegistry {
         }
     }
 
+    // TODO: 2018/7/26 by zmyer
     public List<Pipeline> getPipelinesForEvent(ClusterEventType eventType) {
         if (_map.containsKey(eventType)) {
             return _map.get(eventType);

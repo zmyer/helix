@@ -39,6 +39,7 @@ public class HelixManagerProperties {
      * Initialize properties from a file
      * @param propertyFileName
      */
+    // TODO: 2018/7/25 by zmyer
     public HelixManagerProperties(String propertyFileName) {
         try {
             InputStream stream =

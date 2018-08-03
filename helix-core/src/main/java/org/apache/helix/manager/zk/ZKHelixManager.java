@@ -305,6 +305,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         }
     }
 
+    // TODO: 2018/7/25 by zmyer
     @Override
     public boolean removeListener(PropertyKey key, Object listener) {
         LOG.info("Removing listener: " + listener + " on path: " + key.getPath() + " from cluster: "
@@ -340,6 +341,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
      *
      * @param timeout
      */
+    // TODO: 2018/7/27 by zmyer
     void checkConnected(long timeout) {
         if (_zkclient == null) {
             throw new HelixException(
@@ -362,6 +364,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     void addListener(Object listener, PropertyKey propertyKey, ChangeType changeType,
             EventType[] eventType) {
         checkConnected(_waitForConnectedTimeout);
@@ -380,7 +383,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 }
             }
 
-            CallbackHandler newHandler =
+            final CallbackHandler newHandler =
                     new CallbackHandler(this, _zkclient, propertyKey, listener, eventType, changeType,
                             _callbackMonitors.get(changeType));
 
@@ -390,6 +393,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void addIdealStateChangeListener(final IdealStateChangeListener listener) throws Exception {
         addListener(listener, new Builder(_clusterName).idealStates(), ChangeType.IDEAL_STATE,
@@ -404,6 +408,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 new EventType[]{ EventType.NodeChildrenChanged });
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void addLiveInstanceChangeListener(LiveInstanceChangeListener listener) throws Exception {
         addListener(listener, new Builder(_clusterName).liveInstances(), ChangeType.LIVE_INSTANCE,
@@ -425,6 +430,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 });
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void addInstanceConfigChangeListener(InstanceConfigChangeListener listener)
             throws Exception {
@@ -442,6 +448,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 });
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void addResourceConfigChangeListener(ResourceConfigChangeListener listener) throws Exception {
         addListener(listener, new Builder(_clusterName).resourceConfigs(), ChangeType.RESOURCE_CONFIG,
@@ -449,6 +456,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 });
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void addClusterfigChangeListener(ClusterConfigChangeListener listener) throws Exception {
         addListener(listener, new Builder(_clusterName).clusterConfig(), ChangeType.CLUSTER_CONFIG,
@@ -493,6 +501,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         addConfigChangeListener((ScopedConfigChangeListener) listener, scope);
     }
 
+    // TODO: 2018/7/27 by zmyer
     // TODO: Decide if do we still need this since we are exposing
     // ClusterMessagingService
     @Override
@@ -508,6 +517,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 new EventType[]{ EventType.NodeChildrenChanged });
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void addControllerMessageListener(MessageListener listener) {
         addListener(listener, new Builder(_clusterName).controllerMessages(),
@@ -521,6 +531,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 ChangeType.MESSAGES_CONTROLLER, new EventType[]{ EventType.NodeChildrenChanged });
     }
 
+    // TODO: 2018/7/25 by zmyer
     @Override
     public void addCurrentStateChangeListener(CurrentStateChangeListener listener,
             String instanceName, String sessionId) throws Exception {
@@ -557,6 +568,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 new EventType[]{ EventType.NodeChildrenChanged });
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void addControllerListener(ControllerChangeListener listener) {
         addListener(listener, new Builder(_clusterName).controller(), ChangeType.CONTROLLER,
@@ -595,9 +607,8 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
 
     // TODO: 2018/6/15 by zmyer
     BaseDataAccessor<ZNRecord> createBaseDataAccessor() {
-        ZkBaseDataAccessor<ZNRecord> baseDataAccessor = new ZkBaseDataAccessor<>(_zkclient);
 
-        return baseDataAccessor;
+        return new ZkBaseDataAccessor<>(_zkclient);
     }
 
     /**
@@ -824,6 +835,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         return _helixPropertyStore;
     }
 
+    // TODO: 2018/7/26 by zmyer
     @Override
     public synchronized HelixAdmin getClusterManagmentTool() {
         checkConnected(_waitForConnectedTimeout);
@@ -835,6 +847,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         return null;
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public ClusterMessagingService getMessagingService() {
         // The caller can register message handler factories on messaging service before the
@@ -862,6 +875,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         return _stateMachineEngine;
     }
 
+    // TODO: 2018/7/27 by zmyer
     // TODO: rename this and not expose this function as part of interface
     @Override
     public void startTimerTasks() {
@@ -870,6 +884,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void stopTimerTasks() {
         for (HelixTimerTask task : _timerTasks) {
@@ -887,6 +902,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
      * right after we read session-id. but it's ok to get stale session-id and we will have
      * another handle-new-session callback to correct this.
      */
+    // TODO: 2018/7/25 by zmyer
     void waitUntilConnected() {
         boolean isConnected;
         do {
@@ -899,7 +915,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 continue;
             }
 
-            ZkConnection zkConnection = ((ZkConnection) _zkclient.getConnection());
+            final ZkConnection zkConnection = ((ZkConnection) _zkclient.getConnection());
             _sessionId = Long.toHexString(zkConnection.getZookeeper().getSessionId());
 
             /**
@@ -913,6 +929,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
                 + ((ZkConnection) _zkclient.getConnection()).getZookeeper());
     }
 
+    // TODO: 2018/7/27 by zmyer
     void initHandlers(List<CallbackHandler> handlers) {
         synchronized (this) {
             if (handlers != null) {
@@ -929,7 +946,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
             if (_handlers != null) {
                 // get a copy of the list and iterate over the copy list
                 // in case handler.reset() modify the original handler list
-                List<CallbackHandler> tmpHandlers = new ArrayList<CallbackHandler>();
+                final List<CallbackHandler> tmpHandlers = new ArrayList<CallbackHandler>();
                 tmpHandlers.addAll(_handlers);
 
                 for (CallbackHandler handler : tmpHandlers) {
@@ -959,6 +976,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         return _disconnectTimeHistory.size() > _maxDisconnectThreshold;
     }
 
+    // TODO: 2018/7/24 by zmyer
     @Override
     public void handleStateChanged(KeeperState state) throws Exception {
         switch (state) {
@@ -1003,11 +1021,11 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         }
     }
 
+    // TODO: 2018/7/24 by zmyer
     @Override
     public void handleNewSession() throws Exception {
-        LOG.info(
-                "Handle new session, sessionId: " + _sessionId + ", instance: " + _instanceName + ", type: " +
-                        _instanceType);
+        LOG.info("Handle new session, sessionId: " + _sessionId + ", instance: " + _instanceName + ", type: " +
+                _instanceType);
         waitUntilConnected();
 
         /**
@@ -1061,6 +1079,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         initHandlers(_handlers);
     }
 
+    // TODO: 2018/7/26 by zmyer
     void handleNewSessionAsParticipant() throws Exception {
         if (_participantManager != null) {
             _participantManager.reset();
@@ -1071,6 +1090,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         _participantManager.handleNewSession();
     }
 
+    // TODO: 2018/7/24 by zmyer
     void handleNewSessionAsController() {
         if (_leaderElectionHandler != null) {
             _leaderElectionHandler.init();

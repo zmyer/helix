@@ -26,43 +26,44 @@ import org.I0Itec.zkclient.ZkServer;
 /**
  * Provides ability to start zookeeper locally on a particular port
  */
+// TODO: 2018/7/26 by zmyer
 public class LocalZKServer {
-  public void start(int port, String dataDir, String logDir) throws Exception {
+    public void start(int port, String dataDir, String logDir) throws Exception {
 
-    IDefaultNameSpace defaultNameSpace = new IDefaultNameSpace() {
+        IDefaultNameSpace defaultNameSpace = new IDefaultNameSpace() {
 
-      @Override
-      public void createDefaultNameSpace(ZkClient zkClient) {
+            @Override
+            public void createDefaultNameSpace(ZkClient zkClient) {
 
-      }
-    };
-    ZkServer server = new ZkServer(dataDir, logDir, defaultNameSpace, port);
-    server.start();
-    Thread.currentThread().join();
-  }
-
-  public static void main(String[] args) throws Exception {
-    int port = 2199;
-    String rootDir =
-        System.getProperty("java.io.tmpdir") + "/zk-helix/" + System.currentTimeMillis();
-    String dataDir = rootDir + "/dataDir";
-    String logDir = rootDir + "/logDir";
-
-    if (args.length > 0) {
-      port = Integer.parseInt(args[0]);
-    }
-    if (args.length > 1) {
-      dataDir = args[1];
-      logDir = args[1];
+            }
+        };
+        ZkServer server = new ZkServer(dataDir, logDir, defaultNameSpace, port);
+        server.start();
+        Thread.currentThread().join();
     }
 
-    if (args.length > 2) {
-      logDir = args[2];
-    }
-    System.out.println("Starting Zookeeper locally at port:" + port + " dataDir:" + dataDir
-        + " logDir:" + logDir);
-    LocalZKServer localZKServer = new LocalZKServer();
+    public static void main(String[] args) throws Exception {
+        int port = 2199;
+        String rootDir =
+                System.getProperty("java.io.tmpdir") + "/zk-helix/" + System.currentTimeMillis();
+        String dataDir = rootDir + "/dataDir";
+        String logDir = rootDir + "/logDir";
 
-    localZKServer.start(port, dataDir, logDir);
-  }
+        if (args.length > 0) {
+            port = Integer.parseInt(args[0]);
+        }
+        if (args.length > 1) {
+            dataDir = args[1];
+            logDir = args[1];
+        }
+
+        if (args.length > 2) {
+            logDir = args[2];
+        }
+        System.out.println("Starting Zookeeper locally at port:" + port + " dataDir:" + dataDir
+                + " logDir:" + logDir);
+        LocalZKServer localZKServer = new LocalZKServer();
+
+        localZKServer.start(port, dataDir, logDir);
+    }
 }

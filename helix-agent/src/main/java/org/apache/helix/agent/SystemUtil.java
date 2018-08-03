@@ -19,97 +19,99 @@ package org.apache.helix.agent;
  * under the License.
  */
 
+import org.apache.helix.ExternalCommand;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 
-import org.apache.helix.ExternalCommand;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+// TODO: 2018/7/25 by zmyer
 public class SystemUtil {
-  public static final String OS_NAME = System.getProperty("os.name");
-  private static Logger LOG = LoggerFactory.getLogger(SystemUtil.class);
+    public static final String OS_NAME = System.getProperty("os.name");
+    private static Logger LOG = LoggerFactory.getLogger(SystemUtil.class);
 
-  /**
-   * PROCESS STATE CODES
-   */
-  public static enum ProcessStateCode {
-    // Here are the different values that the s, stat and state output specifiers (header "STAT" or
-    // "S")
-    // will display to describe the state of a process.
-    D("Uninterruptible sleep (usually IO)"),
-    R("Running or runnable (on run queue)"),
-    S("Interruptible sleep (waiting for an event to complete)"),
-    T("Stopped, either by a job control signal or because it is being traced."),
-    W("paging (not valid since the 2.6.xx kernel)"),
-    X("dead (should never be seen)"),
-    Z("Defunct (\"zombie\") process, terminated but not reaped by its parent.");
+    /**
+     * PROCESS STATE CODES
+     */
+    // TODO: 2018/7/25 by zmyer
+    public static enum ProcessStateCode {
+        // Here are the different values that the s, stat and state output specifiers (header "STAT" or
+        // "S")
+        // will display to describe the state of a process.
+        D("Uninterruptible sleep (usually IO)"),
+        R("Running or runnable (on run queue)"),
+        S("Interruptible sleep (waiting for an event to complete)"),
+        T("Stopped, either by a job control signal or because it is being traced."),
+        W("paging (not valid since the 2.6.xx kernel)"),
+        X("dead (should never be seen)"),
+        Z("Defunct (\"zombie\") process, terminated but not reaped by its parent.");
 
-    private final String _description;
+        private final String _description;
 
-    private ProcessStateCode(String description) {
-      _description = description;
-    }
-
-    public String getDescription() {
-      return _description;
-    }
-  }
-
-  public static ProcessStateCode getProcessState(String processId) throws Exception {
-    if (OS_NAME.equals("Mac OS X") || OS_NAME.equals("Linux")) {
-      ExternalCommand cmd = ExternalCommand.start("ps", processId);
-      cmd.waitFor();
-
-      // split by new lines
-      // should return 2 lines for an existing process, or 1 line for a non-existing process
-      String lines[] = cmd.getStringOutput().split("[\\r\\n]+");
-      if (lines.length != 2) {
-        LOG.info("process: " + processId + " not exist");
-        return null;
-      }
-
-      // split by whitespace, 1st line is attributes, 2nd line is actual values
-      // should be parallel arrays
-      String attributes[] = lines[0].trim().split("\\s+");
-      String values[] = lines[1].trim().split("\\s+");
-
-      Character processStateCodeChar = null;
-      for (int i = 0; i < attributes.length; i++) {
-        String attribute = attributes[i];
-        // header "STAT" or "S"
-        if ("STAT".equals(attribute) || "S".equals(attribute)) {
-          // first character should be major process state code
-          processStateCodeChar = values[i].charAt(0);
-          break;
+        private ProcessStateCode(String description) {
+            _description = description;
         }
-      }
 
-      return ProcessStateCode.valueOf(Character.toString(processStateCodeChar));
-    } else {
-      throw new UnsupportedOperationException("Not supported OS: " + OS_NAME);
+        public String getDescription() {
+            return _description;
+        }
     }
-  }
 
-  public static String getPidFromFile(File file) {
-    BufferedReader br = null;
-    try {
-      br = new BufferedReader(new FileReader(file));
-      String line = br.readLine();
-      return line;
-    } catch (IOException e) {
-      LOG.warn("fail to read pid from pidFile: " + file + ". will not monitor");
-    } finally {
-      if (br != null) {
+    // TODO: 2018/7/25 by zmyer
+    public static ProcessStateCode getProcessState(String processId) throws Exception {
+        if (OS_NAME.equals("Mac OS X") || OS_NAME.equals("Linux")) {
+            ExternalCommand cmd = ExternalCommand.start("ps", processId);
+            cmd.waitFor();
+
+            // split by new lines
+            // should return 2 lines for an existing process, or 1 line for a non-existing process
+            String lines[] = cmd.getStringOutput().split("[\\r\\n]+");
+            if (lines.length != 2) {
+                LOG.info("process: " + processId + " not exist");
+                return null;
+            }
+
+            // split by whitespace, 1st line is attributes, 2nd line is actual values
+            // should be parallel arrays
+            String attributes[] = lines[0].trim().split("\\s+");
+            String values[] = lines[1].trim().split("\\s+");
+
+            Character processStateCodeChar = null;
+            for (int i = 0; i < attributes.length; i++) {
+                String attribute = attributes[i];
+                // header "STAT" or "S"
+                if ("STAT".equals(attribute) || "S".equals(attribute)) {
+                    // first character should be major process state code
+                    processStateCodeChar = values[i].charAt(0);
+                    break;
+                }
+            }
+
+            return ProcessStateCode.valueOf(Character.toString(processStateCodeChar));
+        } else {
+            throw new UnsupportedOperationException("Not supported OS: " + OS_NAME);
+        }
+    }
+
+    public static String getPidFromFile(File file) {
+        BufferedReader br = null;
         try {
-          br.close();
+            br = new BufferedReader(new FileReader(file));
+            return br.readLine();
         } catch (IOException e) {
-          LOG.error("fail to close file: " + file, e);
+            LOG.warn("fail to read pid from pidFile: " + file + ". will not monitor");
+        } finally {
+            if (br != null) {
+                try {
+                    br.close();
+                } catch (IOException e) {
+                    LOG.error("fail to close file: " + file, e);
+                }
+            }
         }
-      }
+        return null;
     }
-    return null;
-  }
 }

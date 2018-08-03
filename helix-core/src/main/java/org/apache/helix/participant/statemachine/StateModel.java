@@ -24,88 +24,89 @@ import org.apache.helix.model.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+// TODO: 2018/7/25 by zmyer
 public abstract class StateModel {
-  static final String DEFAULT_INITIAL_STATE = "OFFLINE";
-  protected boolean _cancelled;
-  Logger logger = LoggerFactory.getLogger(StateModel.class);
+    static final String DEFAULT_INITIAL_STATE = "OFFLINE";
+    protected boolean _cancelled;
+    Logger logger = LoggerFactory.getLogger(StateModel.class);
 
-  // TODO Get default state from implementation or from state model annotation
-  // StateModel with initial state other than OFFLINE should override this field
-  protected String _currentState = DEFAULT_INITIAL_STATE;
+    // TODO Get default state from implementation or from state model annotation
+    // StateModel with initial state other than OFFLINE should override this field
+    protected String _currentState = DEFAULT_INITIAL_STATE;
 
-  public String getCurrentState() {
-    return _currentState;
-  }
+    public String getCurrentState() {
+        return _currentState;
+    }
 
-  // @transition(from='from', to='to')
-  public void defaultTransitionHandler() {
-    logger
-        .error("Default default handler. The idea is to invoke this if no transition method is found. Yet to be implemented");
-  }
+    // @transition(from='from', to='to')
+    public void defaultTransitionHandler() {
+        logger.error(
+                "Default default handler. The idea is to invoke this if no transition method is found. Yet to be implemented");
+    }
 
-  public boolean updateState(String newState) {
-    _currentState = newState;
-    return true;
-  }
+    public boolean updateState(String newState) {
+        _currentState = newState;
+        return true;
+    }
 
-  /**
-   * Called when error occurs in state transition
-   * TODO:enforce subclass to write this
-   * @param message
-   * @param context
-   * @param error
-   */
-  public void rollbackOnError(Message message, NotificationContext context,
-      StateTransitionError error) {
+    /**
+     * Called when error occurs in state transition
+     * TODO:enforce subclass to write this
+     * @param message
+     * @param context
+     * @param error
+     */
+    public void rollbackOnError(Message message, NotificationContext context,
+            StateTransitionError error) {
 
-    logger.error("Default rollback method invoked on error. Error Code: " + error.getCode());
+        logger.error("Default rollback method invoked on error. Error Code: " + error.getCode());
 
-  }
+    }
 
-  /**
-   * Called when the state model is reset
-   */
-  public void reset() {
-    logger
-        .warn("Default reset method invoked. Either because the process longer own this resource or session timedout");
-  }
+    /**
+     * Called when the state model is reset
+     */
+    public void reset() {
+        logger.warn(
+                "Default reset method invoked. Either because the process longer own this resource or session timedout");
+    }
 
-  /**
-   * default transition for drop partition in error state
-   * @param message
-   * @param context
-   * @throws InterruptedException
-   */
-  @Transition(to = "DROPPED", from = "ERROR")
-  public void onBecomeDroppedFromError(Message message, NotificationContext context)
-      throws Exception {
-    logger.info("Default ERROR->DROPPED transition invoked.");
-  }
+    /**
+     * default transition for drop partition in error state
+     * @param message
+     * @param context
+     * @throws InterruptedException
+     */
+    @Transition(to = "DROPPED", from = "ERROR")
+    public void onBecomeDroppedFromError(Message message, NotificationContext context)
+            throws Exception {
+        logger.info("Default ERROR->DROPPED transition invoked.");
+    }
 
-  /**
-   * Default implementation for cancelling state transition
-   *
-   * IMPORTANT:
-   *
-   * 1. Be careful with the implementation of this method. There is no
-   * grantee that this method is called before user state transition method invoked.
-   * Please make sure the implemention contains logic for checking state transition already started.
-   * Similar to this situation, when this cancel method has been called. Helix does not grantee the
-   * state transition is still running. The state transition could be completed.
-   *
-   * 2. This cancel method should not throw HelixRollbackException. It is better to trigger the real
-   * state transition to throw HelixRollbackException if user would like to cancel the current
-   * running state transition.
-   */
-  public void cancel() {
-    _cancelled = true;
-  }
+    /**
+     * Default implementation for cancelling state transition
+     *
+     * IMPORTANT:
+     *
+     * 1. Be careful with the implementation of this method. There is no
+     * grantee that this method is called before user state transition method invoked.
+     * Please make sure the implemention contains logic for checking state transition already started.
+     * Similar to this situation, when this cancel method has been called. Helix does not grantee the
+     * state transition is still running. The state transition could be completed.
+     *
+     * 2. This cancel method should not throw HelixRollbackException. It is better to trigger the real
+     * state transition to throw HelixRollbackException if user would like to cancel the current
+     * running state transition.
+     */
+    public void cancel() {
+        _cancelled = true;
+    }
 
-  /**
-   * Default implementation to check whether state transition has been cancelled or not
-   * @return
-   */
-  public boolean isCancelled() {
-    return _cancelled;
-  }
+    /**
+     * Default implementation to check whether state transition has been cancelled or not
+     * @return
+     */
+    public boolean isCancelled() {
+        return _cancelled;
+    }
 }

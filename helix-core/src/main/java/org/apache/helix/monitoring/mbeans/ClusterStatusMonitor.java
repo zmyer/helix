@@ -53,7 +53,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-
+// TODO: 2018/7/24 by zmyer
 public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
     private static final Logger LOG = LoggerFactory.getLogger(ClusterStatusMonitor.class);
 
@@ -108,6 +108,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
 
     private final Map<String, JobMonitor> _perTypeJobMonitorMap = new ConcurrentHashMap<>();
 
+    // TODO: 2018/7/26 by zmyer
     public ClusterStatusMonitor(String clusterName) {
         _clusterName = clusterName;
         _beanServer = ManagementFactory.getPlatformMBeanServer();
@@ -162,6 +163,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         return _rebalanceFailure ? 1 : 0;
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void setRebalanceFailureGauge(boolean isFailure) {
         this._rebalanceFailure = isFailure;
     }
@@ -186,6 +188,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         return sum;
     }
 
+    // TODO: 2018/7/25 by zmyer
     private void register(Object bean, ObjectName name) {
         try {
             if (_beanServer.isRegistered(name)) {
@@ -203,6 +206,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         }
     }
 
+    // TODO: 2018/7/25 by zmyer
     private void unregister(ObjectName name) {
         try {
             if (_beanServer.isRegistered(name)) {
@@ -222,6 +226,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
      * @param disabledPartitions a map of instance name to the set of partitions disabled on it
      * @param tags a map of instance name to the set of tags on it
      */
+    // TODO: 2018/7/25 by zmyer
     public synchronized void setClusterInstanceStatus(Set<String> liveInstanceSet, Set<String> instanceSet,
             Set<String> disabledInstanceSet, Map<String, Map<String, List<String>>> disabledPartitions,
             Map<String, List<String>> oldDisabledPartitions, Map<String, Set<String>> tags) {
@@ -288,6 +293,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
      * @param phase
      * @param duration
      */
+    // TODO: 2018/7/25 by zmyer
     public void updateClusterEventDuration(String phase, long duration) {
         ClusterEventMonitor monitor = getOrCreateClusterEventMonitor(phase);
         if (monitor != null) {
@@ -295,6 +301,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         }
     }
 
+    // TODO: 2018/7/25 by zmyer
     private ClusterEventMonitor getOrCreateClusterEventMonitor(String phase) {
         try {
             if (!_clusterEventMbeanMap.containsKey(phase)) {
@@ -318,6 +325,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
      * Update message count per instance and per resource
      * @param messages a list of messages
      */
+    // TODO: 2018/7/25 by zmyer
     public void increaseMessageReceived(List<Message> messages) {
         Map<String, Long> messageCountPerInstance = new HashMap<>();
         Map<String, Long> messageCountPerResource = new HashMap<>();
@@ -536,6 +544,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         }
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void refreshWorkflowsStatus(TaskDriver driver) {
         for (WorkflowMonitor workflowMonitor : _perTypeWorkflowMonitorMap.values()) {
             workflowMonitor.resetGauges();
@@ -563,6 +572,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         _perTypeWorkflowMonitorMap.get(workflowType).updateWorkflowCounters(to, latency);
     }
 
+    // TODO: 2018/7/25 by zmyer
     private void updateWorkflowGauges(WorkflowConfig workflowConfig, TaskState current) {
         String workflowType = workflowConfig.getWorkflowType();
         workflowType = preProcessWorkflow(workflowType);
@@ -586,6 +596,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         return workflowType;
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void refreshJobsStatus(TaskDriver driver) {
         for (JobMonitor jobMonitor : _perTypeJobMonitorMap.values()) {
             jobMonitor.resetJobGauge();
@@ -643,6 +654,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         return jobType;
     }
 
+    // TODO: 2018/7/25 by zmyer
     private synchronized void registerInstances(Collection<InstanceMonitor> instances)
             throws MalformedObjectNameException {
         for (InstanceMonitor monitor : instances) {
@@ -653,6 +665,7 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         }
     }
 
+    // TODO: 2018/7/25 by zmyer
     private synchronized void unregisterInstances(Collection<String> instances) throws MalformedObjectNameException {
         for (String instanceName : instances) {
             String beanName = getInstanceBeanName(instanceName);

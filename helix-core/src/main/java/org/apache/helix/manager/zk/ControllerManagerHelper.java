@@ -34,6 +34,7 @@ import java.util.List;
 /**
  * helper class for controller manager
  */
+// TODO: 2018/7/27 by zmyer
 public class ControllerManagerHelper {
     private static Logger LOG = LoggerFactory.getLogger(ControllerManagerHelper.class);
 
@@ -47,30 +48,31 @@ public class ControllerManagerHelper {
         _controllerTimerTasks = controllerTimerTasks;
     }
 
-    public void addListenersToController(GenericHelixController controller) {
+    // TODO: 2018/7/27 by zmyer
+    public void addListenersToController(final GenericHelixController controller) {
         try {
             /**
              * setup controller message listener and register message handlers
              */
             _manager.addControllerMessageListener(_messagingService.getExecutor());
-            MultiTypeMessageHandlerFactory defaultControllerMsgHandlerFactory =
+            final MultiTypeMessageHandlerFactory defaultControllerMsgHandlerFactory =
                     new DefaultControllerMessageHandlerFactory();
-            for (String type : defaultControllerMsgHandlerFactory.getMessageTypes()) {
+            for (final String type : defaultControllerMsgHandlerFactory.getMessageTypes()) {
                 _messagingService.getExecutor()
                         .registerMessageHandlerFactory(type, defaultControllerMsgHandlerFactory);
             }
 
-            MultiTypeMessageHandlerFactory defaultSchedulerMsgHandlerFactory =
+            final MultiTypeMessageHandlerFactory defaultSchedulerMsgHandlerFactory =
                     new DefaultSchedulerMessageHandlerFactory(_manager);
-            for (String type : defaultSchedulerMsgHandlerFactory.getMessageTypes()) {
+            for (final String type : defaultSchedulerMsgHandlerFactory.getMessageTypes()) {
                 _messagingService.getExecutor()
                         .registerMessageHandlerFactory(type, defaultSchedulerMsgHandlerFactory);
             }
 
-            MultiTypeMessageHandlerFactory defaultParticipantErrorMessageHandlerFactory =
+            final MultiTypeMessageHandlerFactory defaultParticipantErrorMessageHandlerFactory =
                     new DefaultParticipantErrorMessageHandlerFactory(_manager);
 
-            for (String type : defaultParticipantErrorMessageHandlerFactory.getMessageTypes()) {
+            for (final String type : defaultParticipantErrorMessageHandlerFactory.getMessageTypes()) {
                 _messagingService.getExecutor()
                         .registerMessageHandlerFactory(type, defaultParticipantErrorMessageHandlerFactory);
             }
@@ -92,6 +94,7 @@ public class ControllerManagerHelper {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     public void removeListenersFromController(GenericHelixController controller) {
         PropertyKey.Builder keyBuilder = new PropertyKey.Builder(_manager.getClusterName());
         /**
@@ -109,6 +112,7 @@ public class ControllerManagerHelper {
         _manager.removeListener(keyBuilder.controllerMessages(), _messagingService.getExecutor());
     }
 
+    // TODO: 2018/7/27 by zmyer
     public void startControllerTimerTasks() {
         for (HelixTimerTask task : _controllerTimerTasks) {
             task.start();

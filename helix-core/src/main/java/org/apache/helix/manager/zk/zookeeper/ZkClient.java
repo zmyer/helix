@@ -88,10 +88,12 @@ public class ZkClient implements Watcher {
     private ZkClientMonitor _monitor;
 
 
+    // TODO: 2018/7/27 by zmyer
     private class IZkDataListenerEntry {
         final IZkDataListener _dataListener;
         final boolean _prefetchData;
 
+        // TODO: 2018/7/27 by zmyer
         public IZkDataListenerEntry(IZkDataListener dataListener, boolean prefetchData) {
             _dataListener = dataListener;
             _prefetchData = prefetchData;
@@ -131,6 +133,7 @@ public class ZkClient implements Watcher {
     }
 
 
+    // TODO: 2018/7/26 by zmyer
     protected ZkClient(IZkConnection zkConnection, int connectionTimeout, long operationRetryTimeout,
             PathBasedZkSerializer zkSerializer, String monitorType, String monitorKey,
             String monitorInstanceName, boolean monitorRootPathOnly) {
@@ -157,6 +160,7 @@ public class ZkClient implements Watcher {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     public List<String> subscribeChildChanges(String path, IZkChildListener listener) {
         synchronized (_childListener) {
             Set<IZkChildListener> listeners = _childListener.get(path);
@@ -169,6 +173,7 @@ public class ZkClient implements Watcher {
         return watchForChilds(path);
     }
 
+    // TODO: 2018/7/27 by zmyer
     public void unsubscribeChildChanges(String path, IZkChildListener childListener) {
         synchronized (_childListener) {
             final Set<IZkChildListener> listeners = _childListener.get(path);
@@ -178,6 +183,7 @@ public class ZkClient implements Watcher {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     public void subscribeDataChanges(String path, IZkDataListener listener) {
         Set<IZkDataListenerEntry> listenerEntries;
         synchronized (_dataListener) {
@@ -187,14 +193,13 @@ public class ZkClient implements Watcher {
                 _dataListener.put(path, listenerEntries);
             }
 
-            boolean prefetchEnabled = isPrefetchEnabled(listener);
-            IZkDataListenerEntry listenerEntry = new IZkDataListenerEntry(listener, prefetchEnabled);
+            final boolean prefetchEnabled = isPrefetchEnabled(listener);
+            final IZkDataListenerEntry listenerEntry = new IZkDataListenerEntry(listener, prefetchEnabled);
             listenerEntries.add(listenerEntry);
             if (prefetchEnabled) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug(
-                            "Subscribed data changes for " + path + ", listener: " + listener + ", prefetch data: "
-                                    + prefetchEnabled);
+                    LOG.debug("Subscribed data changes for " + path + ", listener: " + listener + ", prefetch data: "
+                            + prefetchEnabled);
                 }
             }
         }
@@ -227,6 +232,7 @@ public class ZkClient implements Watcher {
         return true;
     }
 
+    // TODO: 2018/7/27 by zmyer
     public void unsubscribeDataChanges(String path, IZkDataListener dataListener) {
         synchronized (_dataListener) {
             final Set<IZkDataListenerEntry> listeners = _dataListener.get(path);
@@ -240,6 +246,7 @@ public class ZkClient implements Watcher {
         }
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void subscribeStateChanges(final IZkStateListener listener) {
         synchronized (_stateListener) {
             _stateListener.add(listener);
@@ -358,6 +365,7 @@ public class ZkClient implements Watcher {
      * @throws RuntimeException
      *             if any other exception occurs
      */
+    // TODO: 2018/7/26 by zmyer
     public void createPersistent(String path, Object data)
             throws ZkInterruptedException, IllegalArgumentException, ZkException, RuntimeException {
         create(path, data, CreateMode.PERSISTENT);
@@ -545,6 +553,7 @@ public class ZkClient implements Watcher {
      * @throws RuntimeException
      *             if any other exception occurs
      */
+    // TODO: 2018/7/27 by zmyer
     public void createEphemeral(final String path, final Object data)
             throws ZkInterruptedException, IllegalArgumentException, ZkException, RuntimeException {
         create(path, data, CreateMode.EPHEMERAL);
@@ -695,6 +704,7 @@ public class ZkClient implements Watcher {
         return getChildren(path, hasListeners(path));
     }
 
+    // TODO: 2018/7/27 by zmyer
     protected List<String> getChildren(final String path, final boolean watch) {
         long startT = System.currentTimeMillis();
         try {
@@ -998,10 +1008,12 @@ public class ZkClient implements Watcher {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     public IZkConnection getConnection() {
         return _connection;
     }
 
+    // TODO: 2018/7/27 by zmyer
     public void waitUntilConnected() throws ZkInterruptedException {
         waitUntilConnected(Integer.MAX_VALUE, TimeUnit.MILLISECONDS);
     }
@@ -1104,6 +1116,7 @@ public class ZkClient implements Watcher {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void waitForRetry() {
         if (this.operationRetryTimeoutInMillis < 0) {
             this.waitUntilConnected();
@@ -1393,6 +1406,7 @@ public class ZkClient implements Watcher {
         });
     }
 
+    // TODO: 2018/7/26 by zmyer
     private void checkDataSizeLimit(byte[] data) {
         if (data != null && data.length > ZNRecord.SIZE_LIMIT) {
             LOG.error("Data size larger than 1M, will not write to zk. Data (first 1k): "
@@ -1401,6 +1415,7 @@ public class ZkClient implements Watcher {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     public void watchForData(final String path) {
         retryUntilConnected(new Callable<Object>() {
             @Override
@@ -1417,6 +1432,7 @@ public class ZkClient implements Watcher {
      * @param path
      * @return the current children of the path or null if the zk node with the given path doesn't exist.
      */
+    // TODO: 2018/7/27 by zmyer
     public List<String> watchForChilds(final String path) {
         if (_zookeeperEventThread != null && Thread.currentThread() == _zookeeperEventThread) {
             throw new IllegalArgumentException("Must not be done in the zookeeper event thread.");
@@ -1464,6 +1480,7 @@ public class ZkClient implements Watcher {
      * @throws IllegalStateException
      *             if the connection timed out due to thread interruption
      */
+    // TODO: 2018/7/26 by zmyer
     public void connect(final long maxMsToWaitUntilConnected, Watcher watcher)
             throws ZkInterruptedException, ZkTimeoutException, IllegalStateException {
         boolean started = false;

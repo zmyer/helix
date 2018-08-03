@@ -19,21 +19,23 @@ package org.apache.helix.api.listeners;
  * under the License.
  */
 
-import java.util.List;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.LiveInstance;
+
+import java.util.List;
 
 /**
  * Interface to implement to listen for live instance changes.
  */
+// TODO: 2018/7/25 by zmyer
 public interface LiveInstanceChangeListener {
 
-  /**
-   * Invoked when live instance changes
-   * @param liveInstances
-   * @param changeContext
-   */
-  void onLiveInstanceChange(List<LiveInstance> liveInstances,
-      NotificationContext changeContext);
+    /**
+     * Invoked when live instance changes
+     * @param liveInstances
+     * @param changeContext
+     */
+    void onLiveInstanceChange(List<LiveInstance> liveInstances,
+            NotificationContext changeContext);
 
 }

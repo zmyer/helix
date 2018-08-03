@@ -1,12 +1,11 @@
 package org.apache.helix.agent;
 
-import java.io.File;
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.helix.agent.SystemUtil.ProcessStateCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -30,36 +29,37 @@ import org.slf4j.LoggerFactory;
 /**
  * thread for monitoring a pid
  */
+// TODO: 2018/7/25 by zmyer
 public class ProcessMonitorThread extends Thread {
-  private static final Logger LOG = LoggerFactory.getLogger(ProcessMonitorThread.class);
-  private static final int MONITOR_PERIOD_BASE = 1000; // 1 second
+    private static final Logger LOG = LoggerFactory.getLogger(ProcessMonitorThread.class);
+    private static final int MONITOR_PERIOD_BASE = 1000; // 1 second
 
-  private final String _pid;
+    private final String _pid;
 
-  public ProcessMonitorThread(String pid) {
-    _pid = pid;
-  }
-
-  @Override
-  public void run() {
-
-    // monitor pid
-    try {
-      ProcessStateCode processState = SystemUtil.getProcessState(_pid);
-      while (processState != null) {
-        if (processState == ProcessStateCode.Z) {
-          LOG.error("process: " + _pid + " is in zombie state");
-          break;
-        }
-        TimeUnit.MILLISECONDS
-            .sleep(new Random().nextInt(MONITOR_PERIOD_BASE) + MONITOR_PERIOD_BASE);
-        processState = SystemUtil.getProcessState(_pid);
-      }
-    } catch (Exception e) {
-      LOG.error("fail to monitor process: " + _pid, e);
+    public ProcessMonitorThread(String pid) {
+        _pid = pid;
     }
 
-    // TODO need to find the exit value of pid and kill the pid on timeout
-  }
+    @Override
+    public void run() {
+
+        // monitor pid
+        try {
+            ProcessStateCode processState = SystemUtil.getProcessState(_pid);
+            while (processState != null) {
+                if (processState == ProcessStateCode.Z) {
+                    LOG.error("process: " + _pid + " is in zombie state");
+                    break;
+                }
+                TimeUnit.MILLISECONDS
+                        .sleep(new Random().nextInt(MONITOR_PERIOD_BASE) + MONITOR_PERIOD_BASE);
+                processState = SystemUtil.getProcessState(_pid);
+            }
+        } catch (Exception e) {
+            LOG.error("fail to monitor process: " + _pid, e);
+        }
+
+        // TODO need to find the exit value of pid and kill the pid on timeout
+    }
 
 }

@@ -25,42 +25,43 @@ import org.apache.helix.ZNRecord;
 /**
  * Represent a pause in the cluster
  */
+// TODO: 2018/7/27 by zmyer
 public class PauseSignal extends HelixProperty {
 
-  public enum PauseSignalProperty {
-    REASON
-  }
+    public enum PauseSignalProperty {
+        REASON
+    }
 
-  /**
-   * Instantiate with an identifier
-   * @param id pause signal identifier
-   */
-  public PauseSignal(String id) {
-    super(id);
-  }
+    /**
+     * Instantiate with an identifier
+     * @param id pause signal identifier
+     */
+    public PauseSignal(String id) {
+        super(id);
+    }
 
-  /**
-   * Instantiate with a pre-populated record
-   * @param record ZNRecord with fields corresponding to a pause
-   */
-  public PauseSignal(ZNRecord record) {
-    super(record);
-  }
+    /**
+     * Instantiate with a pre-populated record
+     * @param record ZNRecord with fields corresponding to a pause
+     */
+    public PauseSignal(ZNRecord record) {
+        super(record);
+    }
 
-  /**
-   * Set the reason why the cluster is paused.
-   * @param reason
-   */
-  public void setReason(String reason) {
-    _record.setSimpleField(PauseSignalProperty.REASON.name(), reason);
-  }
+    /**
+     * Set the reason why the cluster is paused.
+     * @param reason
+     */
+    public void setReason(String reason) {
+        _record.setSimpleField(PauseSignalProperty.REASON.name(), reason);
+    }
 
-  public String getReason() {
-    return _record.getSimpleField(PauseSignalProperty.REASON.name());
-  }
+    public String getReason() {
+        return _record.getSimpleField(PauseSignalProperty.REASON.name());
+    }
 
-  @Override
-  public boolean isValid() {
-    return true;
-  }
+    @Override
+    public boolean isValid() {
+        return true;
+    }
 }

@@ -18,12 +18,13 @@ package org.apache.helix.common;
  * specific language governing permissions and limitations
  * under the License.
  */
-import java.util.concurrent.BlockingQueue;
 
 import org.apache.helix.controller.stages.ClusterEvent;
 import org.apache.helix.controller.stages.ClusterEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.BlockingQueue;
 
 /**
  * A blocking queue of ClusterEvent objects to be used by the controller pipeline. This prevents
@@ -33,74 +34,75 @@ import org.slf4j.LoggerFactory;
  *
  * This class is deprecated, please use {@link org.apache.helix.common.DedupEventBlockingQueue}.
  */
+// TODO: 2018/7/24 by zmyer
 @Deprecated
 public class ClusterEventBlockingQueue {
-  private static final Logger LOG = LoggerFactory.getLogger(ClusterEventBlockingQueue.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ClusterEventBlockingQueue.class);
 
-  private DedupEventBlockingQueue<ClusterEventType, ClusterEvent> _eventQueue;
+    private DedupEventBlockingQueue<ClusterEventType, ClusterEvent> _eventQueue;
 
-  /**
-   * Instantiate the queue
-   */
-  public ClusterEventBlockingQueue() {
-    _eventQueue = new DedupEventBlockingQueue();
-  }
-
-  /**
-   * Remove all events from the queue
-   */
-  public void clear() {
-    _eventQueue.clear();
-  }
-
-  /**
-   * Add a single event to the queue, overwriting events with the same name
-   * @param event ClusterEvent event to add
-   */
-  public void put(ClusterEvent event) {
-    _eventQueue.put(event.getEventType(), event);
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Putting event " + event.getEventType());
-      LOG.debug("Event queue size: " + _eventQueue.size());
+    /**
+     * Instantiate the queue
+     */
+    public ClusterEventBlockingQueue() {
+        _eventQueue = new DedupEventBlockingQueue();
     }
-  }
 
-  /**
-   * Remove an element from the front of the queue, blocking if none is available. This method
-   * will return the most recent event seen with the oldest enqueued event name.
-   * @return ClusterEvent at the front of the queue
-   * @throws InterruptedException if the wait for elements was interrupted
-   */
-  public ClusterEvent take() throws InterruptedException {
-    ClusterEvent event = _eventQueue.take();
-    if (event != null) {
-      LOG.debug("Taking event " + event.getEventType());
-      LOG.debug("Event queue size: " + _eventQueue.size());
+    /**
+     * Remove all events from the queue
+     */
+    public void clear() {
+        _eventQueue.clear();
     }
-    return event;
-  }
 
-  /**
-   * Get at the head of the queue without removing it
-   * @return ClusterEvent at the front of the queue, or null if none available
-   */
-  public ClusterEvent peek() {
-    return _eventQueue.peek();
-  }
+    /**
+     * Add a single event to the queue, overwriting events with the same name
+     * @param event ClusterEvent event to add
+     */
+    public void put(ClusterEvent event) {
+        _eventQueue.put(event.getEventType(), event);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Putting event " + event.getEventType());
+            LOG.debug("Event queue size: " + _eventQueue.size());
+        }
+    }
 
-  /**
-   * Get the queue size
-   * @return integer size of the queue
-   */
-  public int size() {
-    return _eventQueue.size();
-  }
+    /**
+     * Remove an element from the front of the queue, blocking if none is available. This method
+     * will return the most recent event seen with the oldest enqueued event name.
+     * @return ClusterEvent at the front of the queue
+     * @throws InterruptedException if the wait for elements was interrupted
+     */
+    public ClusterEvent take() throws InterruptedException {
+        ClusterEvent event = _eventQueue.take();
+        if (event != null) {
+            LOG.debug("Taking event " + event.getEventType());
+            LOG.debug("Event queue size: " + _eventQueue.size());
+        }
+        return event;
+    }
 
-  /**
-   * Check if the queue is empty
-   * @return true if events are not present, false otherwise
-   */
-  public boolean isEmpty() {
-    return _eventQueue.isEmpty();
-  }
+    /**
+     * Get at the head of the queue without removing it
+     * @return ClusterEvent at the front of the queue, or null if none available
+     */
+    public ClusterEvent peek() {
+        return _eventQueue.peek();
+    }
+
+    /**
+     * Get the queue size
+     * @return integer size of the queue
+     */
+    public int size() {
+        return _eventQueue.size();
+    }
+
+    /**
+     * Check if the queue is empty
+     * @return true if events are not present, false otherwise
+     */
+    public boolean isEmpty() {
+        return _eventQueue.isEmpty();
+    }
 }

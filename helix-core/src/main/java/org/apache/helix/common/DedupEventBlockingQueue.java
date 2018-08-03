@@ -21,6 +21,7 @@ package org.apache.helix.common;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
@@ -34,106 +35,107 @@ import java.util.concurrent.BlockingQueue;
  * T -- the Type of an event.
  * E -- the event itself.
  */
+// TODO: 2018/7/24 by zmyer
 public class DedupEventBlockingQueue<T, E> {
-  private final Map<T, Entry<T, E>> _eventMap;
-  private final Queue<Entry> _eventQueue;
+    private final Map<T, Entry<T, E>> _eventMap;
+    private final Queue<Entry> _eventQueue;
 
-  class Entry <T, E> {
-    private T _type;
-    private E _event;
+    class Entry<T, E> {
+        private T _type;
+        private E _event;
 
-    Entry (T type, E event) {
-      _type = type;
-      _event = event;
+        Entry(T type, E event) {
+            _type = type;
+            _event = event;
+        }
+
+        T getType() {
+            return _type;
+        }
+
+        E getEvent() {
+            return _event;
+        }
     }
 
-    T getType() {
-      return _type;
+    /**
+     * Instantiate the queue
+     */
+    public DedupEventBlockingQueue() {
+        _eventMap = Maps.newHashMap();
+        _eventQueue = Lists.newLinkedList();
     }
 
-    E getEvent() {
-      return _event;
+    /**
+     * Remove all events from the queue
+     */
+    public synchronized void clear() {
+        _eventMap.clear();
+        _eventQueue.clear();
     }
-  }
 
-  /**
-   * Instantiate the queue
-   */
-  public DedupEventBlockingQueue() {
-    _eventMap = Maps.newHashMap();
-    _eventQueue = Lists.newLinkedList();
-  }
+    /**
+     * Add a single event to the queue, overwriting events with the same name
+     */
+    public synchronized void put(T type, E event) {
+        Entry entry = new Entry(type, event);
 
-  /**
-   * Remove all events from the queue
-   */
-  public synchronized void clear() {
-    _eventMap.clear();
-    _eventQueue.clear();
-  }
-
-  /**
-   * Add a single event to the queue, overwriting events with the same name
-   */
-  public synchronized void put(T type, E event) {
-    Entry entry = new Entry(type, event);
-
-    if (!_eventMap.containsKey(entry.getType())) {
-      // only insert to the queue if there isn't a same-typed event already present
-      boolean result = _eventQueue.offer(entry);
-      if (!result) {
-        return;
-      }
+        if (!_eventMap.containsKey(entry.getType())) {
+            // only insert to the queue if there isn't a same-typed event already present
+            boolean result = _eventQueue.offer(entry);
+            if (!result) {
+                return;
+            }
+        }
+        // always overwrite the existing entry in the map in case the entry is different
+        _eventMap.put((T) entry.getType(), entry);
+        notify();
     }
-    // always overwrite the existing entry in the map in case the entry is different
-    _eventMap.put((T) entry.getType(), entry);
-    notify();
-  }
 
-  /**
-   * Remove an element from the front of the queue, blocking if none is available. This method
-   * will return the most recent event seen with the oldest enqueued event name.
-   * @return ClusterEvent at the front of the queue
-   * @throws InterruptedException if the wait for elements was interrupted
-   */
-  public synchronized E take() throws InterruptedException {
-    while (_eventQueue.isEmpty()) {
-      wait();
+    /**
+     * Remove an element from the front of the queue, blocking if none is available. This method
+     * will return the most recent event seen with the oldest enqueued event name.
+     * @return ClusterEvent at the front of the queue
+     * @throws InterruptedException if the wait for elements was interrupted
+     */
+    public synchronized E take() throws InterruptedException {
+        while (_eventQueue.isEmpty()) {
+            wait();
+        }
+        Entry entry = _eventQueue.poll();
+        if (entry != null) {
+            entry = _eventMap.remove(entry.getType());
+            return (E) entry.getEvent();
+        }
+        return null;
     }
-    Entry entry = _eventQueue.poll();
-    if (entry != null) {
-      entry = _eventMap.remove(entry.getType());
-      return (E) entry.getEvent();
+
+    /**
+     * Get at the head of the queue without removing it
+     * @return ClusterEvent at the front of the queue, or null if none available
+     */
+    public synchronized E peek() {
+        Entry entry = _eventQueue.peek();
+        if (entry != null) {
+            entry = _eventMap.get(entry.getType());
+            return (E) entry.getEvent();
+        }
+        return null;
     }
-    return null;
-  }
 
-  /**
-   * Get at the head of the queue without removing it
-   * @return ClusterEvent at the front of the queue, or null if none available
-   */
-  public synchronized E peek() {
-    Entry entry = _eventQueue.peek();
-    if (entry != null) {
-      entry = _eventMap.get(entry.getType());
-      return (E) entry.getEvent();
+    /**
+     * Get the queue size
+     * @return integer size of the queue
+     */
+    public int size() {
+        return _eventQueue.size();
     }
-    return null;
-  }
 
-  /**
-   * Get the queue size
-   * @return integer size of the queue
-   */
-  public int size() {
-    return _eventQueue.size();
-  }
-
-  /**
-   * Check if the queue is empty
-   * @return true if events are not present, false otherwise
-   */
-  public boolean isEmpty() {
-    return _eventQueue.isEmpty();
-  }
+    /**
+     * Check if the queue is empty
+     * @return true if events are not present, false otherwise
+     */
+    public boolean isEmpty() {
+        return _eventQueue.isEmpty();
+    }
 }

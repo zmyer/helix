@@ -159,6 +159,7 @@ public class ZkBaseDataAccessor<T> implements BaseDataAccessor<T> {
     /**
      * sync set
      */
+    // TODO: 2018/7/26 by zmyer
     @Override
     public boolean set(String path, T record, int options) {
         return set(path, record, -1, options);
@@ -167,6 +168,7 @@ public class ZkBaseDataAccessor<T> implements BaseDataAccessor<T> {
     /**
      * sync set
      */
+    // TODO: 2018/7/26 by zmyer
     @Override
     public boolean set(String path, T record, int expectVersion, int options) {
         AccessResult result = doSet(path, record, expectVersion, options);
@@ -176,6 +178,7 @@ public class ZkBaseDataAccessor<T> implements BaseDataAccessor<T> {
     /**
      * sync set
      */
+    // TODO: 2018/7/26 by zmyer
     public AccessResult doSet(String path, T record, int expectVersion, int options) {
         AccessResult result = new AccessResult();
 
@@ -238,6 +241,7 @@ public class ZkBaseDataAccessor<T> implements BaseDataAccessor<T> {
     /**
      * sync update
      */
+    // TODO: 2018/7/27 by zmyer
     @Override
     public boolean update(String path, DataUpdater<T> updater, int options) {
         AccessResult result = doUpdate(path, updater, options);
@@ -247,6 +251,7 @@ public class ZkBaseDataAccessor<T> implements BaseDataAccessor<T> {
     /**
      * sync update
      */
+    // TODO: 2018/7/27 by zmyer
     public AccessResult doUpdate(String path, DataUpdater<T> updater, int options) {
         AccessResult result = new AccessResult();
         CreateMode mode = AccessOption.getMode(options);

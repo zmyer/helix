@@ -21,12 +21,13 @@ package org.apache.helix.healthcheck;
 
 import org.apache.helix.ZNRecord;
 
+// TODO: 2018/7/27 by zmyer
 public interface ParticipantHealthReportCollector {
-  void addHealthReportProvider(HealthReportProvider provider);
+    void addHealthReportProvider(HealthReportProvider provider);
 
-  void removeHealthReportProvider(HealthReportProvider provider);
+    void removeHealthReportProvider(HealthReportProvider provider);
 
-  void reportHealthReportMessage(ZNRecord healthReport);
+    void reportHealthReportMessage(ZNRecord healthReport);
 
-  void transmitHealthReports();
+    void transmitHealthReports();
 }

@@ -75,6 +75,7 @@ public class Quickstart {
 
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static void setup() {
         admin = new ZKHelixAdmin(ZK_ADDRESS);
         // create cluster
@@ -131,6 +132,7 @@ public class Quickstart {
         return statemodelDefinition;
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static void startController() {
         // start controller
         echo("Starting Helix Controller");
@@ -138,6 +140,7 @@ public class Quickstart {
                 HelixControllerMain.STANDALONE);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static void startNodes() throws Exception {
         echo("Starting Participants");
         for (int i = 0; i < NUM_NODES; i++) {
@@ -184,6 +187,7 @@ public class Quickstart {
         System.exit(0);
     }
 
+    // TODO: 2018/7/26 by zmyer
     private static void addNode() throws Exception {
 
         NUM_NODES = NUM_NODES + 1;
@@ -202,6 +206,7 @@ public class Quickstart {
         process.start();
     }
 
+    // TODO: 2018/7/26 by zmyer
     private static void stopNode() {
         int nodeId = NUM_NODES - 1;
         echo("STOPPING " + INSTANCE_CONFIG_LIST.get(nodeId).getInstanceName()
@@ -235,6 +240,7 @@ public class Quickstart {
         System.out.println("###################################################################");
     }
 
+    // TODO: 2018/7/26 by zmyer
     static final class MyProcess {
         private final String instanceName;
         private HelixManager manager;
@@ -243,10 +249,10 @@ public class Quickstart {
             this.instanceName = instanceName;
         }
 
+        // TODO: 2018/7/26 by zmyer
         public void start() throws Exception {
-            manager =
-                    HelixManagerFactory.getZKHelixManager(CLUSTER_NAME, instanceName,
-                            InstanceType.PARTICIPANT, ZK_ADDRESS);
+            manager = HelixManagerFactory.getZKHelixManager(CLUSTER_NAME, instanceName,
+                    InstanceType.PARTICIPANT, ZK_ADDRESS);
 
             MasterSlaveStateModelFactory stateModelFactory =
                     new MasterSlaveStateModelFactory(instanceName);
@@ -256,6 +262,7 @@ public class Quickstart {
             manager.connect();
         }
 
+        // TODO: 2018/7/26 by zmyer
         public void stop() {
             manager.disconnect();
         }

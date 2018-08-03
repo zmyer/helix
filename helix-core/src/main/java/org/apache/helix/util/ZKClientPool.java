@@ -19,53 +19,54 @@ package org.apache.helix.util;
  * under the License.
  */
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.apache.helix.manager.zk.ZNRecordSerializer;
 import org.apache.helix.manager.zk.ZkClient;
 import org.apache.zookeeper.ZooKeeper.States;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+// TODO: 2018/7/26 by zmyer
 public class ZKClientPool {
-  static final Map<String, ZkClient> _zkClientMap = new ConcurrentHashMap<String, ZkClient>();
-  static final int DEFAULT_SESSION_TIMEOUT = 30 * 1000;
+    static final Map<String, ZkClient> _zkClientMap = new ConcurrentHashMap<String, ZkClient>();
+    static final int DEFAULT_SESSION_TIMEOUT = 30 * 1000;
 
-  public static ZkClient getZkClient(String zkServer) {
-    // happy path that we cache the zkclient and it's still connected
-    if (_zkClientMap.containsKey(zkServer)) {
-      ZkClient zkClient = _zkClientMap.get(zkServer);
-      if (zkClient.getConnection().getZookeeperState() == States.CONNECTED) {
-        return zkClient;
-      }
-    }
-
-    synchronized (_zkClientMap) {
-      // if we cache a stale zkclient, purge it
-      if (_zkClientMap.containsKey(zkServer)) {
-        ZkClient zkClient = _zkClientMap.get(zkServer);
-        if (zkClient.getConnection().getZookeeperState() != States.CONNECTED) {
-          _zkClientMap.remove(zkServer);
+    public static ZkClient getZkClient(String zkServer) {
+        // happy path that we cache the zkclient and it's still connected
+        if (_zkClientMap.containsKey(zkServer)) {
+            ZkClient zkClient = _zkClientMap.get(zkServer);
+            if (zkClient.getConnection().getZookeeperState() == States.CONNECTED) {
+                return zkClient;
+            }
         }
-      }
 
-      // get a new zkclient
-      if (!_zkClientMap.containsKey(zkServer)) {
-        ZkClient zkClient =
-            new ZkClient(zkServer, DEFAULT_SESSION_TIMEOUT, ZkClient.DEFAULT_CONNECTION_TIMEOUT,
-                new ZNRecordSerializer());
+        synchronized (_zkClientMap) {
+            // if we cache a stale zkclient, purge it
+            if (_zkClientMap.containsKey(zkServer)) {
+                ZkClient zkClient = _zkClientMap.get(zkServer);
+                if (zkClient.getConnection().getZookeeperState() != States.CONNECTED) {
+                    _zkClientMap.remove(zkServer);
+                }
+            }
 
-        _zkClientMap.put(zkServer, zkClient);
-      }
-      return _zkClientMap.get(zkServer);
+            // get a new zkclient
+            if (!_zkClientMap.containsKey(zkServer)) {
+                ZkClient zkClient =
+                        new ZkClient(zkServer, DEFAULT_SESSION_TIMEOUT, ZkClient.DEFAULT_CONNECTION_TIMEOUT,
+                                new ZNRecordSerializer());
+
+                _zkClientMap.put(zkServer, zkClient);
+            }
+            return _zkClientMap.get(zkServer);
+        }
     }
-  }
 
-  public static void reset() {
-    _zkClientMap.clear();
-  }
+    public static void reset() {
+        _zkClientMap.clear();
+    }
 
-  public static void main(String[] args) throws InterruptedException {
-    Thread /*
+    public static void main(String[] args) throws InterruptedException {
+        Thread /*
             * _dataSampleThread = new Thread(new Runnable()
             * {
             * @Override
@@ -97,28 +98,28 @@ public class ZKClientPool {
             * Thread.sleep(10000);
             * _dataSampleThread.interrupt();
             */
-    _dataSampleThread = new Thread(new Runnable() {
-      @Override
-      public void run() {
-        int i = 0;
-        while (!Thread.currentThread().isInterrupted()) {
+                _dataSampleThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int i = 0;
+                while (!Thread.currentThread().isInterrupted()) {
 
-          // if the queue is empty, sleep 100 ms and try again
-          try {
-            Thread.sleep(1000);
-          } catch (InterruptedException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-          }
-          System.out.println(i++ + "...");
-          throw new Error("" + i);
+                    // if the queue is empty, sleep 100 ms and try again
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        // TODO Auto-generated catch block
+                        e.printStackTrace();
+                    }
+                    System.out.println(i++ + "...");
+                    throw new Error("" + i);
 
-        }
-      }
-    });
-    _dataSampleThread.start();
+                }
+            }
+        });
+        _dataSampleThread.start();
 
-    Thread.sleep(10000);
-    _dataSampleThread.interrupt();
-  }
+        Thread.sleep(10000);
+        _dataSampleThread.interrupt();
+    }
 }

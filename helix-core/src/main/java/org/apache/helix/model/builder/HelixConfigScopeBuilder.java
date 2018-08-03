@@ -70,10 +70,12 @@ public class HelixConfigScopeBuilder {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     public HelixConfigScopeBuilder(ConfigScopeProperty type) {
         _type = type;
     }
 
+    // TODO: 2018/7/27 by zmyer
     public HelixConfigScopeBuilder forCluster(String clusterName) {
         _clusterName = clusterName;
         return this;
@@ -94,6 +96,7 @@ public class HelixConfigScopeBuilder {
         return this;
     }
 
+    // TODO: 2018/7/27 by zmyer
     public HelixConfigScope build() {
         HelixConfigScope scope = null;
         switch (_type) {

@@ -19,20 +19,22 @@ package org.apache.helix.api.listeners;
  * under the License.
  */
 
-import java.util.List;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.InstanceConfig;
+
+import java.util.List;
 
 /**
  * @deprecated replaced by InstanceConfigChangeListener
  */
+// TODO: 2018/7/25 by zmyer
 public interface ConfigChangeListener {
 
-  /**
-   * Invoked when participant config changes
-   * @param configs
-   * @param changeContext
-   */
-  void onConfigChange(List<InstanceConfig> configs, NotificationContext changeContext);
+    /**
+     * Invoked when participant config changes
+     * @param configs
+     * @param changeContext
+     */
+    void onConfigChange(List<InstanceConfig> configs, NotificationContext changeContext);
 
 }

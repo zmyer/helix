@@ -121,6 +121,7 @@ public class ClusterDataCache {
         this(null);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public ClusterDataCache(String clusterName) {
         _propertyDataChangedMap = new ConcurrentHashMap<>();
         for (ChangeType type : ChangeType.values()) {
@@ -138,6 +139,7 @@ public class ClusterDataCache {
      * @param accessor
      * @return
      */
+    // TODO: 2018/7/25 by zmyer
     public synchronized boolean refresh(HelixDataAccessor accessor) {
         long startTime = System.currentTimeMillis();
         Builder keyBuilder = accessor.keyBuilder();
@@ -195,7 +197,6 @@ public class ClusterDataCache {
         _constraintMap = accessor.getChildValuesMap(keyBuilder.constraints(), true);
         _clusterConfig = accessor.getProperty(keyBuilder.clusterConfig());
 
-
         _instanceMessagesCache
                 .refresh(accessor, _liveInstanceMap);
         _currentStateCache.refresh(accessor, _liveInstanceMap);
@@ -218,9 +219,8 @@ public class ClusterDataCache {
         updateDisabledInstances();
 
         long endTime = System.currentTimeMillis();
-        LOG.info(
-                "END: ClusterDataCache.refresh() for cluster " + getClusterName() + ", took " + (endTime
-                        - startTime) + " ms");
+        LOG.info("END: ClusterDataCache.refresh() for cluster " + getClusterName() + ", took " + (endTime
+                - startTime) + " ms");
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("# of StateModelDefinition read from zk: " + _stateModelDefMap.size());
@@ -243,6 +243,7 @@ public class ClusterDataCache {
         return true;
     }
 
+    // TODO: 2018/7/26 by zmyer
     private void updateDisabledInstances() {
         // Move the calculating disabled instances to refresh
         _disabledInstanceForPartitionMap.clear();
@@ -270,6 +271,7 @@ public class ClusterDataCache {
         }
     }
 
+    // TODO: 2018/7/26 by zmyer
     private void updateOfflineInstanceHistory(HelixDataAccessor accessor) {
         List<String> offlineNodes = new ArrayList<>(_instanceConfigMap.keySet());
         offlineNodes.removeAll(_liveInstanceMap.keySet());
@@ -427,6 +429,7 @@ public class ClusterDataCache {
      *
      * @return
      */
+    // TODO: 2018/7/25 by zmyer
     public Map<String, CurrentState> getCurrentState(String instanceName, String clientSessionId) {
         return _currentStateCache.getCurrentState(instanceName, clientSessionId);
     }
@@ -436,10 +439,12 @@ public class ClusterDataCache {
      * @param instanceName
      * @return
      */
+    // TODO: 2018/7/25 by zmyer
     public Map<String, Message> getMessages(String instanceName) {
         return _instanceMessagesCache.getMessages(instanceName);
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void cacheMessages(List<Message> messages) {
         _instanceMessagesCache.cacheMessages(messages);
     }
@@ -508,6 +513,7 @@ public class ClusterDataCache {
     /**
      * Notify the cache that some part of the cluster data has been changed.
      */
+    // TODO: 2018/7/27 by zmyer
     public void notifyDataChange(ChangeType changeType, String pathChanged) {
         notifyDataChange(changeType);
     }
@@ -669,6 +675,7 @@ public class ClusterDataCache {
         }
     }
 
+    // TODO: 2018/7/26 by zmyer
     private Map<String, IdealState> refreshIdealStates(HelixDataAccessor accessor) {
         long startTime = System.currentTimeMillis();
         PropertyKey.Builder keyBuilder = accessor.keyBuilder();
@@ -789,6 +796,7 @@ public class ClusterDataCache {
     /**
      * Indicate that a full read should be done on the next refresh
      */
+    // TODO: 2018/7/25 by zmyer
     public synchronized void requireFullRefresh() {
         for (ChangeType type : ChangeType.values()) {
             _propertyDataChangedMap.put(type, Boolean.valueOf(true));
@@ -867,6 +875,7 @@ public class ClusterDataCache {
     }
 
 
+    // TODO: 2018/7/26 by zmyer
     public void clearCachedResourceAssignments() {
         _resourceAssignmentCache.clear();
         _idealMappingCache.clear();

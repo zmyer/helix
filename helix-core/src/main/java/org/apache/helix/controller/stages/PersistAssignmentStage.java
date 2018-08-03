@@ -19,13 +19,6 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-
-import java.util.Set;
 import org.I0Itec.zkclient.DataUpdater;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
@@ -42,193 +35,202 @@ import org.apache.helix.model.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 /**
  * Persist the ResourceAssignment of each resource that went through rebalancing
  */
+// TODO: 2018/7/25 by zmyer
 public class PersistAssignmentStage extends AbstractBaseStage {
-  private static final Logger LOG = LoggerFactory.getLogger(PersistAssignmentStage.class);
+    private static final Logger LOG = LoggerFactory.getLogger(PersistAssignmentStage.class);
 
-  @Override public void process(ClusterEvent event) throws Exception {
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-    ClusterConfig clusterConfig = cache.getClusterConfig();
+    @Override
+    public void process(ClusterEvent event) throws Exception {
+        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+        ClusterConfig clusterConfig = cache.getClusterConfig();
 
-    if (!clusterConfig.isPersistBestPossibleAssignment() && !clusterConfig
-        .isPersistIntermediateAssignment()) {
-      return;
-    }
-
-    BestPossibleStateOutput bestPossibleAssignment =
-        event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
-
-    HelixManager helixManager = event.getAttribute(AttributeName.helixmanager.name());
-    HelixDataAccessor accessor = helixManager.getHelixDataAccessor();
-    PropertyKey.Builder keyBuilder = accessor.keyBuilder();
-    Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
-
-    for (String resourceId : bestPossibleAssignment.resourceSet()) {
-      Resource resource = resourceMap.get(resourceId);
-      if (resource != null) {
-        final IdealState idealState = cache.getIdealState(resourceId);
-        if (idealState == null) {
-          LOG.warn("IdealState not found for resource " + resourceId);
-          continue;
-        }
-        IdealState.RebalanceMode mode = idealState.getRebalanceMode();
-        if (!mode.equals(IdealState.RebalanceMode.SEMI_AUTO) && !mode
-            .equals(IdealState.RebalanceMode.FULL_AUTO)) {
-          // do not persist assignment for resource in neither semi or full auto.
-          continue;
+        if (!clusterConfig.isPersistBestPossibleAssignment() && !clusterConfig
+                .isPersistIntermediateAssignment()) {
+            return;
         }
 
-        boolean needPersist = false;
-        if (mode.equals(IdealState.RebalanceMode.FULL_AUTO)) {
-          // persist preference list in ful-auto mode.
-          Map<String, List<String>> newLists =
-              bestPossibleAssignment.getPreferenceLists(resourceId);
-          if (newLists != null && hasPreferenceListChanged(newLists, idealState)) {
-            idealState.setPreferenceLists(newLists);
-            needPersist = true;
-          }
-        }
+        BestPossibleStateOutput bestPossibleAssignment =
+                event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
 
-        PartitionStateMap partitionStateMap =
-            bestPossibleAssignment.getPartitionStateMap(resourceId);
-        if (clusterConfig.isPersistIntermediateAssignment()) {
-          IntermediateStateOutput intermediateAssignment = event.getAttribute(
-              AttributeName.INTERMEDIATE_STATE.name());
-          partitionStateMap = intermediateAssignment.getPartitionStateMap(resourceId);
-        }
+        HelixManager helixManager = event.getAttribute(AttributeName.helixmanager.name());
+        HelixDataAccessor accessor = helixManager.getHelixDataAccessor();
+        PropertyKey.Builder keyBuilder = accessor.keyBuilder();
+        Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
 
-        //TODO: temporary solution for Espresso/Dbus backcompatible, should remove this.
-        Map<Partition, Map<String, String>> assignmentToPersist =
-            convertAssignmentPersisted(resource, idealState, partitionStateMap.getStateMap());
+        for (String resourceId : bestPossibleAssignment.resourceSet()) {
+            Resource resource = resourceMap.get(resourceId);
+            if (resource != null) {
+                final IdealState idealState = cache.getIdealState(resourceId);
+                if (idealState == null) {
+                    LOG.warn("IdealState not found for resource " + resourceId);
+                    continue;
+                }
+                IdealState.RebalanceMode mode = idealState.getRebalanceMode();
+                if (!mode.equals(IdealState.RebalanceMode.SEMI_AUTO) && !mode
+                        .equals(IdealState.RebalanceMode.FULL_AUTO)) {
+                    // do not persist assignment for resource in neither semi or full auto.
+                    continue;
+                }
 
-        if (assignmentToPersist != null && hasInstanceMapChanged(assignmentToPersist, idealState)) {
-          for (Partition partition : assignmentToPersist.keySet()) {
-            Map<String, String> instanceMap = assignmentToPersist.get(partition);
-            idealState.setInstanceStateMap(partition.getPartitionName(), instanceMap);
-          }
-          needPersist = true;
-        }
+                boolean needPersist = false;
+                if (mode.equals(IdealState.RebalanceMode.FULL_AUTO)) {
+                    // persist preference list in ful-auto mode.
+                    Map<String, List<String>> newLists =
+                            bestPossibleAssignment.getPreferenceLists(resourceId);
+                    if (newLists != null && hasPreferenceListChanged(newLists, idealState)) {
+                        idealState.setPreferenceLists(newLists);
+                        needPersist = true;
+                    }
+                }
 
-        if (needPersist) {
-          // Update instead of set to ensure any intermediate changes that the controller does not update are kept.
-          accessor.updateProperty(keyBuilder.idealStates(resourceId), new DataUpdater<ZNRecord>() {
-            @Override
-            public ZNRecord update(ZNRecord current) {
-              if (current != null) {
-                // Overwrite MapFields and ListFields items with the same key.
-                // Note that default merge will keep old values in the maps or lists unchanged, which is not desired.
-                current.getMapFields().clear();
-                current.getMapFields().putAll(idealState.getRecord().getMapFields());
-                current.getListFields().putAll(idealState.getRecord().getListFields());
-              }
-              return current;
+                PartitionStateMap partitionStateMap =
+                        bestPossibleAssignment.getPartitionStateMap(resourceId);
+                if (clusterConfig.isPersistIntermediateAssignment()) {
+                    IntermediateStateOutput intermediateAssignment = event.getAttribute(
+                            AttributeName.INTERMEDIATE_STATE.name());
+                    partitionStateMap = intermediateAssignment.getPartitionStateMap(resourceId);
+                }
+
+                //TODO: temporary solution for Espresso/Dbus backcompatible, should remove this.
+                Map<Partition, Map<String, String>> assignmentToPersist =
+                        convertAssignmentPersisted(resource, idealState, partitionStateMap.getStateMap());
+
+                if (assignmentToPersist != null && hasInstanceMapChanged(assignmentToPersist, idealState)) {
+                    for (Partition partition : assignmentToPersist.keySet()) {
+                        Map<String, String> instanceMap = assignmentToPersist.get(partition);
+                        idealState.setInstanceStateMap(partition.getPartitionName(), instanceMap);
+                    }
+                    needPersist = true;
+                }
+
+                if (needPersist) {
+                    // Update instead of set to ensure any intermediate changes that the controller does not update are kept.
+                    accessor.updateProperty(keyBuilder.idealStates(resourceId), new DataUpdater<ZNRecord>() {
+                        @Override
+                        public ZNRecord update(ZNRecord current) {
+                            if (current != null) {
+                                // Overwrite MapFields and ListFields items with the same key.
+                                // Note that default merge will keep old values in the maps or lists unchanged, which is not desired.
+                                current.getMapFields().clear();
+                                current.getMapFields().putAll(idealState.getRecord().getMapFields());
+                                current.getListFields().putAll(idealState.getRecord().getListFields());
+                            }
+                            return current;
+                        }
+                    }, idealState);
+                }
             }
-          }, idealState);
         }
-      }
-    }
-  }
-
-  /**
-   * has the preference list changed from the one persisted in current IdealState
-   */
-  private boolean hasPreferenceListChanged(Map<String, List<String>> newLists,
-      IdealState idealState) {
-    Map<String, List<String>> existLists = idealState.getPreferenceLists();
-
-    Set<String> partitions = new HashSet<String>(newLists.keySet());
-    partitions.addAll(existLists.keySet());
-
-    for (String partition : partitions) {
-      List<String> assignedInstances = newLists.get(partition);
-      List<String> existingInstances = existLists.get(partition);
-      if (assignedInstances == null && existingInstances == null) {
-        continue;
-      }
-      if (assignedInstances == null || existingInstances == null || !assignedInstances
-          .equals(existingInstances)) {
-        return true;
-      }
     }
 
-    return false;
-  }
+    /**
+     * has the preference list changed from the one persisted in current IdealState
+     */
+    private boolean hasPreferenceListChanged(Map<String, List<String>> newLists,
+            IdealState idealState) {
+        Map<String, List<String>> existLists = idealState.getPreferenceLists();
 
-  private boolean hasInstanceMapChanged(Map<Partition, Map<String, String>> newAssiments,
-      IdealState idealState) {
-    Set<Partition> partitions = new HashSet<Partition>(newAssiments.keySet());
-    for (String p : idealState.getPartitionSet()) {
-      partitions.add(new Partition(p));
-    }
+        Set<String> partitions = new HashSet<String>(newLists.keySet());
+        partitions.addAll(existLists.keySet());
 
-    for (Partition partition : partitions) {
-      Map<String, String> instanceMap = newAssiments.get(partition);
-      Map<String, String> existInstanceMap =
-          idealState.getInstanceStateMap(partition.getPartitionName());
-      if (instanceMap == null && existInstanceMap == null) {
-        continue;
-      }
-      if (instanceMap == null || existInstanceMap == null || !instanceMap
-          .equals(existInstanceMap)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * TODO: This is a temporary hacky for back-compatible support of Espresso and Databus, we should
-   * get rid of this conversion as soon as possible. --- Lei, 2016/9/9.
-   */
-  private Map<Partition, Map<String, String>> convertAssignmentPersisted(Resource resource,
-      IdealState idealState, Map<Partition, Map<String, String>> assignments) {
-    String stateModelDef = idealState.getStateModelDefRef();
-    /** Only convert for MasterSlave resources */
-    if (!stateModelDef.equals(BuiltInStateModelDefinitions.MasterSlave.name()) || idealState
-        .getRebalanceMode().equals(IdealState.RebalanceMode.FULL_AUTO)) {
-      return assignments;
-    }
-
-    Map<Partition, Map<String, String>> assignmentToPersist =
-        new HashMap<Partition, Map<String, String>>();
-
-    for (Partition partition : resource.getPartitions()) {
-      Map<String, String> instanceMap = new HashMap<String, String>();
-      Map<String, String> assignment = assignments.get(partition);
-      if (assignment != null) {
-        instanceMap.putAll(assignment);
-      }
-
-      List<String> preferenceList = idealState.getPreferenceList(partition.getPartitionName());
-      if (preferenceList == null) {
-        preferenceList = Collections.emptyList();
-      }
-      Set<String> nodeList = new HashSet<String>(preferenceList);
-      nodeList.addAll(assignment.keySet());
-      boolean hasMaster = false;
-      for (String ins : nodeList) {
-        String state = instanceMap.get(ins);
-        if (state == null || (!state.equals(MasterSlaveSMD.States.SLAVE.name()) && !state
-            .equals(MasterSlaveSMD.States.MASTER.name()))) {
-          instanceMap.put(ins, MasterSlaveSMD.States.SLAVE.name());
+        for (String partition : partitions) {
+            List<String> assignedInstances = newLists.get(partition);
+            List<String> existingInstances = existLists.get(partition);
+            if (assignedInstances == null && existingInstances == null) {
+                continue;
+            }
+            if (assignedInstances == null || existingInstances == null || !assignedInstances
+                    .equals(existingInstances)) {
+                return true;
+            }
         }
 
-        if (state != null && state.equals(MasterSlaveSMD.States.MASTER.name())) {
-          hasMaster = true;
-        }
-      }
-
-      // if no master, just pick the first node in the preference list as the master.
-      if (!hasMaster && preferenceList.size() > 0) {
-        instanceMap.put(preferenceList.get(0), MasterSlaveSMD.States.MASTER.name());
-      }
-
-      assignmentToPersist.put(partition, instanceMap);
+        return false;
     }
 
-    return assignmentToPersist;
-  }
+    private boolean hasInstanceMapChanged(Map<Partition, Map<String, String>> newAssiments,
+            IdealState idealState) {
+        Set<Partition> partitions = new HashSet<Partition>(newAssiments.keySet());
+        for (String p : idealState.getPartitionSet()) {
+            partitions.add(new Partition(p));
+        }
+
+        for (Partition partition : partitions) {
+            Map<String, String> instanceMap = newAssiments.get(partition);
+            Map<String, String> existInstanceMap =
+                    idealState.getInstanceStateMap(partition.getPartitionName());
+            if (instanceMap == null && existInstanceMap == null) {
+                continue;
+            }
+            if (instanceMap == null || existInstanceMap == null || !instanceMap
+                    .equals(existInstanceMap)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * TODO: This is a temporary hacky for back-compatible support of Espresso and Databus, we should
+     * get rid of this conversion as soon as possible. --- Lei, 2016/9/9.
+     */
+    private Map<Partition, Map<String, String>> convertAssignmentPersisted(Resource resource,
+            IdealState idealState, Map<Partition, Map<String, String>> assignments) {
+        String stateModelDef = idealState.getStateModelDefRef();
+        /** Only convert for MasterSlave resources */
+        if (!stateModelDef.equals(BuiltInStateModelDefinitions.MasterSlave.name()) || idealState
+                .getRebalanceMode().equals(IdealState.RebalanceMode.FULL_AUTO)) {
+            return assignments;
+        }
+
+        Map<Partition, Map<String, String>> assignmentToPersist =
+                new HashMap<Partition, Map<String, String>>();
+
+        for (Partition partition : resource.getPartitions()) {
+            Map<String, String> instanceMap = new HashMap<String, String>();
+            Map<String, String> assignment = assignments.get(partition);
+            if (assignment != null) {
+                instanceMap.putAll(assignment);
+            }
+
+            List<String> preferenceList = idealState.getPreferenceList(partition.getPartitionName());
+            if (preferenceList == null) {
+                preferenceList = Collections.emptyList();
+            }
+            Set<String> nodeList = new HashSet<String>(preferenceList);
+            nodeList.addAll(assignment.keySet());
+            boolean hasMaster = false;
+            for (String ins : nodeList) {
+                String state = instanceMap.get(ins);
+                if (state == null || (!state.equals(MasterSlaveSMD.States.SLAVE.name()) && !state
+                        .equals(MasterSlaveSMD.States.MASTER.name()))) {
+                    instanceMap.put(ins, MasterSlaveSMD.States.SLAVE.name());
+                }
+
+                if (state != null && state.equals(MasterSlaveSMD.States.MASTER.name())) {
+                    hasMaster = true;
+                }
+            }
+
+            // if no master, just pick the first node in the preference list as the master.
+            if (!hasMaster && preferenceList.size() > 0) {
+                instanceMap.put(preferenceList.get(0), MasterSlaveSMD.States.MASTER.name());
+            }
+
+            assignmentToPersist.put(partition, instanceMap);
+        }
+
+        return assignmentToPersist;
+    }
 }

@@ -32,6 +32,7 @@ public class Transition {
      * @param fromState source name
      * @param toState destination name
      */
+    // TODO: 2018/7/25 by zmyer
     public Transition(String fromState, String toState) {
         _fromState = fromState;
         _toState = toState;

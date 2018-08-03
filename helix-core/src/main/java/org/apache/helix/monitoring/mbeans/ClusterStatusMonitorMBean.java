@@ -21,83 +21,84 @@ package org.apache.helix.monitoring.mbeans;
 
 import org.apache.helix.monitoring.SensorNameProvider;
 
+// TODO: 2018/7/24 by zmyer
 public interface ClusterStatusMonitorMBean extends SensorNameProvider {
 
-  /**
-   * @return number of instances that are down (non-live instances)
-   */
-  long getDownInstanceGauge();
+    /**
+     * @return number of instances that are down (non-live instances)
+     */
+    long getDownInstanceGauge();
 
-  /**
-   * @return total number of instances
-   */
-  long getInstancesGauge();
+    /**
+     * @return total number of instances
+     */
+    long getInstancesGauge();
 
-  /**
-   * @return number of disabled instances
-   */
-  long getDisabledInstancesGauge();
+    /**
+     * @return number of disabled instances
+     */
+    long getDisabledInstancesGauge();
 
-  /**
-   * @return number of disabled partitions
-   */
-  long getDisabledPartitionsGauge();
+    /**
+     * @return number of disabled partitions
+     */
+    long getDisabledPartitionsGauge();
 
-  /**
-   * @return 1 if rebalance failed; 0 if rebalance did not fail
-   */
-  long getRebalanceFailureGauge();
+    /**
+     * @return 1 if rebalance failed; 0 if rebalance did not fail
+     */
+    long getRebalanceFailureGauge();
 
-  /**
-   * The max message queue size across all instances including controller
-   * @return
-   */
-  long getMaxMessageQueueSizeGauge();
+    /**
+     * The max message queue size across all instances including controller
+     * @return
+     */
+    long getMaxMessageQueueSizeGauge();
 
-  /**
-   * The sum of all message queue sizes for instances in this cluster
-   * @return
-   */
-  long getInstanceMessageQueueBacklog();
+    /**
+     * The sum of all message queue sizes for instances in this cluster
+     * @return
+     */
+    long getInstanceMessageQueueBacklog();
 
-  /**
-   * @return 1 if cluster is enabled, otherwise 0
-   */
-  long getEnabled();
+    /**
+     * @return 1 if cluster is enabled, otherwise 0
+     */
+    long getEnabled();
 
-  /**
-   * @return 1 if cluster is in maintenance mode, otherwise 0
-   */
-  long getMaintenance();
+    /**
+     * @return 1 if cluster is in maintenance mode, otherwise 0
+     */
+    long getMaintenance();
 
-  /**
-   * @return 1 if cluster is paused, otherwise 0
-   */
-  long getPaused();
+    /**
+     * @return 1 if cluster is paused, otherwise 0
+     */
+    long getPaused();
 
-  /**
-   * The number of failures during rebalance pipeline.
-   * @return
-   */
-  long getRebalanceFailureCounter();
+    /**
+     * The number of failures during rebalance pipeline.
+     * @return
+     */
+    long getRebalanceFailureCounter();
 
-  /**
-   * @return number of all partitions in this cluster
-   */
-  long getTotalPartitionCount();
+    /**
+     * @return number of all partitions in this cluster
+     */
+    long getTotalPartitionCount();
 
-  /**
-   * @return number of all partitions in this cluster that have errors
-   */
-  long getTotalErrorPartitionCount();
+    /**
+     * @return number of all partitions in this cluster that have errors
+     */
+    long getTotalErrorPartitionCount();
 
-  /**
-   * @return number of all partitions in this cluster without any top-state replicas
-   */
-  long getTotalPartitionsWithoutTopStateCount();
+    /**
+     * @return number of all partitions in this cluster without any top-state replicas
+     */
+    long getTotalPartitionsWithoutTopStateCount();
 
-  /**
-   * @return number of all partitions in this cluster whose ExternalView and IdealState have discrepancies
-   */
-  long getTotalExternalViewIdealStateMismatchPartitionCount();
+    /**
+     * @return number of all partitions in this cluster whose ExternalView and IdealState have discrepancies
+     */
+    long getTotalExternalViewIdealStateMismatchPartitionCount();
 }

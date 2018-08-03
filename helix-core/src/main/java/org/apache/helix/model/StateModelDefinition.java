@@ -83,6 +83,7 @@ public class StateModelDefinition extends HelixProperty {
      * Instantiate from a pre-populated record
      * @param record ZNRecord representing a state model definition
      */
+    // TODO: 2018/7/26 by zmyer
     public StateModelDefinition(ZNRecord record) {
         super(record);
 
@@ -134,6 +135,7 @@ public class StateModelDefinition extends HelixProperty {
      * @param to destination state
      * @param next intermediate state to reach the destination
      */
+    // TODO: 2018/7/26 by zmyer
     void addDefaultTransition(String from, String to, String next) {
         if (!_stateTransitionTable.containsKey(from)) {
             _stateTransitionTable.put(from, new TreeMap<String, String>());
@@ -261,6 +263,7 @@ public class StateModelDefinition extends HelixProperty {
          * Start building a state model with a name
          * @param name state model name
          */
+        // TODO: 2018/7/26 by zmyer
         public Builder(String name) {
             this._statemodelName = name;
             statesMap = new HashMap<>();
@@ -273,6 +276,7 @@ public class StateModelDefinition extends HelixProperty {
          * state is OFFLINE
          * @param initialState
          */
+        // TODO: 2018/7/26 by zmyer
         public Builder initialState(String initialState) {
             this.initialState = initialState;
             return this;
@@ -287,6 +291,7 @@ public class StateModelDefinition extends HelixProperty {
          * @param state
          * @param priority
          */
+        // TODO: 2018/7/26 by zmyer
         public Builder addState(String state, int priority) {
             statesMap.put(state, priority);
             return this;
@@ -296,6 +301,7 @@ public class StateModelDefinition extends HelixProperty {
          * Sets the priority to Integer.MAX_VALUE
          * @param state
          */
+        // TODO: 2018/7/26 by zmyer
         public Builder addState(String state) {
             addState(state, Integer.MAX_VALUE);
             return this;
@@ -313,6 +319,7 @@ public class StateModelDefinition extends HelixProperty {
          * @param priority priority, higher value is higher priority
          * @return Builder
          */
+        // TODO: 2018/7/25 by zmyer
         public Builder addTransition(String fromState, String toState, int priority) {
             transitionMap.put(new Transition(fromState, toState), priority);
             return this;
@@ -325,6 +332,7 @@ public class StateModelDefinition extends HelixProperty {
          * @param toState
          * @return Builder
          */
+        // TODO: 2018/7/26 by zmyer
         public Builder addTransition(String fromState, String toState) {
             addTransition(fromState, toState, Integer.MAX_VALUE);
             return this;
@@ -336,6 +344,7 @@ public class StateModelDefinition extends HelixProperty {
          * @param upperBound maximum
          * @return Builder
          */
+        // TODO: 2018/7/26 by zmyer
         public Builder upperBound(String state, int upperBound) {
             stateConstraintMap.put(state, String.valueOf(upperBound));
             return this;
@@ -364,6 +373,7 @@ public class StateModelDefinition extends HelixProperty {
          * Create a StateModelDefinition from this Builder
          * @return StateModelDefinition
          */
+        // TODO: 2018/7/26 by zmyer
         public StateModelDefinition build() {
             ZNRecord record = new ZNRecord(_statemodelName);
 

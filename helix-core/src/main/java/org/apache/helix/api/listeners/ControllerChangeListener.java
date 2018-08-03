@@ -24,6 +24,7 @@ import org.apache.helix.NotificationContext;
 /**
  * Interface to implement to respond to controller changes.
  */
+// TODO: 2018/7/27 by zmyer
 public interface ControllerChangeListener {
     /**
      * Invoked when controller changes

@@ -19,8 +19,6 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
-import java.util.Map;
-
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixManagerProperties;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
@@ -29,36 +27,39 @@ import org.apache.helix.model.LiveInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
+
 /**
  * controller checks if participant version is compatible
  */
+// TODO: 2018/7/25 by zmyer
 public class CompatibilityCheckStage extends AbstractBaseStage {
-  private static final Logger LOG = LoggerFactory.getLogger(CompatibilityCheckStage.class.getName());
+    private static final Logger LOG = LoggerFactory.getLogger(CompatibilityCheckStage.class.getName());
 
-  @Override
-  public void process(ClusterEvent event) throws Exception {
-    HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-    if (manager == null || cache == null) {
-      throw new StageException("Missing attributes in event:" + event
-          + ". Requires HelixManager | DataCache");
-    }
+    @Override
+    public void process(ClusterEvent event) throws Exception {
+        HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
+        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+        if (manager == null || cache == null) {
+            throw new StageException("Missing attributes in event:" + event
+                    + ". Requires HelixManager | DataCache");
+        }
 
-    HelixManagerProperties properties = manager.getProperties();
-    Map<String, LiveInstance> liveInstanceMap = cache.getLiveInstances();
-    for (LiveInstance liveInstance : liveInstanceMap.values()) {
-      String participantVersion = liveInstance.getHelixVersion();
-      if (!properties.isParticipantCompatible(participantVersion)) {
-        String errorMsg =
-            "incompatible participant. pipeline will not continue. " + "controller: "
-                + manager.getInstanceName() + ", controllerVersion: " + properties.getVersion()
-                + ", minimumSupportedParticipantVersion: "
-                + properties.getProperty("miminum_supported_version.participant")
-                + ", participant: " + liveInstance.getInstanceName() + ", participantVersion: "
-                + participantVersion;
-        LOG.error(errorMsg);
-        throw new StageException(errorMsg);
-      }
+        HelixManagerProperties properties = manager.getProperties();
+        Map<String, LiveInstance> liveInstanceMap = cache.getLiveInstances();
+        for (LiveInstance liveInstance : liveInstanceMap.values()) {
+            String participantVersion = liveInstance.getHelixVersion();
+            if (!properties.isParticipantCompatible(participantVersion)) {
+                String errorMsg =
+                        "incompatible participant. pipeline will not continue. " + "controller: "
+                                + manager.getInstanceName() + ", controllerVersion: " + properties.getVersion()
+                                + ", minimumSupportedParticipantVersion: "
+                                + properties.getProperty("miminum_supported_version.participant")
+                                + ", participant: " + liveInstance.getInstanceName() + ", participantVersion: "
+                                + participantVersion;
+                LOG.error(errorMsg);
+                throw new StageException(errorMsg);
+            }
+        }
     }
-  }
 }

@@ -59,6 +59,7 @@ public class DefaultMessagingService implements ClusterMessagingService {
     ConcurrentHashMap<String, MessageHandlerFactory> _messageHandlerFactoriestobeAdded =
             new ConcurrentHashMap<>();
 
+    // TODO: 2018/7/25 by zmyer
     public DefaultMessagingService(HelixManager manager) {
         _manager = manager;
         _evaluator = new CriteriaEvaluator();
@@ -82,12 +83,14 @@ public class DefaultMessagingService implements ClusterMessagingService {
         return send(recipientCriteria, messageTemplate, null, -1);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public int send(final Criteria recipientCriteria, final Message message,
             AsyncCallback callbackOnReply, int timeOut) {
         return send(recipientCriteria, message, callbackOnReply, timeOut, 0);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public int send(final Criteria recipientCriteria, final Message message,
             AsyncCallback callbackOnReply, int timeOut, int retryCount) {
@@ -114,9 +117,9 @@ public class DefaultMessagingService implements ClusterMessagingService {
             _asyncCallbackService.registerAsyncCallback(correlationId, callbackOnReply);
         }
 
-        for (InstanceType receiverType : generateMessage.keySet()) {
-            List<Message> list = generateMessage.get(receiverType);
-            for (Message tempMessage : list) {
+        for (final InstanceType receiverType : generateMessage.keySet()) {
+            final List<Message> list = generateMessage.get(receiverType);
+            for (final Message tempMessage : list) {
                 tempMessage.setRetryCount(retryCount);
                 tempMessage.setExecutionTimeout(timeOut);
                 tempMessage.setSrcInstanceType(_manager.getInstanceType());
@@ -124,8 +127,8 @@ public class DefaultMessagingService implements ClusterMessagingService {
                     tempMessage.setCorrelationId(correlationId);
                 }
 
-                HelixDataAccessor accessor = _manager.getHelixDataAccessor();
-                Builder keyBuilder = accessor.keyBuilder();
+                final HelixDataAccessor accessor = _manager.getHelixDataAccessor();
+                final Builder keyBuilder = accessor.keyBuilder();
 
                 if (receiverType == InstanceType.CONTROLLER) {
                     // _manager.getDataAccessor().setProperty(PropertyType.MESSAGES_CONTROLLER,
@@ -148,6 +151,7 @@ public class DefaultMessagingService implements ClusterMessagingService {
         return totalMessageCount;
     }
 
+    // TODO: 2018/7/24 by zmyer
     public Map<InstanceType, List<Message>> generateMessage(final Criteria recipientCriteria,
             final Message message) {
         Map<InstanceType, List<Message>> messagesToSendMap = new HashMap<InstanceType, List<Message>>();
@@ -200,6 +204,7 @@ public class DefaultMessagingService implements ClusterMessagingService {
         return messagesToSendMap;
     }
 
+    // TODO: 2018/7/24 by zmyer
     private List<Message> generateMessagesForController(Message message) {
         List<Message> messages = new ArrayList<Message>();
         String id = (message.getMsgId() == null) ? UUID.randomUUID().toString() : message.getMsgId();
@@ -217,6 +222,7 @@ public class DefaultMessagingService implements ClusterMessagingService {
         registerMessageHandlerFactory(Collections.singletonList(type), factory);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public synchronized void registerMessageHandlerFactory(List<String> types,
             MessageHandlerFactory factory) {
@@ -231,6 +237,7 @@ public class DefaultMessagingService implements ClusterMessagingService {
         }
     }
 
+    // TODO: 2018/7/24 by zmyer
     public synchronized void onConnected() {
         for (String type : _messageHandlerFactoriestobeAdded.keySet()) {
             registerMessageHandlerFactoryInternal(type, _messageHandlerFactoriestobeAdded.get(type));
@@ -238,13 +245,14 @@ public class DefaultMessagingService implements ClusterMessagingService {
         _messageHandlerFactoriestobeAdded.clear();
     }
 
+    // TODO: 2018/7/24 by zmyer
     void registerMessageHandlerFactoryInternal(String type, MessageHandlerFactory factory) {
         _logger.info("registering msg factory for type " + type);
         int threadpoolSize = HelixTaskExecutor.DEFAULT_PARALLEL_TASKS;
         String threadpoolSizeStr = null;
-        String key = type + "." + HelixTaskExecutor.MAX_THREADS;
+        final String key = type + "." + HelixTaskExecutor.MAX_THREADS;
 
-        ConfigAccessor configAccessor = _manager.getConfigAccessor();
+        final ConfigAccessor configAccessor = _manager.getConfigAccessor();
         if (configAccessor != null) {
             ConfigScope scope = null;
 
@@ -253,9 +261,8 @@ public class DefaultMessagingService implements ClusterMessagingService {
 
             if (_manager.getInstanceType() == InstanceType.PARTICIPANT
                     || _manager.getInstanceType() == InstanceType.CONTROLLER_PARTICIPANT) {
-                scope =
-                        new ConfigScopeBuilder().forCluster(_manager.getClusterName())
-                                .forParticipant(_manager.getInstanceName()).build();
+                scope = new ConfigScopeBuilder().forCluster(_manager.getClusterName())
+                        .forParticipant(_manager.getInstanceName()).build();
                 threadpoolSizeStr = configAccessor.get(scope, key);
             }
 
@@ -290,13 +297,14 @@ public class DefaultMessagingService implements ClusterMessagingService {
         sendNopMessageInternal();
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void sendNopMessageInternal() {
         try {
-            Message nopMsg = new Message(MessageType.NO_OP, UUID.randomUUID().toString());
+            final Message nopMsg = new Message(MessageType.NO_OP, UUID.randomUUID().toString());
             nopMsg.setSrcName(_manager.getInstanceName());
 
-            HelixDataAccessor accessor = _manager.getHelixDataAccessor();
-            Builder keyBuilder = accessor.keyBuilder();
+            final HelixDataAccessor accessor = _manager.getHelixDataAccessor();
+            final Builder keyBuilder = accessor.keyBuilder();
 
             if (_manager.getInstanceType() == InstanceType.CONTROLLER
                     || _manager.getInstanceType() == InstanceType.CONTROLLER_PARTICIPANT) {
@@ -314,10 +322,12 @@ public class DefaultMessagingService implements ClusterMessagingService {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     public HelixTaskExecutor getExecutor() {
         return _taskExecutor;
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public int sendAndWait(Criteria receipientCriteria, Message message, AsyncCallback asyncCallback,
             int timeOut, int retryCount) {
@@ -340,6 +350,7 @@ public class DefaultMessagingService implements ClusterMessagingService {
         return messagesSent;
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public int sendAndWait(Criteria recipientCriteria, Message message, AsyncCallback asyncCallback,
             int timeOut) {

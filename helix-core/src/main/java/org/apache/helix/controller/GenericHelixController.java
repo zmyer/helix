@@ -181,6 +181,7 @@ public class GenericHelixController implements IdealStateChangeListener,
                 createDefaultRegistry(PipelineTypes.TASK.name()), clusterName);
     }
 
+    // TODO: 2018/7/25 by zmyer
     class RebalanceTask extends TimerTask {
         HelixManager _manager;
         ClusterEventType _clusterEventType;
@@ -190,6 +191,7 @@ public class GenericHelixController implements IdealStateChangeListener,
             _clusterEventType = clusterEventType;
         }
 
+        // TODO: 2018/7/27 by zmyer
         @Override
         public void run() {
             try {
@@ -215,6 +217,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         }
     }
 
+    // TODO: 2018/7/25 by zmyer
     /* Trigger a rebalance pipeline */
     private void forceRebalance(HelixManager manager, ClusterEventType eventType) {
         NotificationContext changeContext = new NotificationContext(manager);
@@ -236,6 +239,7 @@ public class GenericHelixController implements IdealStateChangeListener,
      * Starts the rebalancing timer with the specified period. Start the timer if necessary; If the
      * period is smaller than the current period, cancel the current timer and use the new period.
      */
+    // TODO: 2018/7/26 by zmyer
     void startRebalancingTimer(long period, HelixManager manager) {
         if (period != _timerPeriod) {
             logger.info("Controller starting timer at period " + period);
@@ -255,6 +259,7 @@ public class GenericHelixController implements IdealStateChangeListener,
     /**
      * Stops the rebalancing timer
      */
+    // TODO: 2018/7/26 by zmyer
     void stopRebalancingTimers() {
         if (_periodicalRebalanceTimer != null) {
             _periodicalRebalanceTimer.cancel();
@@ -263,17 +268,18 @@ public class GenericHelixController implements IdealStateChangeListener,
         _timerPeriod = Integer.MAX_VALUE;
     }
 
+    // TODO: 2018/7/24 by zmyer
     private static PipelineRegistry createDefaultRegistry(String pipelineName) {
         logger.info("createDefaultRegistry");
         synchronized (GenericHelixController.class) {
-            PipelineRegistry registry = new PipelineRegistry();
+            final PipelineRegistry registry = new PipelineRegistry();
 
             // cluster data cache refresh
-            Pipeline dataRefresh = new Pipeline(pipelineName);
+            final Pipeline dataRefresh = new Pipeline(pipelineName);
             dataRefresh.addStage(new ReadClusterDataStage());
 
             // rebalance pipeline
-            Pipeline rebalancePipeline = new Pipeline(pipelineName);
+            final Pipeline rebalancePipeline = new Pipeline(pipelineName);
             rebalancePipeline.addStage(new ResourceComputationStage());
             rebalancePipeline.addStage(new ResourceValidationStage());
             rebalancePipeline.addStage(new CurrentStateComputationStage());
@@ -287,11 +293,11 @@ public class GenericHelixController implements IdealStateChangeListener,
             rebalancePipeline.addStage(new TargetExteralViewCalcStage());
 
             // external view generation
-            Pipeline externalViewPipeline = new Pipeline(pipelineName);
+            final Pipeline externalViewPipeline = new Pipeline(pipelineName);
             externalViewPipeline.addStage(new ExternalViewComputeStage());
 
             // backward compatibility check
-            Pipeline liveInstancePipeline = new Pipeline(pipelineName);
+            final Pipeline liveInstancePipeline = new Pipeline(pipelineName);
             liveInstancePipeline.addStage(new CompatibilityCheckStage());
 
             registry.register(ClusterEventType.IdealStateChange, dataRefresh, rebalancePipeline);
@@ -305,9 +311,8 @@ public class GenericHelixController implements IdealStateChangeListener,
             registry.register(ClusterEventType.MessageChange, dataRefresh, rebalancePipeline);
             registry.register(ClusterEventType.ExternalViewChange, dataRefresh);
             registry.register(ClusterEventType.Resume, dataRefresh, rebalancePipeline, externalViewPipeline);
-            registry
-                    .register(ClusterEventType.PeriodicalRebalance, dataRefresh, rebalancePipeline,
-                            externalViewPipeline);
+            registry.register(ClusterEventType.PeriodicalRebalance, dataRefresh, rebalancePipeline,
+                    externalViewPipeline);
             return registry;
         }
     }
@@ -361,6 +366,7 @@ public class GenericHelixController implements IdealStateChangeListener,
      * should be serialized
      * @param event
      */
+    // TODO: 2018/7/24 by zmyer
     protected void handleEvent(ClusterEvent event, ClusterDataCache cache) {
         HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
         if (manager == null) {
@@ -419,17 +425,16 @@ public class GenericHelixController implements IdealStateChangeListener,
 
         logger.info(String.format("START: Invoking %s controller pipeline for cluster %s event: %s",
                 manager.getClusterName(), getPipelineType(cache.isTaskCache()), event.getEventType()));
-        long startTime = System.currentTimeMillis();
+        final long startTime = System.currentTimeMillis();
         boolean rebalanceFail = false;
-        for (Pipeline pipeline : pipelines) {
+        for (final Pipeline pipeline : pipelines) {
             try {
                 pipeline.handle(event);
                 pipeline.finish();
             } catch (Exception e) {
-                logger.error(
-                        "Exception while executing " + getPipelineType(cache.isTaskCache()) + "pipeline: "
-                                + pipeline + "for cluster ." + _clusterName
-                                + ". Will not continue to next pipeline", e);
+                logger.error("Exception while executing " + getPipelineType(cache.isTaskCache()) + "pipeline: "
+                        + pipeline + "for cluster ." + _clusterName
+                        + ". Will not continue to next pipeline", e);
 
                 if (e instanceof HelixMetaDataAccessException) {
                     rebalanceFail = true;
@@ -460,10 +465,9 @@ public class GenericHelixController implements IdealStateChangeListener,
             _continousRebalanceFailureCount = 0;
         }
         long endTime = System.currentTimeMillis();
-        logger.info(String
-                .format("END: Invoking %s controller pipeline for event: %s for cluster %s, took %d ms",
-                        getPipelineType(cache.isTaskCache()), event.getEventType(), manager.getClusterName(),
-                        (endTime - startTime)));
+        logger.info(String.format("END: Invoking %s controller pipeline for event: %s for cluster %s, took %d ms",
+                getPipelineType(cache.isTaskCache()), event.getEventType(), manager.getClusterName(),
+                (endTime - startTime)));
 
         if (!cache.isTaskCache()) {
             // report event process durations
@@ -516,6 +520,7 @@ public class GenericHelixController implements IdealStateChangeListener,
      * get the delay on next retry rebalance due to zk read failure, We use a simple exponential
      * backoff to make the delay between [10ms, 1000ms]
      */
+    // TODO: 2018/7/25 by zmyer
     private long getRetryDelay(long failCount) {
         int lowLimit = 5;
         if (failCount <= lowLimit) {
@@ -525,6 +530,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         return Math.min(backoff, 1000);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     @PreFetch(enabled = false)
     public void onStateChange(String instanceName, List<CurrentState> statesInfo,
@@ -536,6 +542,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         logger.info("END: GenericClusterController.onStateChange()");
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     @PreFetch(enabled = false)
     public void onMessage(String instanceName, List<Message> messages,
@@ -552,6 +559,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         logger.info("END: GenericClusterController.onMessage() for cluster " + _clusterName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void onLiveInstanceChange(List<LiveInstance> liveInstances,
             NotificationContext changeContext) {
@@ -587,6 +595,7 @@ public class GenericHelixController implements IdealStateChangeListener,
                 "END: Generic GenericClusterController.onLiveInstanceChange() for cluster " + _clusterName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     private void checkRebalancingTimer(HelixManager manager, List<IdealState> idealStates,
             ClusterConfig clusterConfig) {
         if (manager.getConfigAccessor() == null) {
@@ -597,15 +606,15 @@ public class GenericHelixController implements IdealStateChangeListener,
 
         long minPeriod = Long.MAX_VALUE;
         if (clusterConfig != null) {
-            long period = clusterConfig.getRebalanceTimePeriod();
+            final long period = clusterConfig.getRebalanceTimePeriod();
             if (period > 0 && minPeriod > period) {
                 minPeriod = period;
             }
         }
 
         // TODO: resource level rebalance does not make sense, to remove it!
-        for (IdealState idealState : idealStates) {
-            long period = idealState.getRebalanceTimerPeriod();
+        for (final IdealState idealState : idealStates) {
+            final long period = idealState.getRebalanceTimerPeriod();
             if (period > 0 && minPeriod > period) {
                 minPeriod = period;
             }
@@ -616,6 +625,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     @PreFetch(enabled = false)
     public void onIdealStateChange(List<IdealState> idealStates, NotificationContext changeContext) {
@@ -632,6 +642,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         logger.info("END: GenericClusterController.onIdealStateChange() for cluster " + _clusterName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     @PreFetch(enabled = false)
     public void onInstanceConfigChange(List<InstanceConfig> instanceConfigs,
@@ -658,6 +669,7 @@ public class GenericHelixController implements IdealStateChangeListener,
                 .info("END: GenericClusterController.onResourceConfigChange() for cluster " + _clusterName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     @PreFetch(enabled = false)
     public void onClusterConfigChange(ClusterConfig clusterConfig,
@@ -667,10 +679,10 @@ public class GenericHelixController implements IdealStateChangeListener,
         notifyCaches(context, ChangeType.CLUSTER_CONFIG);
         pushToEventQueues(ClusterEventType.ClusterConfigChange, context,
                 Collections.<String, Object>emptyMap());
-        logger
-                .info("END: GenericClusterController.onClusterConfigChange() for cluster " + _clusterName);
+        logger.info("END: GenericClusterController.onClusterConfigChange() for cluster " + _clusterName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void notifyCaches(NotificationContext context, ChangeType changeType) {
         if (context == null || context.getType() != Type.CALLBACK) {
             _cache.requireFullRefresh();
@@ -681,6 +693,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void pushToEventQueues(ClusterEventType eventType, NotificationContext changeContext,
             Map<String, Object> eventAttributes) {
         ClusterEvent event = new ClusterEvent(_clusterName, eventType);
@@ -693,6 +706,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         _taskEventQueue.put(event.clone());
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void onControllerChange(NotificationContext changeContext) {
         logger.info("START: GenericClusterController.onControllerChange() for cluster " + _clusterName);
@@ -736,6 +750,7 @@ public class GenericHelixController implements IdealStateChangeListener,
      * Message listeners to them if they are newly added. For current state change, the observation is
      * tied to the session id of each live instance.
      */
+    // TODO: 2018/7/25 by zmyer
     protected void checkLiveInstancesObservation(List<LiveInstance> liveInstances,
             NotificationContext changeContext) {
 
@@ -830,6 +845,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         // Need to record shutdown and throw Exception if the controller is used again.
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void enableClusterStatusMonitor(boolean enable) {
         synchronized (_clusterStatusMonitor) {
             if (_isMonitoring != enable) {
@@ -868,6 +884,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     private boolean updateControllerState(NotificationContext changeContext, PauseSignal signal,
             boolean statusFlag) {
         if (signal != null) {
@@ -892,7 +909,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         return statusFlag;
     }
 
-
+    // TODO: 2018/7/24 by zmyer
     // TODO: refactor this to use common/ClusterEventProcessor.
     private class ClusterEventProcessor extends Thread {
         private final ClusterDataCache _cache;
@@ -905,6 +922,7 @@ public class GenericHelixController implements IdealStateChangeListener,
             _eventBlockingQueue = eventBlockingQueue;
         }
 
+        // TODO: 2018/7/26 by zmyer
         @Override
         public void run() {
             logger.info("START ClusterEventProcessor thread  for cluster " + _clusterName);
@@ -927,6 +945,7 @@ public class GenericHelixController implements IdealStateChangeListener,
         }
     }
 
+    // TODO: 2018/7/26 by zmyer
     private void initPipelines(Thread eventThread, ClusterDataCache cache, boolean isTask) {
         cache.setTaskCache(isTask);
         cache.setAsyncTasksThreadPool(_asyncTasksThreadPool);

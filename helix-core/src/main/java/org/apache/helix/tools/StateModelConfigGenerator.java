@@ -25,52 +25,52 @@ import org.apache.helix.model.LeaderStandbySMD;
 import org.apache.helix.model.MasterSlaveSMD;
 import org.apache.helix.model.OnlineOfflineSMD;
 import org.apache.helix.model.ScheduledTaskSMD;
-import org.apache.helix.model.TaskSMD;
 import org.apache.helix.model.StorageSchemataSMD;
+import org.apache.helix.model.TaskSMD;
 
 // TODO refactor to use StateModelDefinition.Builder
 @Deprecated
 public class StateModelConfigGenerator {
 
-  public static void main(String[] args) {
-    ZNRecordSerializer serializer = new ZNRecordSerializer();
-    System.out.println(new String(serializer.serialize(generateConfigForMasterSlave())));
-  }
+    public static void main(String[] args) {
+        ZNRecordSerializer serializer = new ZNRecordSerializer();
+        System.out.println(new String(serializer.serialize(generateConfigForMasterSlave())));
+    }
 
-  /**
-   * count -1 don't care any numeric value > 0 will be tried to be satisfied based on
-   * priority N all nodes in the cluster will be assigned to this state if possible R all
-   * remaining nodes in the preference list will be assigned to this state, applies only
-   * to last state
-   */
+    /**
+     * count -1 don't care any numeric value > 0 will be tried to be satisfied based on
+     * priority N all nodes in the cluster will be assigned to this state if possible R all
+     * remaining nodes in the preference list will be assigned to this state, applies only
+     * to last state
+     */
 
-  @Deprecated
-  public static ZNRecord generateConfigForStorageSchemata() {
-    return StorageSchemataSMD.generateConfigForStorageSchemata();
-  }
+    @Deprecated
+    public static ZNRecord generateConfigForStorageSchemata() {
+        return StorageSchemataSMD.generateConfigForStorageSchemata();
+    }
 
-  @Deprecated
-  public static ZNRecord generateConfigForMasterSlave() {
-    return MasterSlaveSMD.generateConfigForMasterSlave();
-  }
+    @Deprecated
+    public static ZNRecord generateConfigForMasterSlave() {
+        return MasterSlaveSMD.generateConfigForMasterSlave();
+    }
 
-  @Deprecated
-  public static ZNRecord generateConfigForLeaderStandby() {
-    return LeaderStandbySMD.generateConfigForLeaderStandby();
-  }
+    @Deprecated
+    public static ZNRecord generateConfigForLeaderStandby() {
+        return LeaderStandbySMD.generateConfigForLeaderStandby();
+    }
 
-  @Deprecated
-  public static ZNRecord generateConfigForOnlineOffline() {
-    return OnlineOfflineSMD.generateConfigForOnlineOffline();
-  }
+    @Deprecated
+    public static ZNRecord generateConfigForOnlineOffline() {
+        return OnlineOfflineSMD.generateConfigForOnlineOffline();
+    }
 
-  @Deprecated
-  public static ZNRecord generateConfigForScheduledTaskQueue() {
-    return ScheduledTaskSMD.generateConfigForScheduledTaskQueue();
-  }
+    @Deprecated
+    public static ZNRecord generateConfigForScheduledTaskQueue() {
+        return ScheduledTaskSMD.generateConfigForScheduledTaskQueue();
+    }
 
-  @Deprecated
-  public static ZNRecord generateConfigForTaskStateModel() {
-    return TaskSMD.generateConfigForTaskStateModel();
-  }
+    @Deprecated
+    public static ZNRecord generateConfigForTaskStateModel() {
+        return TaskSMD.generateConfigForTaskStateModel();
+    }
 }

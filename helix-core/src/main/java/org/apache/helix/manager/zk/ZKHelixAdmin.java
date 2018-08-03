@@ -85,6 +85,7 @@ public class ZKHelixAdmin implements HelixAdmin {
 
     private static Logger logger = LoggerFactory.getLogger(ZKHelixAdmin.class);
 
+    // TODO: 2018/7/26 by zmyer
     public ZKHelixAdmin(ZkClient zkClient) {
         _zkClient = zkClient;
         _configAccessor = new ConfigAccessor(zkClient);
@@ -198,6 +199,7 @@ public class ZKHelixAdmin implements HelixAdmin {
         return accessor.setProperty(instanceConfigPropertyKey, newInstanceConfig);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void enableInstance(final String clusterName, final String instanceName,
             final boolean enabled) {
@@ -253,6 +255,7 @@ public class ZKHelixAdmin implements HelixAdmin {
         }, AccessOption.PERSISTENT);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public void enablePartition(final boolean enabled, final String clusterName,
             final String instanceName, final String resourceName, final List<String> partitionNames) {
@@ -362,6 +365,7 @@ public class ZKHelixAdmin implements HelixAdmin {
         enableMaintenanceMode(clusterName, enabled, null);
     }
 
+    // TODO: 2018/7/25 by zmyer
     @Override
     public void enableMaintenanceMode(String clusterName, boolean enabled, String reason) {
         logger.info("Cluster {} {} maintenance mode for reason {}.", enabled ? "enters" : "exits",
@@ -1346,6 +1350,7 @@ public class ZKHelixAdmin implements HelixAdmin {
         setResourceIdealState(clusterName, resourceName, idealState);
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void enableSingleInstance(final String clusterName, final String instanceName,
             final boolean enabled, BaseDataAccessor<ZNRecord> baseAccessor) {
         String path = PropertyPathBuilder.instanceConfig(clusterName, instanceName);

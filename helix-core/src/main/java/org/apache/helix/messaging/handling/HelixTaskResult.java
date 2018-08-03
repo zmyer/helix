@@ -22,74 +22,75 @@ package org.apache.helix.messaging.handling;
 import java.util.HashMap;
 import java.util.Map;
 
+// TODO: 2018/7/24 by zmyer
 public class HelixTaskResult {
 
-  private boolean _success;
-  private boolean _cancelled;
-  private String _message = "";
-  private String _info = "";
-  private Map<String, String> _taskResultMap = new HashMap<String, String>();
-  private boolean _interrupted = false;
-  Exception _exception = null;
-  private long _completeTime = -1;
+    private boolean _success;
+    private boolean _cancelled;
+    private String _message = "";
+    private String _info = "";
+    private Map<String, String> _taskResultMap = new HashMap<String, String>();
+    private boolean _interrupted = false;
+    Exception _exception = null;
+    private long _completeTime = -1;
 
-  public boolean isSuccess() {
-    return _success;
-  }
+    public boolean isSuccess() {
+        return _success;
+    }
 
-  public boolean isInterrupted() {
-    return _interrupted;
-  }
+    public boolean isInterrupted() {
+        return _interrupted;
+    }
 
-  public void setInterrupted(boolean interrupted) {
-    _interrupted = interrupted;
-  }
+    public void setInterrupted(boolean interrupted) {
+        _interrupted = interrupted;
+    }
 
-  public boolean isCancelled() {
-    return _cancelled;
-  }
+    public boolean isCancelled() {
+        return _cancelled;
+    }
 
-  public void setCancelled(boolean cancelled) {
-    _cancelled = cancelled;
-  }
+    public void setCancelled(boolean cancelled) {
+        _cancelled = cancelled;
+    }
 
-  public void setSuccess(boolean success) {
-    this._success = success;
-  }
+    public void setSuccess(boolean success) {
+        this._success = success;
+    }
 
-  public String getMessage() {
-    return _message;
-  }
+    public String getMessage() {
+        return _message;
+    }
 
-  public void setMessage(String message) {
-    this._message = message;
-  }
+    public void setMessage(String message) {
+        this._message = message;
+    }
 
-  public String getInfo() {
-    return _info;
-  }
+    public String getInfo() {
+        return _info;
+    }
 
-  public void setInfo(String info) {
-    _info = info;
-  }
+    public void setInfo(String info) {
+        _info = info;
+    }
 
-  public Map<String, String> getTaskResultMap() {
-    return _taskResultMap;
-  }
+    public Map<String, String> getTaskResultMap() {
+        return _taskResultMap;
+    }
 
-  public void setException(Exception e) {
-    _exception = e;
-  }
+    public void setException(Exception e) {
+        _exception = e;
+    }
 
-  public Exception getException() {
-    return _exception;
-  }
+    public Exception getException() {
+        return _exception;
+    }
 
-  public long getCompleteTime() {
-    return _completeTime;
-  }
+    public long getCompleteTime() {
+        return _completeTime;
+    }
 
-  public void setCompleteTime(long completeTime) {
-    _completeTime = completeTime;
-  }
+    public void setCompleteTime(long completeTime) {
+        _completeTime = completeTime;
+    }
 }

@@ -22,8 +22,8 @@ package org.apache.helix.api.listeners;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
-
+// TODO: 2018/7/27 by zmyer
 @Retention(RetentionPolicy.RUNTIME)
 public @interface PreFetch {
-  boolean enabled() default true;
+    boolean enabled() default true;
 }

@@ -46,6 +46,7 @@ public class Message extends HelixProperty {
     /**
      * The major categories of messages that are sent
      */
+    // TODO: 2018/7/25 by zmyer
     public enum MessageType {
         STATE_TRANSITION,
         STATE_TRANSITION_CANCELLATION,
@@ -153,6 +154,7 @@ public class Message extends HelixProperty {
      * Instantiate a message
      * @param record a ZNRecord corresponding to a message
      */
+    // TODO: 2018/7/27 by zmyer
     public Message(ZNRecord record) {
         super(record);
         if (getMsgState() == null) {
@@ -662,6 +664,7 @@ public class Message extends HelixProperty {
      * Add a partition to a collection of partitions associated with this message
      * @param partitionName the partition name to add
      */
+    // TODO: 2018/7/25 by zmyer
     public void addPartitionName(String partitionName) {
         if (_record.getListField(Attributes.PARTITION_NAME.toString()) == null) {
             _record.setListField(Attributes.PARTITION_NAME.toString(), new ArrayList<String>());

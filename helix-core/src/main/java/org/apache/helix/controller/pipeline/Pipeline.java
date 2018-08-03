@@ -43,12 +43,14 @@ public class Pipeline {
         _pipelineType = pipelineType;
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void addStage(Stage stage) {
         _stages.add(stage);
         StageContext context = null;
         stage.init(context);
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void handle(ClusterEvent event) throws Exception {
         if (_stages == null) {
             return;

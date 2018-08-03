@@ -19,22 +19,24 @@ package org.apache.helix.api.listeners;
  * under the License.
  */
 
-import java.util.List;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.CurrentState;
+
+import java.util.List;
 
 /**
  * Interface to implement to respond to changes in the current state
  */
+// TODO: 2018/7/25 by zmyer
 public interface CurrentStateChangeListener {
 
-  /**
-   * Invoked when current state changes
-   * @param instanceName name of the instance whose state changed
-   * @param statesInfo a list of the current states
-   * @param changeContext the change event and state
-   */
-  void onStateChange(String instanceName, List<CurrentState> statesInfo,
-      NotificationContext changeContext);
+    /**
+     * Invoked when current state changes
+     * @param instanceName name of the instance whose state changed
+     * @param statesInfo a list of the current states
+     * @param changeContext the change event and state
+     */
+    void onStateChange(String instanceName, List<CurrentState> statesInfo,
+            NotificationContext changeContext);
 
 }

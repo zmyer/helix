@@ -41,6 +41,7 @@ public class DistClusterControllerStateModel extends StateModel {
     protected HelixManager _controller = null;
     protected final String _zkAddr;
 
+    // TODO: 2018/7/27 by zmyer
     public DistClusterControllerStateModel(String zkAddr) {
         StateModelParser parser = new StateModelParser();
         _currentState = parser.getInitialState(DistClusterControllerStateModel.class);

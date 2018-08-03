@@ -22,12 +22,13 @@ package org.apache.helix;
 /**
  * Interface to provide additional information about a live instance at creation time
  */
+// TODO: 2018/7/27 by zmyer
 public interface LiveInstanceInfoProvider {
-  /**
-   * Callback function that is called by HelixManager before it creates LiveInstance Zk Node.
-   * The ZNRecord returned by this function
-   * @see ZkHelixManager#addLiveInstance()
-   * @see HelixManager#setLiveInstanceInfoProvider(LiveInstanceInfoProvider)
-   */
-  ZNRecord getAdditionalLiveInstanceInfo();
+    /**
+     * Callback function that is called by HelixManager before it creates LiveInstance Zk Node.
+     * The ZNRecord returned by this function
+     * @see ZkHelixManager#addLiveInstance()
+     * @see HelixManager#setLiveInstanceInfoProvider(LiveInstanceInfoProvider)
+     */
+    ZNRecord getAdditionalLiveInstanceInfo();
 }

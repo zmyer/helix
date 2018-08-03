@@ -59,13 +59,13 @@ public class HelixStateMachineEngine implements StateMachineEngine {
     private final HelixManager _manager;
     private final ConcurrentHashMap<String, StateModelDefinition> _stateModelDefs;
 
+    // TODO: 2018/7/27 by zmyer
     public HelixStateMachineEngine(HelixManager manager) {
         _stateModelParser = new StateModelParser();
         _manager = manager;
 
-        _stateModelFactoryMap =
-                new ConcurrentHashMap<String, Map<String, StateModelFactory<? extends StateModel>>>();
-        _stateModelDefs = new ConcurrentHashMap<String, StateModelDefinition>();
+        _stateModelFactoryMap = new ConcurrentHashMap<>();
+        _stateModelDefs = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -82,6 +82,7 @@ public class HelixStateMachineEngine implements StateMachineEngine {
         return _stateModelFactoryMap.get(stateModelName).get(factoryName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     @Override
     public boolean registerStateModelFactory(String stateModelDef,
             StateModelFactory<? extends StateModel> factory) {
@@ -89,6 +90,7 @@ public class HelixStateMachineEngine implements StateMachineEngine {
                 HelixConstants.DEFAULT_STATE_MODEL_FACTORY);
     }
 
+    // TODO: 2018/7/26 by zmyer
     @Override
     public boolean registerStateModelFactory(String stateModelName,
             StateModelFactory<? extends StateModel> factory, String factoryName) {
@@ -162,6 +164,7 @@ public class HelixStateMachineEngine implements StateMachineEngine {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public MessageHandler createHandler(Message message, NotificationContext context) {
         String type = message.getMsgType();
@@ -211,8 +214,8 @@ public class HelixStateMachineEngine implements StateMachineEngine {
             _stateModelDefs.put(stateModelName, stateModelDef);
         }
 
-        if (message.getBatchMessageMode() == false) {
-            String initState = _stateModelDefs.get(message.getStateModelDef()).getInitialState();
+        if (!message.getBatchMessageMode()) {
+            final String initState = _stateModelDefs.get(message.getStateModelDef()).getInitialState();
             StateModel stateModel = stateModelFactory.getStateModel(resourceName, partitionKey);
             if (stateModel == null) {
                 stateModel = stateModelFactory.createAndAddStateModel(resourceName, partitionKey);
@@ -224,7 +227,7 @@ public class HelixStateMachineEngine implements StateMachineEngine {
             } else {
                 // create currentStateDelta for this partition
                 // TODO: move currentStateDelta to StateTransitionMsgHandler
-                CurrentState currentStateDelta = new CurrentState(resourceName);
+                final CurrentState currentStateDelta = new CurrentState(resourceName);
                 currentStateDelta.setSessionId(sessionId);
                 currentStateDelta.setStateModelDefRef(stateModelName);
                 currentStateDelta.setStateModelFactoryName(factoryName);

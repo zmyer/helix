@@ -74,12 +74,13 @@ public class ZNRecord {
      * Initialize with an identifier
      * @param id
      */
+    // TODO: 2018/7/26 by zmyer
     @JsonCreator
     public ZNRecord(@JsonProperty("id") String id) {
         this.id = id;
-        simpleFields = new TreeMap<String, String>();
-        mapFields = new TreeMap<String, Map<String, String>>();
-        listFields = new TreeMap<String, List<String>>();
+        simpleFields = new TreeMap<>();
+        mapFields = new TreeMap<>();
+        listFields = new TreeMap<>();
         rawPayload = null;
         _serializer = new JacksonPayloadSerializer();
     }

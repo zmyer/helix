@@ -19,85 +19,89 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
-import java.util.HashMap;
-import java.util.Map;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
+import java.util.Map;
+
+// TODO: 2018/7/24 by zmyer
 public class ClusterEvent {
-  private static final Logger logger = LoggerFactory.getLogger(ClusterEvent.class.getName());
-  private final ClusterEventType _eventType;
-  private final Map<String, Object> _eventAttributeMap;
-  private long _creationTime;
-  private String _clusterName;
+    private static final Logger logger = LoggerFactory.getLogger(ClusterEvent.class.getName());
+    private final ClusterEventType _eventType;
+    private final Map<String, Object> _eventAttributeMap;
+    private long _creationTime;
+    private String _clusterName;
 
-  @Deprecated
-  public ClusterEvent(ClusterEventType eventType) {
-    _eventType = eventType;
-    _eventAttributeMap = new HashMap<>();
-    _creationTime = System.currentTimeMillis();
-  }
-
-  public ClusterEvent(String clusterName, ClusterEventType eventType) {
-    _clusterName = clusterName;
-    _eventType = eventType;
-    _eventAttributeMap = new HashMap<>();
-    _creationTime = System.currentTimeMillis();
-  }
-
-  public void addAttribute(String attrName, Object attrValue) {
-    if (logger.isTraceEnabled()) {
-      logger.trace("Adding attribute:" + attrName);
-      logger.trace(" attribute value:" + attrValue);
+    @Deprecated
+    public ClusterEvent(ClusterEventType eventType) {
+        _eventType = eventType;
+        _eventAttributeMap = new HashMap<>();
+        _creationTime = System.currentTimeMillis();
     }
 
-    _eventAttributeMap.put(attrName, attrValue);
-  }
-
-  public ClusterEventType getEventType() { return _eventType; }
-
-  public long getCreationTime() {
-    return _creationTime;
-  }
-
-  public void setCreationTime(long creationTime) {
-    _creationTime = creationTime;
-  }
-
-  public String getClusterName() {
-    return _clusterName;
-  }
-
-  public void setClusterName(String clusterName) {
-    _clusterName = clusterName;
-  }
-
-  @SuppressWarnings("unchecked")
-  public <T extends Object> T getAttribute(String attrName) {
-    Object ret = _eventAttributeMap.get(attrName);
-    if (ret != null) {
-      return (T) ret;
+    // TODO: 2018/7/25 by zmyer
+    public ClusterEvent(String clusterName, ClusterEventType eventType) {
+        _clusterName = clusterName;
+        _eventType = eventType;
+        _eventAttributeMap = new HashMap<>();
+        _creationTime = System.currentTimeMillis();
     }
-    return null;
-  }
 
-  @Override
-  public String toString() {
-    StringBuilder sb = new StringBuilder();
-    sb.append("name:" + _eventType.name()).append("\n");
-    for (String key : _eventAttributeMap.keySet()) {
-      sb.append(key).append(":").append(_eventAttributeMap.get(key)).append("\n");
-    }
-    return sb.toString();
-  }
+    public void addAttribute(String attrName, Object attrValue) {
+        if (logger.isTraceEnabled()) {
+            logger.trace("Adding attribute:" + attrName);
+            logger.trace(" attribute value:" + attrValue);
+        }
 
-  public ClusterEvent clone() {
-    ClusterEvent newEvent = new ClusterEvent(_clusterName, _eventType);
-    newEvent.setCreationTime(_creationTime);
-    for (String attributeName : _eventAttributeMap.keySet()) {
-      newEvent.addAttribute(attributeName, _eventAttributeMap.get(attributeName));
+        _eventAttributeMap.put(attrName, attrValue);
     }
-    return newEvent;
-  }
+
+    public ClusterEventType getEventType() {
+        return _eventType;
+    }
+
+    public long getCreationTime() {
+        return _creationTime;
+    }
+
+    public void setCreationTime(long creationTime) {
+        _creationTime = creationTime;
+    }
+
+    public String getClusterName() {
+        return _clusterName;
+    }
+
+    public void setClusterName(String clusterName) {
+        _clusterName = clusterName;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T extends Object> T getAttribute(String attrName) {
+        Object ret = _eventAttributeMap.get(attrName);
+        if (ret != null) {
+            return (T) ret;
+        }
+        return null;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("name:" + _eventType.name()).append("\n");
+        for (String key : _eventAttributeMap.keySet()) {
+            sb.append(key).append(":").append(_eventAttributeMap.get(key)).append("\n");
+        }
+        return sb.toString();
+    }
+
+    public ClusterEvent clone() {
+        ClusterEvent newEvent = new ClusterEvent(_clusterName, _eventType);
+        newEvent.setCreationTime(_creationTime);
+        for (String attributeName : _eventAttributeMap.keySet()) {
+            newEvent.addAttribute(attributeName, _eventAttributeMap.get(attributeName));
+        }
+        return newEvent;
+    }
 }

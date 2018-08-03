@@ -20,165 +20,166 @@ package org.apache.helix.monitoring.mbeans;
  */
 
 import org.apache.helix.HelixException;
+import org.apache.helix.manager.zk.zookeeper.ZkEventThread;
 
 import javax.management.JMException;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.helix.manager.zk.zookeeper.ZkEventThread;
 
+// TODO: 2018/7/26 by zmyer
 public class ZkClientMonitor implements ZkClientMonitorMBean {
-  public static final String MONITOR_TYPE = "Type";
-  public static final String MONITOR_KEY = "Key";
+    public static final String MONITOR_TYPE = "Type";
+    public static final String MONITOR_KEY = "Key";
 
-  public enum AccessType {
-    READ,
-    WRITE
-  }
-
-  private ObjectName _objectName;
-  private String _sensorName;
-
-  private long _stateChangeEventCounter;
-  private long _dataChangeEventCounter;
-  private ZkEventThread _zkEventThread;
-
-  private Map<ZkClientPathMonitor.PredefinedPath, ZkClientPathMonitor> _zkClientPathMonitorMap =
-      new ConcurrentHashMap<>();
-
-  public ZkClientMonitor(String monitorType, String monitorKey, String monitorInstanceName,
-      boolean monitorRootPathOnly) throws JMException {
-    if (monitorKey == null || monitorKey.isEmpty() || monitorType == null || monitorType
-        .isEmpty()) {
-      throw new HelixException("Cannot create ZkClientMonitor without monitor key and type.");
+    public enum AccessType {
+        READ,
+        WRITE
     }
 
-    _sensorName =
-        String.format("%s.%s.%s", MonitorDomainNames.HelixZkClient.name(), monitorType, monitorKey);
+    private ObjectName _objectName;
+    private String _sensorName;
 
-    _objectName =
-        MBeanRegistrar.register(this, getObjectName(monitorType, monitorKey, monitorInstanceName));
+    private long _stateChangeEventCounter;
+    private long _dataChangeEventCounter;
+    private ZkEventThread _zkEventThread;
 
-    for (ZkClientPathMonitor.PredefinedPath path : ZkClientPathMonitor.PredefinedPath.values()) {
-      // If monitor root path only, check if the current path is Root.
-      // Otherwise, add monitors for every path.
-      if (!monitorRootPathOnly || path.equals(ZkClientPathMonitor.PredefinedPath.Root)) {
-        _zkClientPathMonitorMap.put(path,
-            new ZkClientPathMonitor(path, monitorType, monitorKey, monitorInstanceName).register());
-      }
-    }
-  }
+    private Map<ZkClientPathMonitor.PredefinedPath, ZkClientPathMonitor> _zkClientPathMonitorMap =
+            new ConcurrentHashMap<>();
 
-  public void setZkEventThread(ZkEventThread zkEventThread) {
-    _zkEventThread = zkEventThread;
-  }
-
-  protected static ObjectName getObjectName(String monitorType, String monitorKey,
-      String monitorInstanceName) throws MalformedObjectNameException {
-    return MBeanRegistrar
-        .buildObjectName(MonitorDomainNames.HelixZkClient.name(), MONITOR_TYPE, monitorType,
-            MONITOR_KEY,
-            (monitorKey + (monitorInstanceName == null ? "" : "." + monitorInstanceName)));
-  }
-
-  /**
-   * After unregistered, the MBean can't be registered again, a new monitor has be to created.
-   */
-  public void unregister() {
-    MBeanRegistrar.unregister(_objectName);
-    for (ZkClientPathMonitor zkClientPathMonitor : _zkClientPathMonitorMap.values()) {
-      zkClientPathMonitor.unregister();
-    }
-  }
-
-  @Override
-  public String getSensorName() {
-    return _sensorName;
-  }
-
-  public void increaseStateChangeEventCounter() {
-    _stateChangeEventCounter++;
-  }
-
-  @Override
-  public long getStateChangeEventCounter() {
-    return _stateChangeEventCounter;
-  }
-
-  public void increaseDataChangeEventCounter() {
-    _dataChangeEventCounter++;
-  }
-
-  @Override
-  public long getDataChangeEventCounter() {
-    return _dataChangeEventCounter;
-  }
-
-  @Override
-  public long getPendingCallbackGauge() {
-    if (_zkEventThread != null) {
-      return _zkEventThread.getPendingEventsCount();
-    }
-
-    return -1;
-  }
-
-  @Override
-  public long getTotalCallbackCounter() {
-    if (_zkEventThread != null) {
-      return _zkEventThread.getTotalEventCount();
-    }
-
-    return -1;
-  }
-
-  @Override
-  public long getTotalCallbackHandledCounter() {
-    if (_zkEventThread != null) {
-      return _zkEventThread.getTotalHandledEventCount();
-    }
-
-    return -1;
-  }
-
-  private void record(String path, int bytes, long latencyMilliSec, boolean isFailure,
-      boolean isRead) {
-    for (ZkClientPathMonitor.PredefinedPath predefinedPath : ZkClientPathMonitor.PredefinedPath
-        .values()) {
-      if (predefinedPath.match(path)) {
-        ZkClientPathMonitor zkClientPathMonitor = _zkClientPathMonitorMap.get(predefinedPath);
-        if (zkClientPathMonitor != null) {
-          zkClientPathMonitor.record(bytes, latencyMilliSec, isFailure, isRead);
+    public ZkClientMonitor(String monitorType, String monitorKey, String monitorInstanceName,
+            boolean monitorRootPathOnly) throws JMException {
+        if (monitorKey == null || monitorKey.isEmpty() || monitorType == null || monitorType
+                .isEmpty()) {
+            throw new HelixException("Cannot create ZkClientMonitor without monitor key and type.");
         }
-      }
-    }
-  }
 
-  public void record(String path, int dataSize, long startTimeMilliSec, AccessType accessType) {
-    switch (accessType) {
-    case READ:
-      record(path, dataSize, System.currentTimeMillis() - startTimeMilliSec, false, true);
-      return;
-    case WRITE:
-      record(path, dataSize, System.currentTimeMillis() - startTimeMilliSec, false, false);
-      return;
+        _sensorName =
+                String.format("%s.%s.%s", MonitorDomainNames.HelixZkClient.name(), monitorType, monitorKey);
 
-    default:
-      return;
-    }
-  }
+        _objectName =
+                MBeanRegistrar.register(this, getObjectName(monitorType, monitorKey, monitorInstanceName));
 
-  public void recordFailure(String path, AccessType accessType) {
-    switch (accessType) {
-    case READ:
-      record(path, 0, 0, true, true);
-      return;
-    case WRITE:
-      record(path, 0, 0, true, false);
-      return;
-    default:
-      return;
+        for (ZkClientPathMonitor.PredefinedPath path : ZkClientPathMonitor.PredefinedPath.values()) {
+            // If monitor root path only, check if the current path is Root.
+            // Otherwise, add monitors for every path.
+            if (!monitorRootPathOnly || path.equals(ZkClientPathMonitor.PredefinedPath.Root)) {
+                _zkClientPathMonitorMap.put(path,
+                        new ZkClientPathMonitor(path, monitorType, monitorKey, monitorInstanceName).register());
+            }
+        }
     }
-  }
+
+    public void setZkEventThread(ZkEventThread zkEventThread) {
+        _zkEventThread = zkEventThread;
+    }
+
+    protected static ObjectName getObjectName(String monitorType, String monitorKey,
+            String monitorInstanceName) throws MalformedObjectNameException {
+        return MBeanRegistrar
+                .buildObjectName(MonitorDomainNames.HelixZkClient.name(), MONITOR_TYPE, monitorType,
+                        MONITOR_KEY,
+                        (monitorKey + (monitorInstanceName == null ? "" : "." + monitorInstanceName)));
+    }
+
+    /**
+     * After unregistered, the MBean can't be registered again, a new monitor has be to created.
+     */
+    public void unregister() {
+        MBeanRegistrar.unregister(_objectName);
+        for (ZkClientPathMonitor zkClientPathMonitor : _zkClientPathMonitorMap.values()) {
+            zkClientPathMonitor.unregister();
+        }
+    }
+
+    @Override
+    public String getSensorName() {
+        return _sensorName;
+    }
+
+    public void increaseStateChangeEventCounter() {
+        _stateChangeEventCounter++;
+    }
+
+    @Override
+    public long getStateChangeEventCounter() {
+        return _stateChangeEventCounter;
+    }
+
+    public void increaseDataChangeEventCounter() {
+        _dataChangeEventCounter++;
+    }
+
+    @Override
+    public long getDataChangeEventCounter() {
+        return _dataChangeEventCounter;
+    }
+
+    @Override
+    public long getPendingCallbackGauge() {
+        if (_zkEventThread != null) {
+            return _zkEventThread.getPendingEventsCount();
+        }
+
+        return -1;
+    }
+
+    @Override
+    public long getTotalCallbackCounter() {
+        if (_zkEventThread != null) {
+            return _zkEventThread.getTotalEventCount();
+        }
+
+        return -1;
+    }
+
+    @Override
+    public long getTotalCallbackHandledCounter() {
+        if (_zkEventThread != null) {
+            return _zkEventThread.getTotalHandledEventCount();
+        }
+
+        return -1;
+    }
+
+    private void record(String path, int bytes, long latencyMilliSec, boolean isFailure,
+            boolean isRead) {
+        for (ZkClientPathMonitor.PredefinedPath predefinedPath : ZkClientPathMonitor.PredefinedPath
+                .values()) {
+            if (predefinedPath.match(path)) {
+                ZkClientPathMonitor zkClientPathMonitor = _zkClientPathMonitorMap.get(predefinedPath);
+                if (zkClientPathMonitor != null) {
+                    zkClientPathMonitor.record(bytes, latencyMilliSec, isFailure, isRead);
+                }
+            }
+        }
+    }
+
+    public void record(String path, int dataSize, long startTimeMilliSec, AccessType accessType) {
+        switch (accessType) {
+        case READ:
+            record(path, dataSize, System.currentTimeMillis() - startTimeMilliSec, false, true);
+            return;
+        case WRITE:
+            record(path, dataSize, System.currentTimeMillis() - startTimeMilliSec, false, false);
+            return;
+
+        default:
+            return;
+        }
+    }
+
+    public void recordFailure(String path, AccessType accessType) {
+        switch (accessType) {
+        case READ:
+            record(path, 0, 0, true, true);
+            return;
+        case WRITE:
+            record(path, 0, 0, true, false);
+            return;
+        default:
+            return;
+        }
+    }
 }

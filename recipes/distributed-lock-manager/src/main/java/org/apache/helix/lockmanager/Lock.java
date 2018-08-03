@@ -25,24 +25,25 @@ import org.apache.helix.participant.statemachine.StateModel;
 import org.apache.helix.participant.statemachine.StateModelInfo;
 import org.apache.helix.participant.statemachine.Transition;
 
+// TODO: 2018/7/26 by zmyer
 @StateModelInfo(initialState = "OFFLINE", states = {
-    "OFFLINE", "ONLINE"
+        "OFFLINE", "ONLINE"
 })
 public class Lock extends StateModel {
-  private String lockName;
+    private String lockName;
 
-  public Lock(String lockName) {
-    this.lockName = lockName;
-  }
+    public Lock(String lockName) {
+        this.lockName = lockName;
+    }
 
-  @Transition(from = "OFFLINE", to = "ONLINE")
-  public void lock(Message m, NotificationContext context) {
-    System.out.println(context.getManager().getInstanceName() + " acquired lock:" + lockName);
-  }
+    @Transition(from = "OFFLINE", to = "ONLINE")
+    public void lock(Message m, NotificationContext context) {
+        System.out.println(context.getManager().getInstanceName() + " acquired lock:" + lockName);
+    }
 
-  @Transition(from = "ONLINE", to = "OFFLINE")
-  public void release(Message m, NotificationContext context) {
-    System.out.println(context.getManager().getInstanceName() + " releasing lock:" + lockName);
-  }
+    @Transition(from = "ONLINE", to = "OFFLINE")
+    public void release(Message m, NotificationContext context) {
+        System.out.println(context.getManager().getInstanceName() + " releasing lock:" + lockName);
+    }
 
 }

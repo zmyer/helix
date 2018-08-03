@@ -19,21 +19,23 @@ package org.apache.helix.api.listeners;
  * under the License.
  */
 
-import java.util.List;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.IdealState;
+
+import java.util.List;
 
 /**
  * Interface to implement to listen for changes to the ideal state of resources.
  */
+// TODO: 2018/7/27 by zmyer
 public interface IdealStateChangeListener {
 
-  /**
-   * Invoed when ideal state changes
-   * @param idealState
-   * @param changeContext
-   */
-  void onIdealStateChange(List<IdealState> idealState, NotificationContext changeContext)
-      throws InterruptedException;
+    /**
+     * Invoed when ideal state changes
+     * @param idealState
+     * @param changeContext
+     */
+    void onIdealStateChange(List<IdealState> idealState, NotificationContext changeContext)
+            throws InterruptedException;
 
 }

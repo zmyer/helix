@@ -40,6 +40,7 @@ import java.util.List;
 /**
  * do distributed leader election
  */
+// TODO: 2018/7/27 by zmyer
 public class DistributedLeaderElection implements ControllerChangeListener {
     private static Logger LOG = LoggerFactory.getLogger(DistributedLeaderElection.class);
 
@@ -59,22 +60,23 @@ public class DistributedLeaderElection implements ControllerChangeListener {
      * ZkHelixManager.disconnect()->reset() TODO: Refactor accessing
      * HelixMangerMain class statically
      */
+    // TODO: 2018/7/27 by zmyer
     @Override
     public synchronized void onControllerChange(NotificationContext changeContext) {
-        HelixManager manager = changeContext.getManager();
+        final HelixManager manager = changeContext.getManager();
         if (manager == null) {
             LOG.error("missing attributes in changeContext. requires HelixManager");
             return;
         }
 
-        InstanceType type = manager.getInstanceType();
+        final InstanceType type = manager.getInstanceType();
         if (type != InstanceType.CONTROLLER && type != InstanceType.CONTROLLER_PARTICIPANT) {
             LOG.error("fail to become controller because incorrect instanceType (was " + type.toString()
                     + ", requires CONTROLLER | CONTROLLER_PARTICIPANT)");
             return;
         }
 
-        ControllerManagerHelper controllerHelper =
+        final ControllerManagerHelper controllerHelper =
                 new ControllerManagerHelper(_manager, _controllerTimerTasks);
         try {
             if (changeContext.getType().equals(NotificationContext.Type.INIT)
@@ -113,6 +115,7 @@ public class DistributedLeaderElection implements ControllerChangeListener {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     private boolean tryUpdateController(HelixManager manager) {
         HelixDataAccessor accessor = manager.getHelixDataAccessor();
         Builder keyBuilder = accessor.keyBuilder();
@@ -147,6 +150,7 @@ public class DistributedLeaderElection implements ControllerChangeListener {
         return false;
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void updateHistory(HelixManager manager) {
         HelixDataAccessor accessor = manager.getHelixDataAccessor();
         Builder keyBuilder = accessor.keyBuilder();

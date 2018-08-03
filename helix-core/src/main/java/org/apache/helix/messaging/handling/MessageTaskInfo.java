@@ -22,23 +22,24 @@ package org.apache.helix.messaging.handling;
 import java.util.TimerTask;
 import java.util.concurrent.Future;
 
+// TODO: 2018/7/24 by zmyer
 public class MessageTaskInfo {
-  final MessageTask _task;
-  final Future<HelixTaskResult> _future;
-  final TimerTask _timerTask;
+    final MessageTask _task;
+    final Future<HelixTaskResult> _future;
+    final TimerTask _timerTask;
 
-  public MessageTaskInfo(MessageTask task, Future<HelixTaskResult> future, TimerTask timerTask) {
-    _task = task;
-    _future = future;
-    _timerTask = timerTask;
-  }
+    public MessageTaskInfo(MessageTask task, Future<HelixTaskResult> future, TimerTask timerTask) {
+        _task = task;
+        _future = future;
+        _timerTask = timerTask;
+    }
 
-  public Future<HelixTaskResult> getFuture() {
-    return _future;
-  }
+    public Future<HelixTaskResult> getFuture() {
+        return _future;
+    }
 
-  public MessageTask getTask(){
-    return _task;
-  }
+    public MessageTask getTask() {
+        return _task;
+    }
 
 }

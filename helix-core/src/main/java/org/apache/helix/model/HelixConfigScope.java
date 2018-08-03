@@ -31,6 +31,7 @@ public class HelixConfigScope {
     /**
      * Defines the various scopes of configs, and how they are represented on Zookeeper
      */
+    // TODO: 2018/7/25 by zmyer
     public enum ConfigScopeProperty {
         CLUSTER(2, 0),
         PARTICIPANT(2, 0),
@@ -108,6 +109,7 @@ public class HelixConfigScope {
      * @param zkPathKeys keys identifying a ZNode location
      * @param mapKey a key for an additional lookup within a ZNode
      */
+    // TODO: 2018/7/27 by zmyer
     public HelixConfigScope(ConfigScopeProperty type, List<String> zkPathKeys, String mapKey) {
 
         if (zkPathKeys.size() != type.getZkPathArgNum()

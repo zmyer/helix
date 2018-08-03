@@ -19,19 +19,20 @@ package org.apache.helix.messaging.handling;
  * under the License.
  */
 
-import java.util.concurrent.Callable;
-
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.Message;
 
+import java.util.concurrent.Callable;
+
+// TODO: 2018/7/24 by zmyer
 public interface MessageTask extends Callable<HelixTaskResult> {
-  String getTaskId();
+    String getTaskId();
 
-  Message getMessage();
+    Message getMessage();
 
-  NotificationContext getNotificationContext();
+    NotificationContext getNotificationContext();
 
-  void onTimeout();
+    void onTimeout();
 
-  boolean cancel();
+    boolean cancel();
 }

@@ -25,73 +25,74 @@ import org.apache.helix.model.Message;
 /**
  * Provides the base class for all message handlers.
  */
+// TODO: 2018/7/25 by zmyer
 public abstract class MessageHandler {
-  public enum ErrorType {
-    FRAMEWORK,
-    INTERNAL
-  }
+    public enum ErrorType {
+        FRAMEWORK,
+        INTERNAL
+    }
 
-  public enum ErrorCode {
-    ERROR,
-    CANCEL,
-    TIMEOUT
-  }
+    public enum ErrorCode {
+        ERROR,
+        CANCEL,
+        TIMEOUT
+    }
 
-  /**
-   * The message to be handled
-   */
-  protected final Message _message;
-  protected boolean _cancelled;
+    /**
+     * The message to be handled
+     */
+    protected final Message _message;
+    protected boolean _cancelled;
 
-  /**
-   * The context for handling the message. The cluster manager interface can be
-   * accessed from NotificationContext
-   */
-  protected final NotificationContext _notificationContext;
+    /**
+     * The context for handling the message. The cluster manager interface can be
+     * accessed from NotificationContext
+     */
+    protected final NotificationContext _notificationContext;
 
-  /**
-   * The constructor. The message and notification context must be provided via
-   * creation.
-   */
-  public MessageHandler(Message message, NotificationContext context) {
-    _message = message;
-    _notificationContext = context;
-    _cancelled = false;
-  }
+    /**
+     * The constructor. The message and notification context must be provided via
+     * creation.
+     */
+    public MessageHandler(Message message, NotificationContext context) {
+        _message = message;
+        _notificationContext = context;
+        _cancelled = false;
+    }
 
-  /**
-   * Message handling routine. The function is called in a thread pool task in
-   * CMTaskExecutor
-   * @return returns the CMTaskResult which contains info about the message processing.
-   */
-  public abstract HelixTaskResult handleMessage() throws InterruptedException;
+    /**
+     * Message handling routine. The function is called in a thread pool task in
+     * CMTaskExecutor
+     * @return returns the CMTaskResult which contains info about the message processing.
+     */
+    public abstract HelixTaskResult handleMessage() throws InterruptedException;
 
-  /**
-   * Callback when error happens in the message handling pipeline.
-   * @param type TODO
-   * @param retryCountLeft - The number of retries that the framework will
-   *          continue trying to handle the message
-   * @param ErrorType - denote if the exception happens in framework or happens in the
-   *          customer's code
-   */
-  public abstract void onError(Exception e, ErrorCode code, ErrorType type);
+    /**
+     * Callback when error happens in the message handling pipeline.
+     * @param type TODO
+     * @param retryCountLeft - The number of retries that the framework will
+     *          continue trying to handle the message
+     * @param ErrorType - denote if the exception happens in framework or happens in the
+     *          customer's code
+     */
+    public abstract void onError(Exception e, ErrorCode code, ErrorType type);
 
-  /**
-   * Callback when the framework is about to interrupt the message handler
-   */
-  public void onTimeout() {
+    /**
+     * Callback when the framework is about to interrupt the message handler
+     */
+    public void onTimeout() {
 
-  }
+    }
 
-  /**
-   * Get message for this message handler
-   * @return
-   */
-  public Message getMessage() {
-    return _message;
-  }
+    /**
+     * Get message for this message handler
+     * @return
+     */
+    public Message getMessage() {
+        return _message;
+    }
 
-  public void cancel() {
-    _cancelled = true;
-  }
+    public void cancel() {
+        _cancelled = true;
+    }
 }

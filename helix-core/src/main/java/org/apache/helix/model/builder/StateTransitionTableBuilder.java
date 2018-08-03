@@ -41,8 +41,8 @@ public class StateTransitionTableBuilder {
         return path.get(fromState).get(toState);
     }
 
-    static void setPathVal(Map<String, Map<String, Integer>> path, String fromState, String toState,
-            int val) {
+    // TODO: 2018/7/26 by zmyer
+    static void setPathVal(Map<String, Map<String, Integer>> path, String fromState, String toState, int val) {
         if (!path.containsKey(fromState)) {
             path.put(fromState, new HashMap<String, Integer>());
         }
@@ -50,6 +50,7 @@ public class StateTransitionTableBuilder {
         path.get(fromState).put(toState, val);
     }
 
+    // TODO: 2018/7/26 by zmyer
     static void setNext(Map<String, Map<String, String>> next, String fromState, String toState,
             String nextState) {
         if (!next.containsKey(fromState)) {
@@ -67,6 +68,7 @@ public class StateTransitionTableBuilder {
      * @param toState
      * @return nextState or null if doesn't exist a path
      */
+    // TODO: 2018/7/26 by zmyer
     public static String getNext(Map<String, Map<String, String>> next, String fromState,
             String toState) {
         if (!next.containsKey(fromState)) {
@@ -111,6 +113,7 @@ public class StateTransitionTableBuilder {
      * @param transitions
      * @return next map
      */
+    // TODO: 2018/7/26 by zmyer
     public Map<String, Map<String, String>> buildTransitionTable(List<String> states,
             List<Transition> transitions) {
         // path distance value
@@ -120,25 +123,25 @@ public class StateTransitionTableBuilder {
         Map<String, Map<String, String>> next = new HashMap<String, Map<String, String>>();
 
         // init path and next
-        for (String state : states) {
+        for (final String state : states) {
             setPathVal(path, state, state, 0);
             setNext(next, state, state, state);
         }
 
-        for (Transition transition : transitions) {
-            String fromState = transition.getFromState();
-            String toState = transition.getToState();
+        for (final Transition transition : transitions) {
+            final String fromState = transition.getFromState();
+            final String toState = transition.getToState();
             setPathVal(path, fromState, toState, 1);
             setNext(next, fromState, toState, toState);
         }
 
         // iterate
-        for (String intermediateState : states) {
-            for (String fromState : states) {
-                for (String toState : states) {
-                    int pathVal1 = getPathVal(path, fromState, intermediateState);
-                    int pathVal2 = getPathVal(path, intermediateState, toState);
-                    int pathValCur = getPathVal(path, fromState, toState);
+        for (final String intermediateState : states) {
+            for (final String fromState : states) {
+                for (final String toState : states) {
+                    final int pathVal1 = getPathVal(path, fromState, intermediateState);
+                    final int pathVal2 = getPathVal(path, intermediateState, toState);
+                    final int pathValCur = getPathVal(path, fromState, toState);
 
                     // should not overflow
                     if (pathVal1 < Integer.MAX_VALUE && pathVal2 < Integer.MAX_VALUE

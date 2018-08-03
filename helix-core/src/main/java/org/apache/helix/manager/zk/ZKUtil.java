@@ -87,6 +87,7 @@ public final class ZKUtil {
         return isValid;
     }
 
+    // TODO: 2018/7/27 by zmyer
     public static boolean isInstanceSetup(ZkClient zkclient, String clusterName, String instanceName,
             InstanceType type) {
         if (type == InstanceType.PARTICIPANT || type == InstanceType.CONTROLLER_PARTICIPANT) {

@@ -22,42 +22,44 @@ package org.apache.helix.model;
 /**
  * A distinct partition of a resource
  */
+// TODO: 2018/7/24 by zmyer
 public class Partition {
-  private final String _partitionName;
+    private final String _partitionName;
 
-  /**
-   * Get the name of the partition, unique for the resource
-   * @return partition name
-   */
-  public String getPartitionName() {
-    return _partitionName;
-  }
-
-  /**
-   * Instantiate with a partition name
-   * @param partitionName unique partition name within a resource
-   */
-  public Partition(String partitionName) {
-    this._partitionName = partitionName;
-  }
-
-  @Override
-  public boolean equals(Object obj) {
-    if (obj == null || !(obj instanceof Partition)) {
-      return false;
+    /**
+     * Get the name of the partition, unique for the resource
+     * @return partition name
+     */
+    public String getPartitionName() {
+        return _partitionName;
     }
 
-    Partition that = (Partition) obj;
-    return _partitionName.equals(that.getPartitionName());
-  }
+    /**
+     * Instantiate with a partition name
+     * @param partitionName unique partition name within a resource
+     */
+    // TODO: 2018/7/25 by zmyer
+    public Partition(String partitionName) {
+        this._partitionName = partitionName;
+    }
 
-  @Override
-  public int hashCode() {
-    return _partitionName.hashCode();
-  }
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null || !(obj instanceof Partition)) {
+            return false;
+        }
 
-  @Override
-  public String toString() {
-    return _partitionName;
-  }
+        final Partition that = (Partition) obj;
+        return _partitionName.equals(that.getPartitionName());
+    }
+
+    @Override
+    public int hashCode() {
+        return _partitionName.hashCode();
+    }
+
+    @Override
+    public String toString() {
+        return _partitionName;
+    }
 }

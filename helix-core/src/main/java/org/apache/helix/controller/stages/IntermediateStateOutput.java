@@ -24,5 +24,6 @@ import org.apache.helix.controller.common.ResourcesStateMap;
 /**
  * Output for IntermediateStateCalStage.
  */
+// TODO: 2018/7/25 by zmyer
 public class IntermediateStateOutput extends ResourcesStateMap {
 }

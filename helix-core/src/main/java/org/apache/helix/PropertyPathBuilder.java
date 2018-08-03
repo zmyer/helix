@@ -224,10 +224,12 @@ public class PropertyPathBuilder {
         return null;
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String idealState(String clusterName) {
         return String.format("/%s/IDEALSTATES", clusterName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     public static String idealState(String clusterName, String resourceName) {
         return String.format("/%s/IDEALSTATES/%s", clusterName, resourceName);
     }
@@ -256,6 +258,7 @@ public class PropertyPathBuilder {
         return String.format("/%s/TARGETEXTERNALVIEW/%s", clusterName, resourceName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String liveInstance(String clusterName) {
         return String.format("/%s/LIVEINSTANCES", clusterName);
     }
@@ -264,6 +267,7 @@ public class PropertyPathBuilder {
         return String.format("/%s/LIVEINSTANCES/%s", clusterName, instanceName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String instance(String clusterName) {
         return String.format("/%s/INSTANCES", clusterName);
     }
@@ -277,6 +281,7 @@ public class PropertyPathBuilder {
         return String.format("/%s/INSTANCES/%s", clusterName, instanceName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String instanceMessage(String clusterName, String instanceName) {
         return String.format("/%s/INSTANCES/%s/MESSAGES", clusterName, instanceName);
     }
@@ -285,6 +290,7 @@ public class PropertyPathBuilder {
         return String.format("/%s/INSTANCES/%s/MESSAGES/%s", clusterName, instanceName, messageId);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String instanceCurrentState(String clusterName, String instanceName) {
         return String.format("/%s/INSTANCES/%s/CURRENTSTATES", clusterName, instanceName);
     }
@@ -299,6 +305,7 @@ public class PropertyPathBuilder {
                 resourceName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     public static String instanceError(String clusterName, String instanceName) {
         return String.format("/%s/INSTANCES/%s/ERRORS", clusterName, instanceName);
     }
@@ -309,22 +316,27 @@ public class PropertyPathBuilder {
                 clusterName, instanceName, sessionId, resourceName, partitionName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     public static String instanceHistory(String clusterName, String instanceName) {
         return String.format("/%s/INSTANCES/%s/HISTORY", clusterName, instanceName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     public static String instanceStatusUpdate(String clusterName, String instanceName) {
         return String.format("/%s/INSTANCES/%s/STATUSUPDATES", clusterName, instanceName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String propertyStore(String clusterName) {
         return String.format("/%s/PROPERTYSTORE", clusterName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String clusterConfig(String clusterName) {
         return String.format("/%s/CONFIGS/CLUSTER/%s", clusterName, clusterName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String instanceConfig(String clusterName) {
         return String.format("/%s/CONFIGS/PARTICIPANT", clusterName);
     }
@@ -333,6 +345,7 @@ public class PropertyPathBuilder {
         return String.format("/%s/CONFIGS/PARTICIPANT/%s", clusterName, instanceName);
     }
 
+    // TODO: 2018/7/26 by zmyer
     public static String resourceConfig(String clusterName) {
         return String.format("/%s/CONFIGS/RESOURCE", clusterName);
     }
@@ -341,6 +354,7 @@ public class PropertyPathBuilder {
         return String.format("/%s/CONTROLLER", clusterName);
     }
 
+    // TODO: 2018/7/27 by zmyer
     public static String controllerLeader(String clusterName) {
         return String.format("/%s/CONTROLLER/LEADER", clusterName);
     }

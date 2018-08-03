@@ -30,17 +30,18 @@ import org.apache.helix.model.ResourceAssignment;
  * <br/>
  * WARNING: this is an internal interface and is subject to change across releases
  */
+// TODO: 2018/7/25 by zmyer
 public interface MappingCalculator {
-  /**
-   * Given an ideal state for a resource and the liveness of instances, compute the best possible
-   * state assignment for each partition's replicas.
-   * @param cache
-   * @param idealState
-   * @param resource
-   * @param currentStateOutput
-   *          Provides the current state and pending state transitions for all partitions
-   * @return
-   */
-  public ResourceAssignment computeBestPossiblePartitionState(ClusterDataCache cache,
-      IdealState idealState, Resource resource, CurrentStateOutput currentStateOutput);
+    /**
+     * Given an ideal state for a resource and the liveness of instances, compute the best possible
+     * state assignment for each partition's replicas.
+     * @param cache
+     * @param idealState
+     * @param resource
+     * @param currentStateOutput
+     *          Provides the current state and pending state transitions for all partitions
+     * @return
+     */
+    ResourceAssignment computeBestPossiblePartitionState(ClusterDataCache cache,
+            IdealState idealState, Resource resource, CurrentStateOutput currentStateOutput);
 }

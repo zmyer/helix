@@ -24,6 +24,7 @@ import org.apache.helix.controller.stages.ClusterEvent;
 /**
  * Logically independent unit in processing callbacks for cluster changes
  */
+// TODO: 2018/7/24 by zmyer
 public interface Stage {
 
     /**

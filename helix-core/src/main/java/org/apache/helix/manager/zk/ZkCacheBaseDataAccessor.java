@@ -48,6 +48,7 @@ import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
+// TODO: 2018/7/27 by zmyer
 public class ZkCacheBaseDataAccessor<T> implements HelixPropertyStore<T> {
     private static final Logger LOG = LoggerFactory.getLogger(ZkCacheBaseDataAccessor.class);
 
@@ -522,6 +523,7 @@ public class ZkCacheBaseDataAccessor<T> implements HelixPropertyStore<T> {
         return _baseAccessor.updateChildren(serverPaths, updaters, options);
     }
 
+    // TODO: 2018/7/26 by zmyer
     // TODO: change to use async_exists
     @Override
     public boolean[] exists(List<String> paths, int options) {

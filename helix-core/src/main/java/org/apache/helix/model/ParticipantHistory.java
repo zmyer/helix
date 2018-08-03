@@ -21,6 +21,8 @@ package org.apache.helix.model;
 
 import org.apache.helix.HelixProperty;
 import org.apache.helix.ZNRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -30,126 +32,130 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The history of participant.
  */
+// TODO: 2018/7/26 by zmyer
 public class ParticipantHistory extends HelixProperty {
-  private static Logger LOG = LoggerFactory.getLogger(ParticipantHistory.class);
+    private static Logger LOG = LoggerFactory.getLogger(ParticipantHistory.class);
 
-  private final static int HISTORY_SIZE = 20;
-  private enum ConfigProperty {
-    TIME,
-    DATE,
-    SESSION,
-    HISTORY,
-    OFFLINE,
-    VERSION,
-    LAST_OFFLINE_TIME
-  }
+    private final static int HISTORY_SIZE = 20;
 
-  public static long ONLINE = -1;
-
-  public ParticipantHistory(String id) {
-    super(id);
-  }
-
-  public ParticipantHistory(ZNRecord znRecord) {
-    super(znRecord);
-  }
-
-  /**
-   * Called when a participant went offline or is about to go offline.
-   * This will update the offline timestamp in participant history.
-   */
-  public void reportOffline() {
-    long time = System.currentTimeMillis();
-    _record.setSimpleField(ConfigProperty.LAST_OFFLINE_TIME.name(), String.valueOf(time));
-    updateOfflineHistory(time);
-  }
-
-  /**
-   * Called when a participant goes online, this will update all related session history.
-   *
-   * @return
-   */
-  public void reportOnline(String sessionId, String version) {
-    updateSessionHistory(sessionId, version);
-    _record.setSimpleField(ConfigProperty.LAST_OFFLINE_TIME.name(), String.valueOf(ONLINE));
-  }
-
-  /**
-   * Get the time when this node goes offline last time (epoch time). If the node is currently
-   * online or if no offline time is recorded, return -1.
-   *
-   * @return
-   */
-  public long getLastOfflineTime() {
-    long offlineTime = ONLINE;
-    String timeStr = _record.getSimpleField(ConfigProperty.LAST_OFFLINE_TIME.name());
-    if (timeStr != null) {
-      try {
-        offlineTime = Long.valueOf(timeStr);
-      } catch (NumberFormatException ex) {
-        LOG.warn("Failed to parse LAST_OFFLINE_TIME " + timeStr);
-      }
+    private enum ConfigProperty {
+        TIME,
+        DATE,
+        SESSION,
+        HISTORY,
+        OFFLINE,
+        VERSION,
+        LAST_OFFLINE_TIME
     }
 
-    return offlineTime;
-  }
+    public static long ONLINE = -1;
 
-  /**
-   * Add record to session online history list
-   */
-  private void updateSessionHistory(String sessionId, String version) {
-    List<String> list = _record.getListField(ConfigProperty.HISTORY.name());
-    if (list == null) {
-      list = new ArrayList<>();
-      _record.setListField(ConfigProperty.HISTORY.name(), list);
+    // TODO: 2018/7/27 by zmyer
+    public ParticipantHistory(String id) {
+        super(id);
     }
 
-    if (list.size() == HISTORY_SIZE) {
-      list.remove(0);
+    public ParticipantHistory(ZNRecord znRecord) {
+        super(znRecord);
     }
 
-    Map<String, String> sessionEntry = new HashMap<String, String>();
-
-    sessionEntry.put(ConfigProperty.SESSION.name(), sessionId);
-
-    long timeMillis = System.currentTimeMillis();
-    sessionEntry.put(ConfigProperty.TIME.name(), String.valueOf(timeMillis));
-
-    DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss:SSS");
-    df.setTimeZone(TimeZone.getTimeZone("UTC"));
-    String dateTime = df.format(new Date(timeMillis));
-    sessionEntry.put(ConfigProperty.DATE.name(), dateTime);
-    sessionEntry.put(ConfigProperty.VERSION.name(), version);
-
-    list.add(sessionEntry.toString());
-  }
-
-  private void updateOfflineHistory(long time) {
-    List<String> list = _record.getListField(ConfigProperty.OFFLINE.name());
-    if (list == null) {
-      list = new ArrayList<>();
-      _record.setListField(ConfigProperty.OFFLINE.name(), list);
+    /**
+     * Called when a participant went offline or is about to go offline.
+     * This will update the offline timestamp in participant history.
+     */
+    // TODO: 2018/7/26 by zmyer
+    public void reportOffline() {
+        long time = System.currentTimeMillis();
+        _record.setSimpleField(ConfigProperty.LAST_OFFLINE_TIME.name(), String.valueOf(time));
+        updateOfflineHistory(time);
     }
 
-    if (list.size() == HISTORY_SIZE) {
-      list.remove(0);
+    /**
+     * Called when a participant goes online, this will update all related session history.
+     *
+     * @return
+     */
+    // TODO: 2018/7/27 by zmyer
+    public void reportOnline(String sessionId, String version) {
+        updateSessionHistory(sessionId, version);
+        _record.setSimpleField(ConfigProperty.LAST_OFFLINE_TIME.name(), String.valueOf(ONLINE));
     }
 
-    DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss:SSS");
-    df.setTimeZone(TimeZone.getTimeZone("UTC"));
-    String dateTime = df.format(new Date(time));
+    /**
+     * Get the time when this node goes offline last time (epoch time). If the node is currently
+     * online or if no offline time is recorded, return -1.
+     *
+     * @return
+     */
+    public long getLastOfflineTime() {
+        long offlineTime = ONLINE;
+        String timeStr = _record.getSimpleField(ConfigProperty.LAST_OFFLINE_TIME.name());
+        if (timeStr != null) {
+            try {
+                offlineTime = Long.valueOf(timeStr);
+            } catch (NumberFormatException ex) {
+                LOG.warn("Failed to parse LAST_OFFLINE_TIME " + timeStr);
+            }
+        }
 
-    list.add(dateTime);
-  }
+        return offlineTime;
+    }
 
-  @Override
-  public boolean isValid() {
-    return true;
-  }
+    /**
+     * Add record to session online history list
+     */
+    // TODO: 2018/7/27 by zmyer
+    private void updateSessionHistory(String sessionId, String version) {
+        List<String> list = _record.getListField(ConfigProperty.HISTORY.name());
+        if (list == null) {
+            list = new ArrayList<>();
+            _record.setListField(ConfigProperty.HISTORY.name(), list);
+        }
+
+        if (list.size() == HISTORY_SIZE) {
+            list.remove(0);
+        }
+
+        final Map<String, String> sessionEntry = new HashMap<String, String>();
+
+        sessionEntry.put(ConfigProperty.SESSION.name(), sessionId);
+
+        final long timeMillis = System.currentTimeMillis();
+        sessionEntry.put(ConfigProperty.TIME.name(), String.valueOf(timeMillis));
+
+        final  DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss:SSS");
+        df.setTimeZone(TimeZone.getTimeZone("UTC"));
+        final String dateTime = df.format(new Date(timeMillis));
+        sessionEntry.put(ConfigProperty.DATE.name(), dateTime);
+        sessionEntry.put(ConfigProperty.VERSION.name(), version);
+
+        list.add(sessionEntry.toString());
+    }
+
+    private void updateOfflineHistory(long time) {
+        List<String> list = _record.getListField(ConfigProperty.OFFLINE.name());
+        if (list == null) {
+            list = new ArrayList<>();
+            _record.setListField(ConfigProperty.OFFLINE.name(), list);
+        }
+
+        if (list.size() == HISTORY_SIZE) {
+            list.remove(0);
+        }
+
+        DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss:SSS");
+        df.setTimeZone(TimeZone.getTimeZone("UTC"));
+        String dateTime = df.format(new Date(time));
+
+        list.add(dateTime);
+    }
+
+    @Override
+    public boolean isValid() {
+        return true;
+    }
 }

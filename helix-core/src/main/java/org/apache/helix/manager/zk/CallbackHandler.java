@@ -167,6 +167,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     class CallbackProcessor
             extends DedupEventProcessor<NotificationContext.Type, NotificationContext> {
         private CallbackHandler _handler;
@@ -197,6 +198,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         this(manager, client, propertyKey, listener, eventTypes, changeType, null);
     }
 
+    // TODO: 2018/7/24 by zmyer
     public CallbackHandler(HelixManager manager, ZkClient client, PropertyKey propertyKey,
             Object listener, EventType[] eventTypes, ChangeType changeType,
             HelixCallbackMonitor monitor) {
@@ -232,7 +234,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         init();
     }
 
-
+    // TODO: 2018/7/24 by zmyer
     private void parseListenerProperties() {
         BatchMode batchMode = _listener.getClass().getAnnotation(BatchMode.class);
         PreFetch preFetch = _listener.getClass().getAnnotation(PreFetch.class);
@@ -282,7 +284,6 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
             break;
         case CURRENT_STATE:
             listenerClass = CurrentStateChangeListener.class;
-            ;
             break;
         case MESSAGE:
         case MESSAGES_CONTROLLER:
@@ -294,6 +295,9 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
             break;
         case CONTROLLER:
             listenerClass = ControllerChangeListener.class;
+            break;
+        default:
+            break;
         }
 
         Method callbackMethod = listenerClass.getMethods()[0];
@@ -309,9 +313,8 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
                 _preFetchEnabled = preFetchInMethod.enabled();
             }
         } catch (NoSuchMethodException e) {
-            logger.warn(
-                    "No method " + callbackMethod.getName() + " defined in listener " + _listener.getClass()
-                            .getCanonicalName());
+            logger.warn("No method " + callbackMethod.getName() + " defined in listener " + _listener.getClass()
+                    .getCanonicalName());
         }
     }
 
@@ -345,6 +348,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         }
     }
 
+    // TODO: 2018/7/24 by zmyer
     public void invoke(NotificationContext changeContext) throws Exception {
         Type type = changeContext.getType();
         long start = System.currentTimeMillis();
@@ -451,6 +455,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     private <T extends HelixProperty> List<T> preFetch(PropertyKey key) {
         if (_preFetchEnabled) {
             return _accessor.getChildValues(key);
@@ -459,6 +464,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void subscribeChildChange(String path, NotificationContext.Type callbackType) {
         if (callbackType == NotificationContext.Type.INIT
                 || callbackType == NotificationContext.Type.CALLBACK) {
@@ -477,6 +483,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         }
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void subscribeDataChange(String path, NotificationContext.Type callbackType) {
         if (callbackType == NotificationContext.Type.INIT
                 || callbackType == NotificationContext.Type.CALLBACK) {
@@ -502,6 +509,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         SubscribeChangeEventProcessor.queueEvent(subscribeEvent.handler, subscribeEvent);
     }
 
+    // TODO: 2018/7/27 by zmyer
     private void subscribeForChanges(NotificationContext.Type callbackType, String path,
             boolean watchChild) {
         logger.info(
@@ -585,6 +593,7 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
      * Invoke the listener so that it sets up the initial values from the zookeeper if any
      * exists
      */
+    // TODO: 2018/7/24 by zmyer
     public void init() {
         logger.info("initializing CallbackHandler: " + this.toString() + " content: " + getContent());
 

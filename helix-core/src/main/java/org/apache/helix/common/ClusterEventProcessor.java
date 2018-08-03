@@ -22,6 +22,7 @@ public abstract class ClusterEventProcessor
         super(clusterName, processorName);
     }
 
+    // TODO: 2018/7/25 by zmyer
     public void queueEvent(ClusterEvent event) {
         _eventQueue.put(event.getEventType(), event);
     }

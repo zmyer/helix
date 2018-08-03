@@ -22,10 +22,11 @@ package org.apache.helix.participant.statemachine;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
+// TODO: 2018/7/25 by zmyer
 @Retention(RetentionPolicy.RUNTIME)
 public @interface Transition {
-  String from();
+    String from();
 
-  String to();
+    String to();
 
 }

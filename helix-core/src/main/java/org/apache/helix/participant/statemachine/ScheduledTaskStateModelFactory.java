@@ -23,18 +23,19 @@ import org.apache.helix.messaging.handling.HelixTaskExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+// TODO: 2018/7/27 by zmyer
 public class ScheduledTaskStateModelFactory extends StateModelFactory<ScheduledTaskStateModel> {
-  Logger logger = LoggerFactory.getLogger(ScheduledTaskStateModelFactory.class);
+    Logger logger = LoggerFactory.getLogger(ScheduledTaskStateModelFactory.class);
 
-  HelixTaskExecutor _executor;
+    HelixTaskExecutor _executor;
 
-  public ScheduledTaskStateModelFactory(HelixTaskExecutor executor) {
-    _executor = executor;
-  }
+    public ScheduledTaskStateModelFactory(HelixTaskExecutor executor) {
+        _executor = executor;
+    }
 
-  @Override
-  public ScheduledTaskStateModel createNewStateModel(String resourceName, String partitionKey) {
-    logger.info("Create state model for ScheduledTask " + resourceName + "_" + partitionKey);
-    return new ScheduledTaskStateModel(this, _executor, resourceName, partitionKey);
-  }
+    @Override
+    public ScheduledTaskStateModel createNewStateModel(String resourceName, String partitionKey) {
+        logger.info("Create state model for ScheduledTask " + resourceName + "_" + partitionKey);
+        return new ScheduledTaskStateModel(this, _executor, resourceName, partitionKey);
+    }
 }

@@ -25,6 +25,7 @@ import java.util.Map;
 /**
  * Metadata associated with a notification event and the current state of the cluster
  */
+// TODO: 2018/7/24 by zmyer
 public class NotificationContext {
     /**
      * keys used for object map
@@ -185,6 +186,7 @@ public class NotificationContext {
     /**
      * Valid types of notifications
      */
+    // TODO: 2018/7/27 by zmyer
     public enum Type {
         INIT,
         CALLBACK,

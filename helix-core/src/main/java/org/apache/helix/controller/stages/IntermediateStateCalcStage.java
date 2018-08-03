@@ -27,661 +27,677 @@ import org.apache.helix.api.config.StateTransitionThrottleConfig.RebalanceType;
 import org.apache.helix.controller.common.PartitionStateMap;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
-import org.apache.helix.model.*;
+import org.apache.helix.model.BuiltInStateModelDefinitions;
+import org.apache.helix.model.IdealState;
+import org.apache.helix.model.Partition;
+import org.apache.helix.model.Resource;
+import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.monitoring.mbeans.ClusterStatusMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * For partition compute the Intermediate State (instance,state) pair based on the BestPossible
  * State and Current State, with all constraints applied (such as state transition throttling).
  */
+// TODO: 2018/7/25 by zmyer
 public class IntermediateStateCalcStage extends AbstractBaseStage {
-  private static final Logger logger = LoggerFactory.getLogger(IntermediateStateCalcStage.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(IntermediateStateCalcStage.class.getName());
 
-  @Override
-  public void process(ClusterEvent event) throws Exception {
-    CurrentStateOutput currentStateOutput =
-        event.getAttribute(AttributeName.CURRENT_STATE.name());
+    // TODO: 2018/7/25 by zmyer
+    @Override
+    public void process(ClusterEvent event) throws Exception {
+        CurrentStateOutput currentStateOutput =
+                event.getAttribute(AttributeName.CURRENT_STATE.name());
 
-    BestPossibleStateOutput bestPossibleStateOutput =
-        event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
-    Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+        BestPossibleStateOutput bestPossibleStateOutput =
+                event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
+        Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
+        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
 
-    if (currentStateOutput == null || bestPossibleStateOutput == null || resourceMap == null
-        || cache == null) {
-      throw new StageException("Missing attributes in event:" + event
-          + ". Requires CURRENT_STATE|BEST_POSSIBLE_STATE|RESOURCES|DataCache");
-    }
-
-    IntermediateStateOutput intermediateStateOutput =
-        compute(event, resourceMap, currentStateOutput, bestPossibleStateOutput);
-    event.addAttribute(AttributeName.INTERMEDIATE_STATE.name(), intermediateStateOutput);
-
-    // Check whether any instance in the cluster could be assigned more partitions than allowed, if yes, pause the rebalancer.
-    int maxPartitionPerInstance = cache.getClusterConfig().getMaxPartitionsPerInstance();
-    if (maxPartitionPerInstance > 0) {
-      validateMaxPartitionsPerInstance(event, cache, intermediateStateOutput,
-          maxPartitionPerInstance);
-    }
-  }
-
-  private IntermediateStateOutput compute(ClusterEvent event, Map<String, Resource> resourceMap,
-      CurrentStateOutput currentStateOutput, BestPossibleStateOutput bestPossibleStateOutput) {
-    // for each resource
-    // get the best possible state and current state
-    // try to bring immediate state close to best possible state until
-    // the possible pending state transition numbers reach the set throttle number.
-    IntermediateStateOutput output = new IntermediateStateOutput();
-    ClusterDataCache dataCache = event.getAttribute(AttributeName.ClusterDataCache.name());
-
-    StateTransitionThrottleController throttleController =
-        new StateTransitionThrottleController(resourceMap.keySet(), dataCache.getClusterConfig(),
-            dataCache.getLiveInstances().keySet());
-
-    // Resource level prioritization with numerical sortable field.
-    // If no value has been set, it will be treated as lowest priority.
-    List<ResourcePriority> prioritizedResourceList = new ArrayList<ResourcePriority>();
-    for (String resourceName : resourceMap.keySet()) {
-      prioritizedResourceList.add(new ResourcePriority(resourceName, Integer.MIN_VALUE));
-    }
-    // Not have resource level prioritization if user did not set the field name
-    if (dataCache.getClusterConfig().getResourcePriorityField() != null) {
-      String priorityField = dataCache.getClusterConfig().getResourcePriorityField();
-
-      for (ResourcePriority resourcePriority : prioritizedResourceList) {
-        String resourceName = resourcePriority.getResourceName();
-
-        // Will take the priority from ResourceConfig first
-        // If ResourceConfig does not exist or does not have this field.
-        // Try to fetch it from ideal state. Otherwise will treated as lowest priority
-        if (dataCache.getResourceConfig(resourceName) != null
-            && dataCache.getResourceConfig(resourceName).getSimpleConfig(priorityField) != null) {
-          resourcePriority.setPriority(
-              dataCache.getResourceConfig(resourceName).getSimpleConfig(priorityField));
-        } else if (dataCache.getIdealState(resourceName) != null
-            && dataCache.getIdealState(resourceName).getRecord().getSimpleField(priorityField)
-            != null) {
-
-          resourcePriority.setPriority(
-              dataCache.getIdealState(resourceName).getRecord().getSimpleField(priorityField));
+        if (currentStateOutput == null || bestPossibleStateOutput == null || resourceMap == null
+                || cache == null) {
+            throw new StageException("Missing attributes in event:" + event
+                    + ". Requires CURRENT_STATE|BEST_POSSIBLE_STATE|RESOURCES|DataCache");
         }
-      }
 
-      Collections.sort(prioritizedResourceList, new ResourcePriortiyComparator());
+        IntermediateStateOutput intermediateStateOutput =
+                compute(event, resourceMap, currentStateOutput, bestPossibleStateOutput);
+        event.addAttribute(AttributeName.INTERMEDIATE_STATE.name(), intermediateStateOutput);
+
+        // Check whether any instance in the cluster could be assigned more partitions than allowed, if yes, pause the rebalancer.
+        int maxPartitionPerInstance = cache.getClusterConfig().getMaxPartitionsPerInstance();
+        if (maxPartitionPerInstance > 0) {
+            validateMaxPartitionsPerInstance(event, cache, intermediateStateOutput,
+                    maxPartitionPerInstance);
+        }
     }
 
-    // Update cluster status monitor mbean
-    ClusterStatusMonitor clusterStatusMonitor = event.getAttribute(AttributeName.clusterStatusMonitor.name());
+    private IntermediateStateOutput compute(ClusterEvent event, Map<String, Resource> resourceMap,
+            CurrentStateOutput currentStateOutput, BestPossibleStateOutput bestPossibleStateOutput) {
+        // for each resource
+        // get the best possible state and current state
+        // try to bring immediate state close to best possible state until
+        // the possible pending state transition numbers reach the set throttle number.
+        IntermediateStateOutput output = new IntermediateStateOutput();
+        ClusterDataCache dataCache = event.getAttribute(AttributeName.ClusterDataCache.name());
 
-    for (ResourcePriority resourcePriority : prioritizedResourceList) {
-      String resourceName = resourcePriority.getResourceName();
-      Resource resource = resourceMap.get(resourceName);
-      IdealState idealState = dataCache.getIdealState(resourceName);
+        StateTransitionThrottleController throttleController =
+                new StateTransitionThrottleController(resourceMap.keySet(), dataCache.getClusterConfig(),
+                        dataCache.getLiveInstances().keySet());
 
-      if (idealState == null) {
-        // if ideal state is deleted, use an empty one
-        logger.info("resource:" + resourceName + " does not exist anymore");
-        idealState = new IdealState(resourceName);
-        idealState.setStateModelDefRef(resource.getStateModelDefRef());
-      }
+        // Resource level prioritization with numerical sortable field.
+        // If no value has been set, it will be treated as lowest priority.
+        List<ResourcePriority> prioritizedResourceList = new ArrayList<ResourcePriority>();
+        for (String resourceName : resourceMap.keySet()) {
+            prioritizedResourceList.add(new ResourcePriority(resourceName, Integer.MIN_VALUE));
+        }
+        // Not have resource level prioritization if user did not set the field name
+        if (dataCache.getClusterConfig().getResourcePriorityField() != null) {
+            String priorityField = dataCache.getClusterConfig().getResourcePriorityField();
 
-      PartitionStateMap intermediatePartitionStateMap =
-          computeIntermediatePartitionState(dataCache, clusterStatusMonitor, idealState,
-              resourceMap.get(resourceName), currentStateOutput,
-              bestPossibleStateOutput.getPartitionStateMap(resourceName),
-              bestPossibleStateOutput.getPreferenceLists(resourceName), throttleController);
-      output.setState(resourceName, intermediatePartitionStateMap);
-    }
-    return output;
-  }
+            for (ResourcePriority resourcePriority : prioritizedResourceList) {
+                String resourceName = resourcePriority.getResourceName();
 
-  private void validateMaxPartitionsPerInstance(ClusterEvent event, ClusterDataCache cache,
-      IntermediateStateOutput intermediateStateOutput, int maxPartitionPerInstance) {
-    Map<String, PartitionStateMap> resourceStatesMap =
-        intermediateStateOutput.getResourceStatesMap();
-    Map<String, Integer> instancePartitionCounts = new HashMap<>();
+                // Will take the priority from ResourceConfig first
+                // If ResourceConfig does not exist or does not have this field.
+                // Try to fetch it from ideal state. Otherwise will treated as lowest priority
+                if (dataCache.getResourceConfig(resourceName) != null
+                        && dataCache.getResourceConfig(resourceName).getSimpleConfig(priorityField) != null) {
+                    resourcePriority.setPriority(
+                            dataCache.getResourceConfig(resourceName).getSimpleConfig(priorityField));
+                } else if (dataCache.getIdealState(resourceName) != null
+                        && dataCache.getIdealState(resourceName).getRecord().getSimpleField(priorityField)
+                        != null) {
 
-    for (String resource : resourceStatesMap.keySet()) {
-      IdealState idealState = cache.getIdealState(resource);
-      if (idealState != null && idealState.getStateModelDefRef()
-          .equals(BuiltInStateModelDefinitions.Task.name())) {
-        // ignore task here. Task has its own throttling logic
-        continue;
-      }
-
-      PartitionStateMap partitionStateMap = resourceStatesMap.get(resource);
-      Map<Partition, Map<String, String>> stateMaps = partitionStateMap.getStateMap();
-      for (Partition p : stateMaps.keySet()) {
-        Map<String, String> stateMap = stateMaps.get(p);
-        for (String instance : stateMap.keySet()) {
-          //ignore replica to be dropped.
-          String state = stateMap.get(instance);
-          if (state.equals(HelixDefinedState.DROPPED.name())) {
-            continue;
-          }
-
-          if (!instancePartitionCounts.containsKey(instance)) {
-            instancePartitionCounts.put(instance, 0);
-          }
-          int partitionCount = instancePartitionCounts.get(instance);
-          partitionCount++;
-          if (partitionCount > maxPartitionPerInstance) {
-            HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
-            String errMsg = String.format(
-                "Partition count to be assigned to instance %s is greater than %d. Stop rebalance and pause the cluster %s",
-                instance, maxPartitionPerInstance, cache.getClusterName());
-            if (manager != null) {
-              manager.getClusterManagmentTool()
-                  .enableMaintenanceMode(manager.getClusterName(), true, errMsg);
-            } else {
-              logger.error("Failed to pause cluster, HelixManager is not set!");
+                    resourcePriority.setPriority(
+                            dataCache.getIdealState(resourceName).getRecord().getSimpleField(priorityField));
+                }
             }
-            throw new HelixException(errMsg);
-          }
-          instancePartitionCounts.put(instance, partitionCount);
+
+            Collections.sort(prioritizedResourceList, new ResourcePriortiyComparator());
         }
-      }
-    }
-  }
 
-  private PartitionStateMap computeIntermediatePartitionState(ClusterDataCache cache,
-      ClusterStatusMonitor clusterStatusMonitor, IdealState idealState, Resource resource,
-      CurrentStateOutput currentStateOutput, PartitionStateMap bestPossiblePartitionStateMap,
-      Map<String, List<String>> preferenceLists,
-      StateTransitionThrottleController throttleController) {
-    String resourceName = resource.getResourceName();
-    logger.debug("Processing resource:" + resourceName);
+        // Update cluster status monitor mbean
+        ClusterStatusMonitor clusterStatusMonitor = event.getAttribute(AttributeName.clusterStatusMonitor.name());
 
-    if (!throttleController.isThrottleEnabled() || !IdealState.RebalanceMode.FULL_AUTO
-        .equals(idealState.getRebalanceMode()) || cache.isTaskCache()) {
-      // We only apply throttling on FULL-AUTO now.
-      return bestPossiblePartitionStateMap;
-    }
+        for (ResourcePriority resourcePriority : prioritizedResourceList) {
+            String resourceName = resourcePriority.getResourceName();
+            Resource resource = resourceMap.get(resourceName);
+            IdealState idealState = dataCache.getIdealState(resourceName);
 
-    String stateModelDefName = idealState.getStateModelDefRef();
-    StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefName);
+            if (idealState == null) {
+                // if ideal state is deleted, use an empty one
+                logger.info("resource:" + resourceName + " does not exist anymore");
+                idealState = new IdealState(resourceName);
+                idealState.setStateModelDefRef(resource.getStateModelDefRef());
+            }
 
-    PartitionStateMap intermediatePartitionStateMap = new PartitionStateMap(resourceName);
-
-    Set<Partition> partitionsNeedRecovery = new HashSet<>();
-    Set<Partition> partitionsNeedLoadbalance = new HashSet<>();
-    Set<Partition> partitionshaveErrorStateReplica =  new HashSet<>();
-    for (Partition partition : resource.getPartitions()) {
-      Map<String, String> currentStateMap =
-          currentStateOutput.getCurrentStateMap(resourceName, partition);
-      Map<String, String> bestPossibleMap =
-          bestPossiblePartitionStateMap.getPartitionMap(partition);
-      List<String> preferenceList = preferenceLists.get(partition.getPartitionName());
-
-      RebalanceType rebalanceType =
-          getRebalanceType(cache, bestPossibleMap, preferenceList, stateModelDef, currentStateMap,
-              idealState);
-
-      // TODO refine getRebalanceType to return more accurate rebalance types.
-      // So following logic doesn't need to check for more details.
-      boolean rebalanceNeeded = false;
-      if (rebalanceType.equals(RebalanceType.RECOVERY_BALANCE)) {
-        // Check if any error exist
-        if (currentStateMap.values().contains(HelixDefinedState.ERROR.name())) {
-          partitionshaveErrorStateReplica.add(partition);
+            PartitionStateMap intermediatePartitionStateMap =
+                    computeIntermediatePartitionState(dataCache, clusterStatusMonitor, idealState,
+                            resourceMap.get(resourceName), currentStateOutput,
+                            bestPossibleStateOutput.getPartitionStateMap(resourceName),
+                            bestPossibleStateOutput.getPreferenceLists(resourceName), throttleController);
+            output.setState(resourceName, intermediatePartitionStateMap);
         }
-        // Check if recovery is needed for this partition
-        if (!currentStateMap.equals(bestPossibleMap)) {
-          partitionsNeedRecovery.add(partition);
-          rebalanceNeeded = true;
-        } // else, if currentState == bestPossibleState, no rebalance needed
-      } else if (rebalanceType.equals(RebalanceType.LOAD_BALANCE)) {
-        partitionsNeedLoadbalance.add(partition);
-        rebalanceNeeded = true;
-      }
-
-      if (!rebalanceNeeded) {
-        // no rebalance needed.
-        Map<String, String> intermediateMap = new HashMap<>(bestPossibleMap);
-        intermediatePartitionStateMap.setState(partition, intermediateMap);
-      }
+        return output;
     }
 
-    if (!partitionsNeedRecovery.isEmpty()) {
-      logger.info(
-          "recovery balance needed for " + resourceName + " partitions: " + partitionsNeedRecovery);
+    private void validateMaxPartitionsPerInstance(ClusterEvent event, ClusterDataCache cache,
+            IntermediateStateOutput intermediateStateOutput, int maxPartitionPerInstance) {
+        Map<String, PartitionStateMap> resourceStatesMap =
+                intermediateStateOutput.getResourceStatesMap();
+        Map<String, Integer> instancePartitionCounts = new HashMap<>();
+
+        for (String resource : resourceStatesMap.keySet()) {
+            IdealState idealState = cache.getIdealState(resource);
+            if (idealState != null && idealState.getStateModelDefRef()
+                    .equals(BuiltInStateModelDefinitions.Task.name())) {
+                // ignore task here. Task has its own throttling logic
+                continue;
+            }
+
+            PartitionStateMap partitionStateMap = resourceStatesMap.get(resource);
+            Map<Partition, Map<String, String>> stateMaps = partitionStateMap.getStateMap();
+            for (Partition p : stateMaps.keySet()) {
+                Map<String, String> stateMap = stateMaps.get(p);
+                for (String instance : stateMap.keySet()) {
+                    //ignore replica to be dropped.
+                    String state = stateMap.get(instance);
+                    if (state.equals(HelixDefinedState.DROPPED.name())) {
+                        continue;
+                    }
+
+                    if (!instancePartitionCounts.containsKey(instance)) {
+                        instancePartitionCounts.put(instance, 0);
+                    }
+                    int partitionCount = instancePartitionCounts.get(instance);
+                    partitionCount++;
+                    if (partitionCount > maxPartitionPerInstance) {
+                        HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
+                        String errMsg = String.format(
+                                "Partition count to be assigned to instance %s is greater than %d. Stop rebalance and pause the cluster %s",
+                                instance, maxPartitionPerInstance, cache.getClusterName());
+                        if (manager != null) {
+                            manager.getClusterManagmentTool()
+                                    .enableMaintenanceMode(manager.getClusterName(), true, errMsg);
+                        } else {
+                            logger.error("Failed to pause cluster, HelixManager is not set!");
+                        }
+                        throw new HelixException(errMsg);
+                    }
+                    instancePartitionCounts.put(instance, partitionCount);
+                }
+            }
+        }
     }
-    if (!partitionsNeedLoadbalance.isEmpty()) {
-      logger.info(
-          "load balance needed for " + resourceName + " partitions: " + partitionsNeedLoadbalance);
+
+    private PartitionStateMap computeIntermediatePartitionState(ClusterDataCache cache,
+            ClusterStatusMonitor clusterStatusMonitor, IdealState idealState, Resource resource,
+            CurrentStateOutput currentStateOutput, PartitionStateMap bestPossiblePartitionStateMap,
+            Map<String, List<String>> preferenceLists,
+            StateTransitionThrottleController throttleController) {
+        String resourceName = resource.getResourceName();
+        logger.debug("Processing resource:" + resourceName);
+
+        if (!throttleController.isThrottleEnabled() || !IdealState.RebalanceMode.FULL_AUTO
+                .equals(idealState.getRebalanceMode()) || cache.isTaskCache()) {
+            // We only apply throttling on FULL-AUTO now.
+            return bestPossiblePartitionStateMap;
+        }
+
+        String stateModelDefName = idealState.getStateModelDefRef();
+        StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefName);
+
+        PartitionStateMap intermediatePartitionStateMap = new PartitionStateMap(resourceName);
+
+        Set<Partition> partitionsNeedRecovery = new HashSet<>();
+        Set<Partition> partitionsNeedLoadbalance = new HashSet<>();
+        Set<Partition> partitionshaveErrorStateReplica = new HashSet<>();
+        for (Partition partition : resource.getPartitions()) {
+            Map<String, String> currentStateMap =
+                    currentStateOutput.getCurrentStateMap(resourceName, partition);
+            Map<String, String> bestPossibleMap =
+                    bestPossiblePartitionStateMap.getPartitionMap(partition);
+            List<String> preferenceList = preferenceLists.get(partition.getPartitionName());
+
+            RebalanceType rebalanceType =
+                    getRebalanceType(cache, bestPossibleMap, preferenceList, stateModelDef, currentStateMap,
+                            idealState);
+
+            // TODO refine getRebalanceType to return more accurate rebalance types.
+            // So following logic doesn't need to check for more details.
+            boolean rebalanceNeeded = false;
+            if (rebalanceType.equals(RebalanceType.RECOVERY_BALANCE)) {
+                // Check if any error exist
+                if (currentStateMap.values().contains(HelixDefinedState.ERROR.name())) {
+                    partitionshaveErrorStateReplica.add(partition);
+                }
+                // Check if recovery is needed for this partition
+                if (!currentStateMap.equals(bestPossibleMap)) {
+                    partitionsNeedRecovery.add(partition);
+                    rebalanceNeeded = true;
+                } // else, if currentState == bestPossibleState, no rebalance needed
+            } else if (rebalanceType.equals(RebalanceType.LOAD_BALANCE)) {
+                partitionsNeedLoadbalance.add(partition);
+                rebalanceNeeded = true;
+            }
+
+            if (!rebalanceNeeded) {
+                // no rebalance needed.
+                Map<String, String> intermediateMap = new HashMap<>(bestPossibleMap);
+                intermediatePartitionStateMap.setState(partition, intermediateMap);
+            }
+        }
+
+        if (!partitionsNeedRecovery.isEmpty()) {
+            logger.info(
+                    "recovery balance needed for " + resourceName + " partitions: " + partitionsNeedRecovery);
+        }
+        if (!partitionsNeedLoadbalance.isEmpty()) {
+            logger.info(
+                    "load balance needed for " + resourceName + " partitions: " + partitionsNeedLoadbalance);
+        }
+        if (!partitionshaveErrorStateReplica.isEmpty()) {
+            logger.info("partition currently has ERROR replica in " + resourceName + " partitions: "
+                    + partitionshaveErrorStateReplica);
+        }
+
+        chargePendingTransition(resource, currentStateOutput, throttleController,
+                partitionsNeedRecovery, partitionsNeedLoadbalance);
+
+        // perform recovery rebalance
+        Set<Partition> recoveryThrottledPartitions =
+                recoveryRebalance(resource, bestPossiblePartitionStateMap, throttleController,
+                        intermediatePartitionStateMap, partitionsNeedRecovery, currentStateOutput,
+                        cache.getStateModelDef(resource.getStateModelDefRef()).getTopState());
+
+        Set<Partition> loadbalanceThrottledPartitions = partitionsNeedLoadbalance;
+
+        long maxAllowedErrorPartitions = cache.getClusterConfig().getErrorPartitionThresholdForLoadBalance();
+        if (partitionsNeedRecovery.isEmpty() &&
+                (maxAllowedErrorPartitions < 0
+                        || partitionshaveErrorStateReplica.size() <= maxAllowedErrorPartitions)) {
+            // perform load balance only if
+            //   1. no recovery operation to be scheduled.
+            //   2. error partition count is less than configured limitation.
+            loadbalanceThrottledPartitions =
+                    loadRebalance(resource, currentStateOutput, bestPossiblePartitionStateMap,
+                            throttleController, intermediatePartitionStateMap, partitionsNeedLoadbalance,
+                            currentStateOutput.getCurrentStateMap(resourceName));
+        } else {
+            // skip load balance, use current state mapping
+            for (Partition p : partitionsNeedLoadbalance) {
+                Map<String, String> currentStateMap =
+                        currentStateOutput.getCurrentStateMap(resourceName, p);
+                intermediatePartitionStateMap.setState(p, currentStateMap);
+            }
+        }
+
+        if (clusterStatusMonitor != null) {
+            clusterStatusMonitor.updateRebalancerStats(resourceName, partitionsNeedRecovery.size(),
+                    partitionsNeedLoadbalance.size(), recoveryThrottledPartitions.size(),
+                    loadbalanceThrottledPartitions.size());
+        }
+
+        if (logger.isDebugEnabled()) {
+            logParitionMapState(resourceName, new HashSet<>(resource.getPartitions()),
+                    partitionsNeedRecovery, recoveryThrottledPartitions, partitionsNeedLoadbalance,
+                    loadbalanceThrottledPartitions, currentStateOutput, bestPossiblePartitionStateMap,
+                    intermediatePartitionStateMap);
+        }
+
+        logger.debug("End processing resource:" + resourceName);
+        return intermediatePartitionStateMap;
     }
-    if (!partitionshaveErrorStateReplica.isEmpty()) {
-      logger.info("partition currently has ERROR replica in " + resourceName + " partitions: "
-          + partitionshaveErrorStateReplica);
+
+    /**
+     * Check and charge all pending transitions for throttling.
+     */
+    private void chargePendingTransition(Resource resource, CurrentStateOutput currentStateOutput,
+            StateTransitionThrottleController throttleController, Set<Partition> partitionsNeedRecovery,
+            Set<Partition> partitionsNeedLoadbalance) {
+        String resourceName = resource.getResourceName();
+
+        // check and charge pending transitions
+        for (Partition partition : resource.getPartitions()) {
+            Map<String, String> currentStateMap =
+                    currentStateOutput.getCurrentStateMap(resourceName, partition);
+            Map<String, String> pendingMap =
+                    currentStateOutput.getPendingStateMap(resourceName, partition);
+
+            StateTransitionThrottleConfig.RebalanceType rebalanceType = RebalanceType.NONE;
+            if (partitionsNeedRecovery.contains(partition)) {
+                rebalanceType = StateTransitionThrottleConfig.RebalanceType.RECOVERY_BALANCE;
+            } else if (partitionsNeedLoadbalance.contains(partition)) {
+                rebalanceType = StateTransitionThrottleConfig.RebalanceType.LOAD_BALANCE;
+            }
+
+            if (pendingMap.size() > 0) {
+                throttleController.chargeCluster(rebalanceType);
+                throttleController.chargeResource(rebalanceType, resourceName);
+
+                // charge each instance.
+                for (String ins : pendingMap.keySet()) {
+                    String currentState = currentStateMap.get(ins);
+                    String pendingState = pendingMap.get(ins);
+                    if (pendingState != null && !pendingState.equals(currentState)) {
+                        throttleController.chargeInstance(rebalanceType, ins);
+                    }
+                }
+            }
+        }
     }
 
-    chargePendingTransition(resource, currentStateOutput, throttleController,
-        partitionsNeedRecovery, partitionsNeedLoadbalance);
+    /**
+     *  Perform any recovery balance if needed, fill intermediatePartitionStateMap
+     *  if recover rebalance is needed.
+     *  return the partitions needs recoveryRebalance but get throttled
+     */
+    private Set<Partition> recoveryRebalance(Resource resource, PartitionStateMap bestPossiblePartitionStateMap,
+            StateTransitionThrottleController throttleController,
+            PartitionStateMap intermediatePartitionStateMap, Set<Partition> partitionsNeedRecovery,
+            CurrentStateOutput currentStateOutput, String topState) {
+        Set<Partition> partitionRecoveryBalanceThrottled = new HashSet<Partition>();
 
-    // perform recovery rebalance
-    Set<Partition> recoveryThrottledPartitions =
-    recoveryRebalance(resource, bestPossiblePartitionStateMap, throttleController,
-        intermediatePartitionStateMap, partitionsNeedRecovery, currentStateOutput,
-        cache.getStateModelDef(resource.getStateModelDefRef()).getTopState());
+        Map<Partition, Map<String, String>> currentStateMap =
+                currentStateOutput.getCurrentStateMap(resource.getResourceName());
+        List<Partition> partitionsNeedRecoveryPrioritized =
+                new ArrayList<Partition>(partitionsNeedRecovery);
 
-    Set<Partition> loadbalanceThrottledPartitions = partitionsNeedLoadbalance;
+        // TODO : Due to currently using JAVA 1.6, the original order of partitions list is not
+        // determinable, sort the list by partition name and remove the code after bump to JAVA 1.8
+        Collections.sort(partitionsNeedRecoveryPrioritized, new Comparator<Partition>() {
+            @Override
+            public int compare(Partition o1, Partition o2) {
+                return o1.getPartitionName().compareTo(o2.getPartitionName());
+            }
+        });
 
-    long maxAllowedErrorPartitions = cache.getClusterConfig().getErrorPartitionThresholdForLoadBalance();
-    if (partitionsNeedRecovery.isEmpty() &&
-        (maxAllowedErrorPartitions < 0
-            || partitionshaveErrorStateReplica.size() <= maxAllowedErrorPartitions)) {
-      // perform load balance only if
-      //   1. no recovery operation to be scheduled.
-      //   2. error partition count is less than configured limitation.
-      loadbalanceThrottledPartitions =
-          loadRebalance(resource, currentStateOutput, bestPossiblePartitionStateMap,
-              throttleController, intermediatePartitionStateMap, partitionsNeedLoadbalance,
-              currentStateOutput.getCurrentStateMap(resourceName));
-    } else {
-      // skip load balance, use current state mapping
-      for (Partition p : partitionsNeedLoadbalance) {
+        Collections.sort(partitionsNeedRecoveryPrioritized,
+                new PartitionPriorityComparator(bestPossiblePartitionStateMap.getStateMap(),
+                        currentStateMap, topState, true));
+
+        for (Partition partition : partitionsNeedRecoveryPrioritized) {
+            throtteStateTransitions(throttleController, resource.getResourceName(), partition,
+                    currentStateOutput, bestPossiblePartitionStateMap, partitionRecoveryBalanceThrottled,
+                    intermediatePartitionStateMap, RebalanceType.RECOVERY_BALANCE);
+        }
+
+        logger.info(String
+                .format("%s: needRecovery: %d, recoverybalanceThrottled: %d", resource.getResourceName(),
+                        partitionsNeedRecovery.size(), partitionRecoveryBalanceThrottled.size()));
+        return partitionRecoveryBalanceThrottled;
+    }
+
+    /* return the partitions needs loadRebalance but get throttled */
+    private Set<Partition> loadRebalance(Resource resource, CurrentStateOutput currentStateOutput,
+            PartitionStateMap bestPossiblePartitionStateMap,
+            StateTransitionThrottleController throttleController,
+            PartitionStateMap intermediatePartitionStateMap, Set<Partition> partitionsNeedLoadbalance,
+            Map<Partition, Map<String, String>> currentStateMaps) {
+        String resourceName = resource.getResourceName();
+        Set<Partition> partitionsLoadbalanceThrottled = new HashSet<Partition>();
+
+        List<Partition> partitionsNeedLoadRebalancePrioritized =
+                new ArrayList<>(partitionsNeedLoadbalance);
+
+        // TODO : Due to currently using JAVA 1.6, the original order of partitions list is not
+        // determinable, sort the list by partition name and remove the code after bump to JAVA 1.8
+        Collections.sort(partitionsNeedLoadRebalancePrioritized, new Comparator<Partition>() {
+            @Override
+            public int compare(Partition o1, Partition o2) {
+                return o1.getPartitionName().compareTo(o2.getPartitionName());
+            }
+        });
+
+        Collections.sort(partitionsNeedLoadRebalancePrioritized,
+                new PartitionPriorityComparator(bestPossiblePartitionStateMap.getStateMap(),
+                        currentStateMaps, "", false));
+
+        for (Partition partition : partitionsNeedLoadRebalancePrioritized) {
+            throtteStateTransitions(throttleController, resourceName, partition, currentStateOutput,
+                    bestPossiblePartitionStateMap, partitionsLoadbalanceThrottled,
+                    intermediatePartitionStateMap, RebalanceType.LOAD_BALANCE);
+        }
+
+        logger.info(String
+                .format("%s: loadbalanceNeeded: %d, loadbalanceThrottled: %d", resource.getResourceName(),
+                        partitionsNeedLoadbalance.size(),
+                        partitionsLoadbalanceThrottled.size()));
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("recovery balance throttled for " + resourceName + " partitions: "
+                    + partitionsLoadbalanceThrottled);
+        }
+
+        return partitionsLoadbalanceThrottled;
+    }
+
+    private void throtteStateTransitions(StateTransitionThrottleController throttleController,
+            String resourceName, Partition partition, CurrentStateOutput currentStateOutput,
+            PartitionStateMap bestPossiblePartitionStateMap, Set<Partition> partitionsThrottled,
+            PartitionStateMap intermediatePartitionStateMap, RebalanceType rebalanceType) {
+
         Map<String, String> currentStateMap =
-            currentStateOutput.getCurrentStateMap(resourceName, p);
-        intermediatePartitionStateMap.setState(p, currentStateMap);
-      }
-    }
+                currentStateOutput.getCurrentStateMap(resourceName, partition);
+        Map<String, String> bestPossibleMap = bestPossiblePartitionStateMap.getPartitionMap(partition);
+        Set<String> allInstances = new HashSet<String>(currentStateMap.keySet());
+        allInstances.addAll(bestPossibleMap.keySet());
+        Map<String, String> intermediateMap = new HashMap<String, String>();
 
-    if (clusterStatusMonitor != null) {
-      clusterStatusMonitor.updateRebalancerStats(resourceName, partitionsNeedRecovery.size(),
-          partitionsNeedLoadbalance.size(), recoveryThrottledPartitions.size(),
-          loadbalanceThrottledPartitions.size());
-    }
-
-    if (logger.isDebugEnabled()) {
-      logParitionMapState(resourceName, new HashSet<>(resource.getPartitions()),
-          partitionsNeedRecovery, recoveryThrottledPartitions, partitionsNeedLoadbalance,
-          loadbalanceThrottledPartitions, currentStateOutput, bestPossiblePartitionStateMap,
-          intermediatePartitionStateMap);
-    }
-
-    logger.debug("End processing resource:" + resourceName);
-    return intermediatePartitionStateMap;
-  }
-
-  /**
-   * Check and charge all pending transitions for throttling.
-   */
-  private void chargePendingTransition(Resource resource, CurrentStateOutput currentStateOutput,
-      StateTransitionThrottleController throttleController, Set<Partition> partitionsNeedRecovery,
-      Set<Partition> partitionsNeedLoadbalance) {
-    String resourceName = resource.getResourceName();
-
-    // check and charge pending transitions
-    for (Partition partition : resource.getPartitions()) {
-      Map<String, String> currentStateMap =
-          currentStateOutput.getCurrentStateMap(resourceName, partition);
-      Map<String, String> pendingMap =
-          currentStateOutput.getPendingStateMap(resourceName, partition);
-
-      StateTransitionThrottleConfig.RebalanceType rebalanceType = RebalanceType.NONE;
-      if (partitionsNeedRecovery.contains(partition)) {
-        rebalanceType = StateTransitionThrottleConfig.RebalanceType.RECOVERY_BALANCE;
-      } else if (partitionsNeedLoadbalance.contains(partition)) {
-        rebalanceType = StateTransitionThrottleConfig.RebalanceType.LOAD_BALANCE;
-      }
-
-      if (pendingMap.size() > 0) {
-        throttleController.chargeCluster(rebalanceType);
-        throttleController.chargeResource(rebalanceType, resourceName);
-
-        // charge each instance.
-        for (String ins : pendingMap.keySet()) {
-          String currentState = currentStateMap.get(ins);
-          String pendingState = pendingMap.get(ins);
-          if (pendingState != null && !pendingState.equals(currentState)) {
-            throttleController.chargeInstance(rebalanceType, ins);
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   *  Perform any recovery balance if needed, fill intermediatePartitionStateMap
-   *  if recover rebalance is needed.
-   *  return the partitions needs recoveryRebalance but get throttled
-   */
-  private Set<Partition> recoveryRebalance(Resource resource, PartitionStateMap bestPossiblePartitionStateMap,
-      StateTransitionThrottleController throttleController,
-      PartitionStateMap intermediatePartitionStateMap, Set<Partition> partitionsNeedRecovery,
-      CurrentStateOutput currentStateOutput, String topState) {
-    Set<Partition> partitionRecoveryBalanceThrottled = new HashSet<Partition>();
-
-    Map<Partition, Map<String, String>> currentStateMap =
-        currentStateOutput.getCurrentStateMap(resource.getResourceName());
-    List<Partition> partitionsNeedRecoveryPrioritized =
-        new ArrayList<Partition>(partitionsNeedRecovery);
-
-    // TODO : Due to currently using JAVA 1.6, the original order of partitions list is not
-    // determinable, sort the list by partition name and remove the code after bump to JAVA 1.8
-    Collections.sort(partitionsNeedRecoveryPrioritized, new Comparator<Partition>() {
-      @Override
-      public int compare(Partition o1, Partition o2) {
-        return o1.getPartitionName().compareTo(o2.getPartitionName());
-      }
-    });
-
-    Collections.sort(partitionsNeedRecoveryPrioritized,
-        new PartitionPriorityComparator(bestPossiblePartitionStateMap.getStateMap(),
-            currentStateMap, topState, true));
-
-    for (Partition partition : partitionsNeedRecoveryPrioritized) {
-      throtteStateTransitions(throttleController, resource.getResourceName(), partition,
-          currentStateOutput, bestPossiblePartitionStateMap, partitionRecoveryBalanceThrottled,
-          intermediatePartitionStateMap, RebalanceType.RECOVERY_BALANCE);
-    }
-
-    logger.info(String
-        .format("%s: needRecovery: %d, recoverybalanceThrottled: %d", resource.getResourceName(),
-            partitionsNeedRecovery.size(), partitionRecoveryBalanceThrottled.size()));
-    return partitionRecoveryBalanceThrottled;
-  }
-
-  /* return the partitions needs loadRebalance but get throttled */
-  private Set<Partition> loadRebalance(Resource resource, CurrentStateOutput currentStateOutput,
-      PartitionStateMap bestPossiblePartitionStateMap,
-      StateTransitionThrottleController throttleController,
-      PartitionStateMap intermediatePartitionStateMap, Set<Partition> partitionsNeedLoadbalance,
-      Map<Partition, Map<String, String>> currentStateMaps) {
-    String resourceName = resource.getResourceName();
-    Set<Partition> partitionsLoadbalanceThrottled = new HashSet<Partition>();
-
-    List<Partition> partitionsNeedLoadRebalancePrioritized =
-        new ArrayList<>(partitionsNeedLoadbalance);
-
-    // TODO : Due to currently using JAVA 1.6, the original order of partitions list is not
-    // determinable, sort the list by partition name and remove the code after bump to JAVA 1.8
-    Collections.sort(partitionsNeedLoadRebalancePrioritized, new Comparator<Partition>() {
-      @Override
-      public int compare(Partition o1, Partition o2) {
-        return o1.getPartitionName().compareTo(o2.getPartitionName());
-      }
-    });
-
-    Collections.sort(partitionsNeedLoadRebalancePrioritized,
-        new PartitionPriorityComparator(bestPossiblePartitionStateMap.getStateMap(),
-            currentStateMaps, "", false));
-
-    for (Partition partition : partitionsNeedLoadRebalancePrioritized) {
-      throtteStateTransitions(throttleController, resourceName, partition, currentStateOutput,
-          bestPossiblePartitionStateMap, partitionsLoadbalanceThrottled,
-          intermediatePartitionStateMap, RebalanceType.LOAD_BALANCE);
-    }
-
-    logger.info(String
-        .format("%s: loadbalanceNeeded: %d, loadbalanceThrottled: %d", resource.getResourceName(), partitionsNeedLoadbalance.size(),
-            partitionsLoadbalanceThrottled.size()));
-
-    if (logger.isDebugEnabled()) {
-      logger.debug("recovery balance throttled for " + resourceName + " partitions: "
-          + partitionsLoadbalanceThrottled);
-    }
-
-    return partitionsLoadbalanceThrottled;
-  }
-
-  private void throtteStateTransitions(StateTransitionThrottleController throttleController,
-      String resourceName, Partition partition, CurrentStateOutput currentStateOutput,
-      PartitionStateMap bestPossiblePartitionStateMap, Set<Partition> partitionsThrottled,
-      PartitionStateMap intermediatePartitionStateMap, RebalanceType rebalanceType) {
-
-    Map<String, String> currentStateMap =
-        currentStateOutput.getCurrentStateMap(resourceName, partition);
-    Map<String, String> bestPossibleMap = bestPossiblePartitionStateMap.getPartitionMap(partition);
-    Set<String> allInstances = new HashSet<String>(currentStateMap.keySet());
-    allInstances.addAll(bestPossibleMap.keySet());
-    Map<String, String> intermediateMap = new HashMap<String, String>();
-
-    boolean throttled = false;
-    if (throttleController.throttleforResource(rebalanceType, resourceName)) {
-      throttled = true;
-      if (logger.isDebugEnabled()) {
-        logger
-            .debug("Throttled on resource for " + resourceName + " " + partition.getPartitionName());
-      }
-    } else {
-      // throttle if any of the instance can not handle the state transition
-      for (String ins : allInstances) {
-        String currentState = currentStateMap.get(ins);
-        String bestPossibleState = bestPossibleMap.get(ins);
-        if (bestPossibleState != null && !bestPossibleState.equals(currentState)) {
-          if (throttleController.throttleForInstance(rebalanceType, ins)) {
+        boolean throttled = false;
+        if (throttleController.throttleforResource(rebalanceType, resourceName)) {
             throttled = true;
             if (logger.isDebugEnabled()) {
-              logger.debug("Throttled because instance " + ins + " for " + resourceName + " " + partition
-                      .getPartitionName());
+                logger
+                        .debug("Throttled on resource for " + resourceName + " " + partition.getPartitionName());
             }
-          }
-        }
-      }
-    }
-
-    if (!throttled) {
-      intermediateMap.putAll(bestPossibleMap);
-      for (String ins : allInstances) {
-        String currentState = currentStateMap.get(ins);
-        String bestPossibleState = bestPossibleMap.get(ins);
-        if (bestPossibleState != null && !bestPossibleState.equals(currentState)) {
-          throttleController.chargeInstance(rebalanceType, ins);
-        }
-      }
-      throttleController.chargeCluster(rebalanceType);
-      throttleController.chargeResource(rebalanceType, resourceName);
-    } else {
-      intermediateMap.putAll(currentStateMap);
-      partitionsThrottled.add(partition);
-    }
-    intermediatePartitionStateMap.setState(partition, intermediateMap);
-  }
-
-  /**
-   * Given preferenceList, bestPossibleState and currentState, determine which type of rebalance is
-   * needed to fit the idea states defined by the state model definition.
-   *
-   * @return rebalance type needed to bring the replicas to idea states
-   *         RECOVERY_BALANCE - required states is not available through all replicas
-   *         NONE - current state matches the idea state
-   *         LOAD_BALANCE - although all replicas required exist, Helix needs to optimize the allocation
-   */
-  private RebalanceType getRebalanceType(ClusterDataCache cache,
-      Map<String, String> bestPossibleMap, List<String> preferenceList,
-      StateModelDefinition stateModelDef, Map<String, String> currentStateMap, IdealState idealState) {
-    if (preferenceList == null) {
-      preferenceList = Collections.emptyList();
-    }
-
-    int replica = idealState.getReplicaCount(preferenceList.size());
-    Set<String> activeList = new HashSet<>(preferenceList);
-    activeList.retainAll(cache.getEnabledLiveInstances());
-
-    // Check current states against state model define. If doesn't match, need recovery.
-    LinkedHashMap<String, Integer> expectedStateCountMap =
-        stateModelDef.getStateCountMap(activeList.size(), replica);
-    Map<String, Integer> currentStateCounts = StateModelDefinition.getStateCounts(currentStateMap);
-
-    for (String state : expectedStateCountMap.keySet()) {
-      Integer expectedCount = expectedStateCountMap.get(state);
-      Integer currentCount = currentStateCounts.get(state);
-      expectedCount = expectedCount == null? 0 : expectedCount;
-      currentCount = currentCount == null? 0 : currentCount;
-
-      if (currentCount < expectedCount) {
-        if (!state.equals(HelixDefinedState.DROPPED.name()) &&
-            !state.equals(HelixDefinedState.ERROR.name()) &&
-            !state.equals(stateModelDef.getInitialState())) {
-          return RebalanceType.RECOVERY_BALANCE;
-        }
-      }
-    }
-    // No recovery needed, all expected replicas exist.
-    // Check if the calculated best possible states matches current states
-    if (currentStateMap.equals(bestPossibleMap)) {
-      return RebalanceType.NONE;
-    } else {
-      // All other cases is categorized as load balance change
-      return RebalanceType.LOAD_BALANCE;
-    }
-  }
-
-  private void logParitionMapState(String resource, Set<Partition> allPartitions,
-      Set<Partition> recoveryPartitions, Set<Partition> recoveryThrottledPartitions,
-      Set<Partition> loadbalancePartitions, Set<Partition> loadbalanceThrottledPartitions,
-      CurrentStateOutput currentStateOutput,
-      PartitionStateMap bestPossibleStateMap,
-      PartitionStateMap intermediateStateMap) {
-
-    if (logger.isDebugEnabled()) {
-      logger.debug("Partitions need recovery: " + recoveryPartitions
-          + "\nPartitions get throttled on recovery: " + recoveryThrottledPartitions);
-      logger.debug("Partitions need loadbalance: " + loadbalancePartitions
-          + "\nPartitions get throttled on load-balance: " + loadbalanceThrottledPartitions);
-    }
-
-    for (Partition partition : allPartitions) {
-      if (logger.isDebugEnabled()) {
-        logger.debug(
-            partition + ": Best possible map: " + bestPossibleStateMap.getPartitionMap(partition));
-        logger.debug(partition + ": Current State: " + currentStateOutput
-            .getCurrentStateMap(resource, partition));
-        logger.debug(partition + ": Pending state: " + currentStateOutput
-            .getPendingMessageMap(resource, partition));
-        logger.debug(
-            partition + ": Intermediate state: " + intermediateStateMap.getPartitionMap(partition));
-      }
-    }
-  }
-
-  private static class ResourcePriortiyComparator implements Comparator<ResourcePriority> {
-    @Override public int compare(ResourcePriority r1, ResourcePriority r2) {
-      return r2.compareTo(r1);
-    }
-  }
-
-  private static class ResourcePriority {
-    private String _resourceName;
-    private Integer _priority;
-
-    public ResourcePriority(String resourceName, Integer priority) {
-      _resourceName = resourceName;
-      _priority = priority;
-    }
-
-    public int compareTo(ResourcePriority resourcePriority) {
-      return this._priority.compareTo(resourcePriority._priority);
-    }
-
-    public String getResourceName() {
-      return _resourceName;
-    }
-
-    public void setPriority(String priority) {
-      try {
-        _priority = Integer.parseInt(priority);
-      } catch (Exception e) {
-        logger.warn(
-            String.format("Invalid priority field %s for resource %s", priority, _resourceName));
-      }
-    }
-  }
-
-  //  Compare partitions according following standard:
-  //  1) Partition without top state always is the highest priority.
-  //  2) For partition with top-state, the more number of active replica it has, the less priority.
-  private class PartitionPriorityComparator implements Comparator<Partition> {
-    private Map<Partition, Map<String, String>> _bestPossibleMap;
-    private Map<Partition, Map<String, String>> _currentStateMap;
-    private String _topState;
-    private boolean _recoveryRebalance;
-
-    public PartitionPriorityComparator(Map<Partition, Map<String, String>> bestPossibleMap,
-        Map<Partition, Map<String, String>> currentStateMap, String topState,
-        boolean recoveryRebalance) {
-      _bestPossibleMap = bestPossibleMap;
-      _currentStateMap = currentStateMap;
-      _topState = topState;
-      _recoveryRebalance = recoveryRebalance;
-    }
-
-    @Override
-    public int compare(Partition p1, Partition p2) {
-      if (_recoveryRebalance) {
-        Integer missTopState1 = getMissTopStateIndex(p1);
-        Integer missTopState2 = getMissTopStateIndex(p2);
-
-        // Highest priority for the partition without top state
-        if (!missTopState1.equals(missTopState2)) {
-          return missTopState1.compareTo(missTopState2);
+        } else {
+            // throttle if any of the instance can not handle the state transition
+            for (String ins : allInstances) {
+                String currentState = currentStateMap.get(ins);
+                String bestPossibleState = bestPossibleMap.get(ins);
+                if (bestPossibleState != null && !bestPossibleState.equals(currentState)) {
+                    if (throttleController.throttleForInstance(rebalanceType, ins)) {
+                        throttled = true;
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Throttled because instance " + ins + " for " + resourceName + " " + partition
+                                    .getPartitionName());
+                        }
+                    }
+                }
+            }
         }
 
-        Integer currentActiveReplicas1 = getCurrentActiveReplicas(p1);
-        Integer currentActiveReplicas2 = getCurrentActiveReplicas(p2);
-        return currentActiveReplicas1.compareTo(currentActiveReplicas2);
-      }
-
-      // Higher priority for the partition, which has less number of active replicas
-      Integer idealStateMatched1 = getIdealStateMatched(p1);
-      Integer idealStateMatched2 = getIdealStateMatched(p2);
-
-      return idealStateMatched1.compareTo(idealStateMatched2);
-    }
-
-    private Integer getMissTopStateIndex(Partition partition) {
-      // 0 if no replica in top-state, 1 if it has at least one replica in top-state.
-      if (!_currentStateMap.containsKey(partition) || !_currentStateMap.get(partition).values()
-          .contains(_topState)) {
-        return 0;
-      }
-      return 1;
-    }
-
-    private Integer getCurrentActiveReplicas(Partition partition) {
-      Integer currentActiveReplicas = 0;
-      if (!_currentStateMap.containsKey(partition)) {
-        return currentActiveReplicas;
-      }
-
-      // Initialize state -> number of this state map
-      Map<String, Integer> stateCountMap = new HashMap<String, Integer>();
-      for (String state : _bestPossibleMap.get(partition).values()) {
-        if (!stateCountMap.containsKey(state)) {
-          stateCountMap.put(state, 0);
+        if (!throttled) {
+            intermediateMap.putAll(bestPossibleMap);
+            for (String ins : allInstances) {
+                String currentState = currentStateMap.get(ins);
+                String bestPossibleState = bestPossibleMap.get(ins);
+                if (bestPossibleState != null && !bestPossibleState.equals(currentState)) {
+                    throttleController.chargeInstance(rebalanceType, ins);
+                }
+            }
+            throttleController.chargeCluster(rebalanceType);
+            throttleController.chargeResource(rebalanceType, resourceName);
+        } else {
+            intermediateMap.putAll(currentStateMap);
+            partitionsThrottled.add(partition);
         }
-        stateCountMap.put(state, stateCountMap.get(state) + 1);
-      }
-
-      // Search the state map
-      for (String state : _currentStateMap.get(partition).values()) {
-        if (stateCountMap.containsKey(state) && stateCountMap.get(state) > 0) {
-          currentActiveReplicas++;
-          stateCountMap.put(state, stateCountMap.get(state) - 1);
-        }
-      }
-
-      return currentActiveReplicas;
+        intermediatePartitionStateMap.setState(partition, intermediateMap);
     }
 
-    private Integer getIdealStateMatched(Partition partition) {
-      Integer matchedState = 0;
-      if (!_currentStateMap.containsKey(partition)) {
-        return matchedState;
-      }
-
-      for (String instance : _bestPossibleMap.get(partition).keySet()) {
-        if (_bestPossibleMap.get(partition).get(instance)
-            .equals(_currentStateMap.get(partition).get(instance))) {
-          matchedState++;
+    /**
+     * Given preferenceList, bestPossibleState and currentState, determine which type of rebalance is
+     * needed to fit the idea states defined by the state model definition.
+     *
+     * @return rebalance type needed to bring the replicas to idea states
+     *         RECOVERY_BALANCE - required states is not available through all replicas
+     *         NONE - current state matches the idea state
+     *         LOAD_BALANCE - although all replicas required exist, Helix needs to optimize the allocation
+     */
+    private RebalanceType getRebalanceType(ClusterDataCache cache,
+            Map<String, String> bestPossibleMap, List<String> preferenceList,
+            StateModelDefinition stateModelDef, Map<String, String> currentStateMap, IdealState idealState) {
+        if (preferenceList == null) {
+            preferenceList = Collections.emptyList();
         }
-      }
-      return matchedState;
+
+        int replica = idealState.getReplicaCount(preferenceList.size());
+        Set<String> activeList = new HashSet<>(preferenceList);
+        activeList.retainAll(cache.getEnabledLiveInstances());
+
+        // Check current states against state model define. If doesn't match, need recovery.
+        LinkedHashMap<String, Integer> expectedStateCountMap =
+                stateModelDef.getStateCountMap(activeList.size(), replica);
+        Map<String, Integer> currentStateCounts = StateModelDefinition.getStateCounts(currentStateMap);
+
+        for (String state : expectedStateCountMap.keySet()) {
+            Integer expectedCount = expectedStateCountMap.get(state);
+            Integer currentCount = currentStateCounts.get(state);
+            expectedCount = expectedCount == null ? 0 : expectedCount;
+            currentCount = currentCount == null ? 0 : currentCount;
+
+            if (currentCount < expectedCount) {
+                if (!state.equals(HelixDefinedState.DROPPED.name()) &&
+                        !state.equals(HelixDefinedState.ERROR.name()) &&
+                        !state.equals(stateModelDef.getInitialState())) {
+                    return RebalanceType.RECOVERY_BALANCE;
+                }
+            }
+        }
+        // No recovery needed, all expected replicas exist.
+        // Check if the calculated best possible states matches current states
+        if (currentStateMap.equals(bestPossibleMap)) {
+            return RebalanceType.NONE;
+        } else {
+            // All other cases is categorized as load balance change
+            return RebalanceType.LOAD_BALANCE;
+        }
     }
-  }
+
+    private void logParitionMapState(String resource, Set<Partition> allPartitions,
+            Set<Partition> recoveryPartitions, Set<Partition> recoveryThrottledPartitions,
+            Set<Partition> loadbalancePartitions, Set<Partition> loadbalanceThrottledPartitions,
+            CurrentStateOutput currentStateOutput,
+            PartitionStateMap bestPossibleStateMap,
+            PartitionStateMap intermediateStateMap) {
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Partitions need recovery: " + recoveryPartitions
+                    + "\nPartitions get throttled on recovery: " + recoveryThrottledPartitions);
+            logger.debug("Partitions need loadbalance: " + loadbalancePartitions
+                    + "\nPartitions get throttled on load-balance: " + loadbalanceThrottledPartitions);
+        }
+
+        for (Partition partition : allPartitions) {
+            if (logger.isDebugEnabled()) {
+                logger.debug(
+                        partition + ": Best possible map: " + bestPossibleStateMap.getPartitionMap(partition));
+                logger.debug(partition + ": Current State: " + currentStateOutput
+                        .getCurrentStateMap(resource, partition));
+                logger.debug(partition + ": Pending state: " + currentStateOutput
+                        .getPendingMessageMap(resource, partition));
+                logger.debug(
+                        partition + ": Intermediate state: " + intermediateStateMap.getPartitionMap(partition));
+            }
+        }
+    }
+
+    private static class ResourcePriortiyComparator implements Comparator<ResourcePriority> {
+        @Override
+        public int compare(ResourcePriority r1, ResourcePriority r2) {
+            return r2.compareTo(r1);
+        }
+    }
+
+    private static class ResourcePriority {
+        private String _resourceName;
+        private Integer _priority;
+
+        public ResourcePriority(String resourceName, Integer priority) {
+            _resourceName = resourceName;
+            _priority = priority;
+        }
+
+        public int compareTo(ResourcePriority resourcePriority) {
+            return this._priority.compareTo(resourcePriority._priority);
+        }
+
+        public String getResourceName() {
+            return _resourceName;
+        }
+
+        public void setPriority(String priority) {
+            try {
+                _priority = Integer.parseInt(priority);
+            } catch (Exception e) {
+                logger.warn(
+                        String.format("Invalid priority field %s for resource %s", priority, _resourceName));
+            }
+        }
+    }
+
+    //  Compare partitions according following standard:
+    //  1) Partition without top state always is the highest priority.
+    //  2) For partition with top-state, the more number of active replica it has, the less priority.
+    private class PartitionPriorityComparator implements Comparator<Partition> {
+        private Map<Partition, Map<String, String>> _bestPossibleMap;
+        private Map<Partition, Map<String, String>> _currentStateMap;
+        private String _topState;
+        private boolean _recoveryRebalance;
+
+        public PartitionPriorityComparator(Map<Partition, Map<String, String>> bestPossibleMap,
+                Map<Partition, Map<String, String>> currentStateMap, String topState,
+                boolean recoveryRebalance) {
+            _bestPossibleMap = bestPossibleMap;
+            _currentStateMap = currentStateMap;
+            _topState = topState;
+            _recoveryRebalance = recoveryRebalance;
+        }
+
+        @Override
+        public int compare(Partition p1, Partition p2) {
+            if (_recoveryRebalance) {
+                Integer missTopState1 = getMissTopStateIndex(p1);
+                Integer missTopState2 = getMissTopStateIndex(p2);
+
+                // Highest priority for the partition without top state
+                if (!missTopState1.equals(missTopState2)) {
+                    return missTopState1.compareTo(missTopState2);
+                }
+
+                Integer currentActiveReplicas1 = getCurrentActiveReplicas(p1);
+                Integer currentActiveReplicas2 = getCurrentActiveReplicas(p2);
+                return currentActiveReplicas1.compareTo(currentActiveReplicas2);
+            }
+
+            // Higher priority for the partition, which has less number of active replicas
+            Integer idealStateMatched1 = getIdealStateMatched(p1);
+            Integer idealStateMatched2 = getIdealStateMatched(p2);
+
+            return idealStateMatched1.compareTo(idealStateMatched2);
+        }
+
+        private Integer getMissTopStateIndex(Partition partition) {
+            // 0 if no replica in top-state, 1 if it has at least one replica in top-state.
+            if (!_currentStateMap.containsKey(partition) || !_currentStateMap.get(partition).values()
+                    .contains(_topState)) {
+                return 0;
+            }
+            return 1;
+        }
+
+        private Integer getCurrentActiveReplicas(Partition partition) {
+            Integer currentActiveReplicas = 0;
+            if (!_currentStateMap.containsKey(partition)) {
+                return currentActiveReplicas;
+            }
+
+            // Initialize state -> number of this state map
+            Map<String, Integer> stateCountMap = new HashMap<String, Integer>();
+            for (String state : _bestPossibleMap.get(partition).values()) {
+                if (!stateCountMap.containsKey(state)) {
+                    stateCountMap.put(state, 0);
+                }
+                stateCountMap.put(state, stateCountMap.get(state) + 1);
+            }
+
+            // Search the state map
+            for (String state : _currentStateMap.get(partition).values()) {
+                if (stateCountMap.containsKey(state) && stateCountMap.get(state) > 0) {
+                    currentActiveReplicas++;
+                    stateCountMap.put(state, stateCountMap.get(state) - 1);
+                }
+            }
+
+            return currentActiveReplicas;
+        }
+
+        private Integer getIdealStateMatched(Partition partition) {
+            Integer matchedState = 0;
+            if (!_currentStateMap.containsKey(partition)) {
+                return matchedState;
+            }
+
+            for (String instance : _bestPossibleMap.get(partition).keySet()) {
+                if (_bestPossibleMap.get(partition).get(instance)
+                        .equals(_currentStateMap.get(partition).get(instance))) {
+                    matchedState++;
+                }
+            }
+            return matchedState;
+        }
+    }
 }

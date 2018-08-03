@@ -25,9 +25,9 @@ import org.apache.helix.model.Message;
 // TODO: 2018/6/15 by zmyer
 @Deprecated
 public interface MessageHandlerFactory {
-  MessageHandler createHandler(Message message, NotificationContext context);
+    MessageHandler createHandler(Message message, NotificationContext context);
 
-  String getMessageType();
+    String getMessageType();
 
-  void reset();
+    void reset();
 }

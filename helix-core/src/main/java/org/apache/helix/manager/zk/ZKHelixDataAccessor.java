@@ -65,6 +65,7 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
         this(clusterName, null, baseDataAccessor);
     }
 
+    // TODO: 2018/7/24 by zmyer
     public ZKHelixDataAccessor(String clusterName, InstanceType instanceType,
             BaseDataAccessor<ZNRecord> baseDataAccessor) {
         _clusterName = clusterName;
@@ -102,6 +103,7 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
                 message.getRecord(), AccessOption.PERSISTENT);
     }
 
+    // TODO: 2018/7/27 by zmyer
     @Override
     public boolean createControllerLeader(LiveInstance leader) {
         return _baseDataAccessor.create(PropertyPathBuilder.controllerLeader(_clusterName), leader.getRecord(),
@@ -114,6 +116,7 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
                 PropertyPathBuilder.pause(_clusterName), pauseSignal.getRecord(), AccessOption.PERSISTENT);
     }
 
+    // TODO: 2018/7/25 by zmyer
     @Override
     public boolean createMaintenance(MaintenanceSignal maintenanceSignal) {
         return _baseDataAccessor
@@ -121,6 +124,7 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
                         AccessOption.PERSISTENT);
     }
 
+    // TODO: 2018/7/26 by zmyer
     @Override
     public <T extends HelixProperty> boolean setProperty(PropertyKey key, T value) {
         PropertyType type = key.getType();
@@ -166,11 +170,13 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
         return success;
     }
 
+    // TODO: 2018/7/25 by zmyer
     @Override
     public <T extends HelixProperty> boolean updateProperty(PropertyKey key, T value) {
         return updateProperty(key, new ZNRecordUpdater(value.getRecord()), value);
     }
 
+    // TODO: 2018/7/25 by zmyer
     @Override
     public <T extends HelixProperty> boolean updateProperty(PropertyKey key, DataUpdater<ZNRecord> updater, T value) {
         PropertyType type = key.getType();
@@ -397,6 +403,7 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
         return getChildValues(key, false);
     }
 
+    // TODO: 2018/7/26 by zmyer
     @Override
     public <T extends HelixProperty> List<T> getChildValues(PropertyKey key, boolean throwException) {
         PropertyType type = key.getType();
@@ -410,15 +417,15 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
             children = _baseDataAccessor.getChildren(parentPath, null, options);
         }
         if (children != null) {
-            for (ZNRecord record : children) {
+            for (final ZNRecord record : children) {
                 switch (type) {
                 case CURRENTSTATES:
                 case IDEALSTATES:
                 case EXTERNALVIEW:
                     if (record != null) {
-                        HelixProperty property = new HelixProperty(record);
+                        final HelixProperty property = new HelixProperty(record);
 
-                        int bucketSize = property.getBucketSize();
+                        final int bucketSize = property.getBucketSize();
                         if (bucketSize > 0) {
                             // TODO: fix this if record.id != pathName
                             String childPath = parentPath + "/" + record.getId();
@@ -428,7 +435,7 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
                             } else {
                                 childRecords = _baseDataAccessor.getChildren(childPath, null, options);
                             }
-                            ZNRecord assembledRecord = new ZNRecordAssembler().assemble(childRecords);
+                            final ZNRecord assembledRecord = new ZNRecordAssembler().assemble(childRecords);
 
                             // merge with parent node value
                             if (assembledRecord != null) {
@@ -460,6 +467,7 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
         return getChildValuesMap(key, false);
     }
 
+    // TODO: 2018/7/26 by zmyer
     @Override
     public <T extends HelixProperty> Map<String, T> getChildValuesMap(PropertyKey key,
             boolean throwException) {
@@ -468,17 +476,19 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
         int options = constructOptions(type);
         List<T> children = getChildValues(key, throwException);
         Map<String, T> childValuesMap = new HashMap<String, T>();
-        for (T t : children) {
+        for (final T t : children) {
             childValuesMap.put(t.getRecord().getId(), t);
         }
         return childValuesMap;
     }
 
+    // TODO: 2018/7/26 by zmyer
     @Override
     public Builder keyBuilder() {
         return _propertyKeyBuilder;
     }
 
+    // TODO: 2018/7/25 by zmyer
     private int constructOptions(PropertyType type) {
         int options = 0;
         if (type.isPersistent()) {
@@ -490,6 +500,7 @@ public class ZKHelixDataAccessor implements HelixDataAccessor {
         return options;
     }
 
+    // TODO: 2018/7/25 by zmyer
     @Override
     public <T extends HelixProperty> boolean[] createChildren(List<PropertyKey> keys, List<T> children) {
         // TODO: add validation

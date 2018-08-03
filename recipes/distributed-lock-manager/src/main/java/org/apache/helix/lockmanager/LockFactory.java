@@ -21,9 +21,10 @@ package org.apache.helix.lockmanager;
 
 import org.apache.helix.participant.statemachine.StateModelFactory;
 
+// TODO: 2018/7/26 by zmyer
 public class LockFactory extends StateModelFactory<Lock> {
-  @Override
-  public Lock createNewStateModel(String resourceName, String lockName) {
-    return new Lock(lockName);
-  }
+    @Override
+    public Lock createNewStateModel(String resourceName, String lockName) {
+        return new Lock(lockName);
+    }
 }

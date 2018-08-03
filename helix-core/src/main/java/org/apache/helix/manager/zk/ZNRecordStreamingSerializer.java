@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+// TODO: 2018/7/25 by zmyer
 public class ZNRecordStreamingSerializer implements ZkSerializer {
     private static Logger LOG = LoggerFactory.getLogger(ZNRecordStreamingSerializer.class);
 

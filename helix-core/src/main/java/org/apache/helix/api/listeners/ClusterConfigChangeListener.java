@@ -25,12 +25,13 @@ import org.apache.helix.model.ClusterConfig;
 /**
  * Interface to implement to listen for changes to cluster configurations.
  */
+// TODO: 2018/7/27 by zmyer
 public interface ClusterConfigChangeListener {
-  /**
-   * Invoked when cluster config changes
-   * @param clusterConfig
-   * @param context
-   */
-  void onClusterConfigChange(ClusterConfig clusterConfig,
-      NotificationContext context);
+    /**
+     * Invoked when cluster config changes
+     * @param clusterConfig
+     * @param context
+     */
+    void onClusterConfigChange(ClusterConfig clusterConfig,
+            NotificationContext context);
 }

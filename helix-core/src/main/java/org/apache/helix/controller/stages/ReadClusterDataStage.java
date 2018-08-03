@@ -43,9 +43,10 @@ public class ReadClusterDataStage extends AbstractBaseStage {
 
     private ClusterDataCache _cache = null;
 
+    // TODO: 2018/7/26 by zmyer
     @Override
     public void process(ClusterEvent event) throws Exception {
-        HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
+        final HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
         if (manager == null) {
             throw new StageException("HelixManager attribute value is null");
         }
@@ -56,12 +57,13 @@ public class ReadClusterDataStage extends AbstractBaseStage {
         }
         _cache = cache;
 
-        HelixDataAccessor dataAccessor = manager.getHelixDataAccessor();
+        final HelixDataAccessor dataAccessor = manager.getHelixDataAccessor();
         _cache.refresh(dataAccessor);
         final ClusterConfig clusterConfig = cache.getClusterConfig();
         if (!_cache.isTaskCache()) {
             final ClusterStatusMonitor clusterStatusMonitor =
                     event.getAttribute(AttributeName.clusterStatusMonitor.name());
+
             asyncExecute(_cache.getAsyncTasksThreadPool(), new Callable<Object>() {
                 @Override
                 public Object call() {

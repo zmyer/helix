@@ -19,43 +19,43 @@ package org.apache.helix.messaging.handling;
  * under the License.
  */
 
-import org.apache.helix.HelixRollbackException;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.Message;
 import org.apache.helix.participant.statemachine.StateModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+// TODO: 2018/7/27 by zmyer
 public class HelixStateTransitionCancellationHandler extends MessageHandler {
-  private final StateModel _stateModel;
-  private static final Logger logger =
-      LoggerFactory.getLogger(HelixStateTransitionCancellationHandler.class);
+    private final StateModel _stateModel;
+    private static final Logger logger =
+            LoggerFactory.getLogger(HelixStateTransitionCancellationHandler.class);
 
 
-  public HelixStateTransitionCancellationHandler(StateModel stateModel, Message message,
-      NotificationContext context) {
-    super(message, context);
-    _stateModel = stateModel;
-  }
-
-  @Override
-  public HelixTaskResult handleMessage() throws InterruptedException {
-    HelixTaskResult taskResult = new HelixTaskResult();
-    try {
-      _stateModel.cancel();
-      taskResult.setSuccess(true);
-    } catch (Exception e) {
-      taskResult.setSuccess(false);
-      taskResult.setMessage(e.toString());
-      taskResult.setException(e);
+    public HelixStateTransitionCancellationHandler(StateModel stateModel, Message message,
+            NotificationContext context) {
+        super(message, context);
+        _stateModel = stateModel;
     }
 
-    return taskResult;
-  }
+    @Override
+    public HelixTaskResult handleMessage() throws InterruptedException {
+        HelixTaskResult taskResult = new HelixTaskResult();
+        try {
+            _stateModel.cancel();
+            taskResult.setSuccess(true);
+        } catch (Exception e) {
+            taskResult.setSuccess(false);
+            taskResult.setMessage(e.toString());
+            taskResult.setException(e);
+        }
 
-  @Override
-  public void onError(Exception e, ErrorCode code, ErrorType type) {
-    // Nothing need to do when it is error
-    logger.warn("No extra action needed when cancel failed.");
-  }
+        return taskResult;
+    }
+
+    @Override
+    public void onError(Exception e, ErrorCode code, ErrorType type) {
+        // Nothing need to do when it is error
+        logger.warn("No extra action needed when cancel failed.");
+    }
 }

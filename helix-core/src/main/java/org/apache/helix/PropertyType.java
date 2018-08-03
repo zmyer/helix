@@ -22,6 +22,7 @@ package org.apache.helix;
 /**
  * Types of nodes in a Helix cluster
  */
+// TODO: 2018/7/25 by zmyer
 enum Type {
     CLUSTER,
     INSTANCE,

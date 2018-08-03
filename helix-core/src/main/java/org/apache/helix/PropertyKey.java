@@ -94,6 +94,7 @@ public class PropertyKey {
      * @param typeClazz
      * @param params parameters associated with the key, the first of which is the cluster name
      */
+    // TODO: 2018/7/27 by zmyer
     public PropertyKey(PropertyType type, ConfigScopeProperty configScope,
             Class<? extends HelixProperty> typeClazz, String... params) {
         _type = type;
@@ -170,6 +171,7 @@ public class PropertyKey {
          * Instantiate with a cluster name
          * @param clusterName
          */
+        // TODO: 2018/7/27 by zmyer
         public Builder(String clusterName) {
             _clusterName = clusterName;
         }
@@ -187,6 +189,7 @@ public class PropertyKey {
          * @param resourceName
          * @return {@link PropertyKey}
          */
+        // TODO: 2018/7/26 by zmyer
         public PropertyKey idealStates(String resourceName) {
             return new PropertyKey(IDEALSTATES, IdealState.class, _clusterName, resourceName);
         }
@@ -324,6 +327,7 @@ public class PropertyKey {
          * @param instanceName
          * @return {@link PropertyKey}
          */
+        // TODO: 2018/7/27 by zmyer
         public PropertyKey liveInstance(String instanceName) {
             return new PropertyKey(LIVEINSTANCES, LiveInstance.class, _clusterName, instanceName);
         }
@@ -349,6 +353,7 @@ public class PropertyKey {
          * @param instanceName
          * @return {@link PropertyKey}
          */
+        // TODO: 2018/7/26 by zmyer
         public PropertyKey messages(String instanceName) {
             return new PropertyKey(MESSAGES, Message.class, _clusterName, instanceName);
         }
@@ -386,6 +391,7 @@ public class PropertyKey {
                     resourceName);
         }
 
+        // TODO: 2018/7/27 by zmyer
         public PropertyKey participantHistory(String instanceName) {
             return new PropertyKey(INSTANCE_HISTORY, ParticipantHistory.class, _clusterName,
                     instanceName);
@@ -397,6 +403,7 @@ public class PropertyKey {
          * @param messageId
          * @return {@link PropertyKey}
          */
+        // TODO: 2018/7/27 by zmyer
         public PropertyKey message(String instanceName, String messageId) {
             return new PropertyKey(MESSAGES, Message.class, _clusterName, instanceName, messageId);
         }
@@ -429,6 +436,7 @@ public class PropertyKey {
          * @param resourceName
          * @return {@link PropertyKey}
          */
+        // TODO: 2018/7/27 by zmyer
         public PropertyKey currentState(String instanceName, String sessionId, String resourceName) {
             return new PropertyKey(CURRENTSTATES, CurrentState.class, _clusterName, instanceName,
                     sessionId, resourceName);
@@ -643,6 +651,7 @@ public class PropertyKey {
          * @param recordName
          * @return {@link PropertyKey}
          */
+        // TODO: 2018/7/27 by zmyer
         public PropertyKey controllerTaskStatus(String subPath, String recordName) {
             return new PropertyKey(STATUSUPDATES_CONTROLLER, StatusUpdate.class, _clusterName, subPath,
                     recordName);
@@ -669,6 +678,7 @@ public class PropertyKey {
          * @param msgId
          * @return {@link PropertyKey}
          */
+        // TODO: 2018/7/27 by zmyer
         public PropertyKey controllerMessage(String msgId) {
             return new PropertyKey(MESSAGES_CONTROLLER, Message.class, _clusterName, msgId);
         }
@@ -677,6 +687,7 @@ public class PropertyKey {
          * Get a property key associated with {@link LeaderHistory}
          * @return {@link PropertyKey}
          */
+        // TODO: 2018/7/27 by zmyer
         public PropertyKey controllerLeaderHistory() {
             return new PropertyKey(HISTORY, LeaderHistory.class, _clusterName);
         }

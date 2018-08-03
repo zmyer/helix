@@ -1,85 +1,86 @@
 package org.apache.helix.monitoring.mbeans;
 
+// TODO: 2018/7/24 by zmyer
 public class ParticipantMessageMonitor implements ParticipantMessageMonitorMBean {
-  public static final String PARTICIPANT_KEY = "ParticipantName";
-  public static final String PARTICIPANT_STATUS_KEY = "ParticipantMessageStatus";
+    public static final String PARTICIPANT_KEY = "ParticipantName";
+    public static final String PARTICIPANT_STATUS_KEY = "ParticipantMessageStatus";
 
-  /**
-   * The current processed state of the message
-   */
-  public enum ProcessedMessageState {
-    DISCARDED,
-    FAILED,
-    COMPLETED
-  }
+    /**
+     * The current processed state of the message
+     */
+    public enum ProcessedMessageState {
+        DISCARDED,
+        FAILED,
+        COMPLETED
+    }
 
-  private final String _participantName;
-  private long _receivedMessages = 0;
-  private long _discardedMessages = 0;
-  private long _completedMessages = 0;
-  private long _failedMessages = 0;
-  private long _pendingMessages = 0;
+    private final String _participantName;
+    private long _receivedMessages = 0;
+    private long _discardedMessages = 0;
+    private long _completedMessages = 0;
+    private long _failedMessages = 0;
+    private long _pendingMessages = 0;
 
-  public ParticipantMessageMonitor(String participantName) {
-    _participantName = participantName;
-  }
+    public ParticipantMessageMonitor(String participantName) {
+        _participantName = participantName;
+    }
 
-  public String getParticipantBeanName() {
-    return String.format("%s=%s", PARTICIPANT_KEY, _participantName);
-  }
+    public String getParticipantBeanName() {
+        return String.format("%s=%s", PARTICIPANT_KEY, _participantName);
+    }
 
-  public void incrementReceivedMessages(int count) {
-    _receivedMessages += count;
-  }
+    public void incrementReceivedMessages(int count) {
+        _receivedMessages += count;
+    }
 
-  public void incrementDiscardedMessages(int count) {
-    _discardedMessages += count;
-  }
+    public void incrementDiscardedMessages(int count) {
+        _discardedMessages += count;
+    }
 
-  public void incrementCompletedMessages(int count) {
-    _completedMessages += count;
-  }
+    public void incrementCompletedMessages(int count) {
+        _completedMessages += count;
+    }
 
-  public void incrementFailedMessages(int count) {
-    _failedMessages += count;
-  }
+    public void incrementFailedMessages(int count) {
+        _failedMessages += count;
+    }
 
-  public void incrementPendingMessages(int count) {
-    _pendingMessages += count;
-  }
+    public void incrementPendingMessages(int count) {
+        _pendingMessages += count;
+    }
 
-  public void decrementPendingMessages(int count) {
-    _pendingMessages -= count;
-  }
+    public void decrementPendingMessages(int count) {
+        _pendingMessages -= count;
+    }
 
-  @Override
-  public long getReceivedMessages() {
-    return _receivedMessages;
-  }
+    @Override
+    public long getReceivedMessages() {
+        return _receivedMessages;
+    }
 
-  @Override
-  public long getDiscardedMessages() {
-    return _discardedMessages;
-  }
+    @Override
+    public long getDiscardedMessages() {
+        return _discardedMessages;
+    }
 
-  @Override
-  public long getCompletedMessages() {
-    return _completedMessages;
-  }
+    @Override
+    public long getCompletedMessages() {
+        return _completedMessages;
+    }
 
-  @Override
-  public long getFailedMessages() {
-    return _failedMessages;
-  }
+    @Override
+    public long getFailedMessages() {
+        return _failedMessages;
+    }
 
-  @Override
-  public long getPendingMessages() {
-    return _pendingMessages;
-  }
+    @Override
+    public long getPendingMessages() {
+        return _pendingMessages;
+    }
 
-  @Override
-  public String getSensorName() {
-    return PARTICIPANT_STATUS_KEY;
-  }
+    @Override
+    public String getSensorName() {
+        return PARTICIPANT_STATUS_KEY;
+    }
 
 }

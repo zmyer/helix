@@ -384,6 +384,7 @@ public class InstanceConfig extends HelixProperty {
         _record.setListField(InstanceConfigProperty.HELIX_DISABLED_PARTITION.toString(), list);
     }
 
+    // TODO: 2018/7/27 by zmyer
     public void setInstanceEnabledForPartition(String resourceName, String partitionName,
             boolean enabled) {
         // Get old disabled partitions if exists

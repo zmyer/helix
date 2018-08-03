@@ -19,110 +19,112 @@ package org.apache.helix.model.builder;
  * under the License.
  */
 
-import java.util.HashMap;
-import java.util.Map;
-
 import org.apache.helix.model.ConfigScope;
 import org.apache.helix.model.HelixConfigScope.ConfigScopeProperty;
 import org.apache.helix.util.StringTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * @deprecated replaced by {@link HelixConfigScopeBuilder}
  */
+// TODO: 2018/7/27 by zmyer
 @Deprecated
 public class ConfigScopeBuilder {
-  private static Logger LOG = LoggerFactory.getLogger(ConfigScopeBuilder.class);
+    private static Logger LOG = LoggerFactory.getLogger(ConfigScopeBuilder.class);
 
-  private static StringTemplate template = new StringTemplate();
-  static {
-    // @formatter:off
-    template.addEntry(ConfigScopeProperty.CLUSTER, 1, "CLUSTER={clusterName}");
-    template.addEntry(ConfigScopeProperty.RESOURCE, 2,
-        "CLUSTER={clusterName},RESOURCE={resourceName}");
-    template.addEntry(ConfigScopeProperty.PARTITION, 3,
-        "CLUSTER={clusterName},RESOURCE={resourceName},PARTITION={partitionName}");
-    template.addEntry(ConfigScopeProperty.PARTICIPANT, 2,
-        "CLUSTER={clusterName},PARTICIPANT={participantName}");
-    // @formatter:on
-  }
+    private static StringTemplate template = new StringTemplate();
 
-  private final Map<ConfigScopeProperty, String> _scopeMap;
-
-  public Map<ConfigScopeProperty, String> getScopeMap() {
-    return _scopeMap;
-  }
-
-  public ConfigScopeBuilder() {
-    _scopeMap = new HashMap<ConfigScopeProperty, String>();
-  }
-
-  public ConfigScopeBuilder forCluster(String clusterName) {
-    _scopeMap.put(ConfigScopeProperty.CLUSTER, clusterName);
-    return this;
-  }
-
-  public ConfigScopeBuilder forParticipant(String participantName) {
-    _scopeMap.put(ConfigScopeProperty.PARTICIPANT, participantName);
-    return this;
-  }
-
-  public ConfigScopeBuilder forResource(String resourceName) {
-    _scopeMap.put(ConfigScopeProperty.RESOURCE, resourceName);
-    return this;
-
-  }
-
-  public ConfigScopeBuilder forPartition(String partitionName) {
-    _scopeMap.put(ConfigScopeProperty.PARTITION, partitionName);
-    return this;
-
-  }
-
-  public ConfigScope build() {
-    // TODO: validate the scopes map
-    return new ConfigScope(this);
-  }
-
-  public ConfigScope build(ConfigScopeProperty scope, String clusterName, String... scopeKeys) {
-    if (scopeKeys == null) {
-      scopeKeys = new String[] {};
+    static {
+        // @formatter:off
+        template.addEntry(ConfigScopeProperty.CLUSTER, 1, "CLUSTER={clusterName}");
+        template.addEntry(ConfigScopeProperty.RESOURCE, 2,
+                "CLUSTER={clusterName},RESOURCE={resourceName}");
+        template.addEntry(ConfigScopeProperty.PARTITION, 3,
+                "CLUSTER={clusterName},RESOURCE={resourceName},PARTITION={partitionName}");
+        template.addEntry(ConfigScopeProperty.PARTICIPANT, 2,
+                "CLUSTER={clusterName},PARTICIPANT={participantName}");
+        // @formatter:on
     }
 
-    String[] args = new String[1 + scopeKeys.length];
-    args[0] = clusterName;
-    System.arraycopy(scopeKeys, 0, args, 1, scopeKeys.length);
-    String scopePairs = template.instantiate(scope, args);
+    private final Map<ConfigScopeProperty, String> _scopeMap;
 
-    return build(scopePairs);
-  }
+    public Map<ConfigScopeProperty, String> getScopeMap() {
+        return _scopeMap;
+    }
 
-  public ConfigScope build(String scopePairs) {
-    String[] scopes = scopePairs.split("[\\s,]+");
-    for (String scope : scopes) {
-      try {
-        int idx = scope.indexOf('=');
-        if (idx == -1) {
-          LOG.error("Invalid scope string: " + scope);
-          continue;
+    public ConfigScopeBuilder() {
+        _scopeMap = new HashMap<>();
+    }
+
+    public ConfigScopeBuilder forCluster(String clusterName) {
+        _scopeMap.put(ConfigScopeProperty.CLUSTER, clusterName);
+        return this;
+    }
+
+    public ConfigScopeBuilder forParticipant(String participantName) {
+        _scopeMap.put(ConfigScopeProperty.PARTICIPANT, participantName);
+        return this;
+    }
+
+    public ConfigScopeBuilder forResource(String resourceName) {
+        _scopeMap.put(ConfigScopeProperty.RESOURCE, resourceName);
+        return this;
+
+    }
+
+    public ConfigScopeBuilder forPartition(String partitionName) {
+        _scopeMap.put(ConfigScopeProperty.PARTITION, partitionName);
+        return this;
+
+    }
+
+    public ConfigScope build() {
+        // TODO: validate the scopes map
+        return new ConfigScope(this);
+    }
+
+    public ConfigScope build(ConfigScopeProperty scope, String clusterName, String... scopeKeys) {
+        if (scopeKeys == null) {
+            scopeKeys = new String[]{};
         }
 
-        String scopeStr = scope.substring(0, idx);
-        String value = scope.substring(idx + 1);
-        ConfigScopeProperty scopeProperty = ConfigScopeProperty.valueOf(scopeStr);
-        _scopeMap.put(scopeProperty, value);
-      } catch (Exception e) {
-        LOG.error("Invalid scope string: " + scope);
-        continue;
-      }
+        String[] args = new String[1 + scopeKeys.length];
+        args[0] = clusterName;
+        System.arraycopy(scopeKeys, 0, args, 1, scopeKeys.length);
+        String scopePairs = template.instantiate(scope, args);
+
+        return build(scopePairs);
     }
 
-    return build();
-  }
+    public ConfigScope build(String scopePairs) {
+        String[] scopes = scopePairs.split("[\\s,]+");
+        for (String scope : scopes) {
+            try {
+                int idx = scope.indexOf('=');
+                if (idx == -1) {
+                    LOG.error("Invalid scope string: " + scope);
+                    continue;
+                }
 
-  @Override
-  public String toString() {
-    return _scopeMap.toString();
-  }
+                String scopeStr = scope.substring(0, idx);
+                String value = scope.substring(idx + 1);
+                ConfigScopeProperty scopeProperty = ConfigScopeProperty.valueOf(scopeStr);
+                _scopeMap.put(scopeProperty, value);
+            } catch (Exception e) {
+                LOG.error("Invalid scope string: " + scope);
+                continue;
+            }
+        }
+
+        return build();
+    }
+
+    @Override
+    public String toString() {
+        return _scopeMap.toString();
+    }
 }

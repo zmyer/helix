@@ -4,7 +4,6 @@ import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.model.IdealState;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,129 +18,131 @@ import java.util.concurrent.TimeUnit;
 /**
  * Class for trigger rebalancing of a set of resource in a future time.
  */
+// TODO: 2018/7/25 by zmyer
 public class RebalanceScheduler {
-  private static final Logger LOG = LoggerFactory.getLogger(RebalanceScheduler.class);
+    private static final Logger LOG = LoggerFactory.getLogger(RebalanceScheduler.class);
 
-  private class ScheduledTask {
-    long _startTime;
-    Future _future;
+    private class ScheduledTask {
+        long _startTime;
+        Future _future;
 
-    public ScheduledTask(long _startTime, Future _future) {
-      this._startTime = _startTime;
-      this._future = _future;
+        public ScheduledTask(long _startTime, Future _future) {
+            this._startTime = _startTime;
+            this._future = _future;
+        }
+
+        public long getStartTime() {
+            return _startTime;
+        }
+
+        public Future getFuture() {
+            return _future;
+        }
     }
 
-    public long getStartTime() {
-      return _startTime;
+    private final Map<String, ScheduledTask> _rebalanceTasks = new HashMap<String, ScheduledTask>();
+    private final ScheduledExecutorService _rebalanceExecutor = Executors.newSingleThreadScheduledExecutor();
+
+    /**
+     * Add a future rebalance task for resource at given startTime
+     * @param resource
+     * @param startTime time in milliseconds
+     */
+    public void scheduleRebalance(HelixManager manager, String resource, long startTime) {
+        // Do nothing if there is already a timer set for the this workflow with the same start time.
+        ScheduledTask existTask = _rebalanceTasks.get(resource);
+        if (existTask != null && existTask.getStartTime() == startTime) {
+            LOG.debug("Schedule timer for job: {} is up to date.", resource);
+            return;
+        }
+
+        long delay = startTime - System.currentTimeMillis();
+        if (delay < 0) {
+            LOG.debug(String.format("Delay time is %s, will not be scheduled", delay));
+        }
+        LOG.info("Schedule rebalance for resource : {} at time: {} delay: {}", resource, startTime,
+                delay);
+
+        // For workflow not yet scheduled, schedule them and record it
+        final RebalanceInvoker rebalanceInvoker = new RebalanceInvoker(manager, resource);
+        final ScheduledFuture future =
+                _rebalanceExecutor.schedule(rebalanceInvoker, delay, TimeUnit.MILLISECONDS);
+        ScheduledTask prevTask = _rebalanceTasks.put(resource, new ScheduledTask(startTime, future));
+        if (prevTask != null && !prevTask.getFuture().isDone()) {
+            if (!prevTask.getFuture().cancel(false)) {
+                LOG.warn("Failed to cancel scheduled timer task for {}", resource);
+            }
+            LOG.info("Remove previously scheduled timer task for {}", resource);
+        }
     }
 
-    public Future getFuture() {
-      return _future;
-    }
-  }
-
-  private final Map<String, ScheduledTask> _rebalanceTasks = new HashMap<String, ScheduledTask>();
-  private final ScheduledExecutorService _rebalanceExecutor =
-      Executors.newSingleThreadScheduledExecutor();
-
-  /**
-   * Add a future rebalance task for resource at given startTime
-   * @param resource
-   * @param startTime time in milliseconds
-   */
-  public void scheduleRebalance(HelixManager manager, String resource, long startTime) {
-    // Do nothing if there is already a timer set for the this workflow with the same start time.
-    ScheduledTask existTask = _rebalanceTasks.get(resource);
-    if (existTask != null && existTask.getStartTime() == startTime) {
-      LOG.debug("Schedule timer for job: {} is up to date.", resource);
-      return;
+    /**
+     * Get the current schedule time for given resource.
+     * @param resource
+     * @return existing schedule time or -1 if there is no scheduled task for this resource
+     */
+    public long getRebalanceTime(String resource) {
+        ScheduledTask task = _rebalanceTasks.get(resource);
+        if (task != null && !task.getFuture().isDone()) {
+            return task.getStartTime();
+        }
+        return -1;
     }
 
-    long delay = startTime - System.currentTimeMillis();
-    if (delay < 0) {
-      LOG.debug(String.format("Delay time is %s, will not be scheduled", delay));
-    }
-    LOG.info("Schedule rebalance for resource : {} at time: {} delay: {}", resource, startTime,
-        delay);
+    /**
+     * Remove all existing future schedule tasks for the given resource
+     * @param resource
+     */
+    public long removeScheduledRebalance(String resource) {
+        ScheduledTask existTask = _rebalanceTasks.remove(resource);
+        if (existTask != null && !existTask.getFuture().isDone()) {
+            if (!existTask.getFuture().cancel(true)) {
+                LOG.warn("Failed to cancel scheduled timer task for " + resource);
+            }
+            LOG.info("Remove scheduled rebalance task at time: {} for resource: {}",
+                    existTask.getStartTime(), resource);
 
-    // For workflow not yet scheduled, schedule them and record it
-    RebalanceInvoker rebalanceInvoker = new RebalanceInvoker(manager, resource);
-    ScheduledFuture future =
-        _rebalanceExecutor.schedule(rebalanceInvoker, delay, TimeUnit.MILLISECONDS);
-    ScheduledTask prevTask = _rebalanceTasks.put(resource, new ScheduledTask(startTime, future));
-    if (prevTask != null && !prevTask.getFuture().isDone()) {
-      if (!prevTask.getFuture().cancel(false)) {
-        LOG.warn("Failed to cancel scheduled timer task for {}", resource);
-      }
-      LOG.info("Remove previously scheduled timer task for {}", resource);
-    }
-  }
+            return existTask.getStartTime();
+        }
 
-  /**
-   * Get the current schedule time for given resource.
-   * @param resource
-   * @return existing schedule time or -1 if there is no scheduled task for this resource
-   */
-  public long getRebalanceTime(String resource) {
-    ScheduledTask task = _rebalanceTasks.get(resource);
-    if (task != null && !task.getFuture().isDone()) {
-      return task.getStartTime();
-    }
-    return -1;
-  }
-
-  /**
-   * Remove all existing future schedule tasks for the given resource
-   * @param resource
-   */
-  public long removeScheduledRebalance(String resource) {
-    ScheduledTask existTask = _rebalanceTasks.remove(resource);
-    if (existTask != null && !existTask.getFuture().isDone()) {
-      if (!existTask.getFuture().cancel(true)) {
-        LOG.warn("Failed to cancel scheduled timer task for " + resource);
-      }
-      LOG.info("Remove scheduled rebalance task at time: {} for resource: {}",
-          existTask.getStartTime(), resource);
-
-      return existTask.getStartTime();
+        return -1;
     }
 
-    return -1;
-  }
+    /**
+     * The simplest possible runnable that will trigger a run of the controller pipeline
+     */
+    // TODO: 2018/7/25 by zmyer
+    private class RebalanceInvoker implements Runnable {
+        private final HelixManager _manager;
+        private final String _resource;
 
-  /**
-   * The simplest possible runnable that will trigger a run of the controller pipeline
-   */
-  private class RebalanceInvoker implements Runnable {
-    private final HelixManager _manager;
-    private final String _resource;
+        public RebalanceInvoker(HelixManager manager, String resource) {
+            _manager = manager;
+            _resource = resource;
+        }
 
-    public RebalanceInvoker(HelixManager manager, String resource) {
-      _manager = manager;
-      _resource = resource;
+        @Override
+        public void run() {
+            invokeRebalance(_manager.getHelixDataAccessor(), _resource);
+        }
     }
 
-    @Override
-    public void run() {
-      invokeRebalance(_manager.getHelixDataAccessor(), _resource);
+    /**
+     * Trigger the controller to perform rebalance for a given resource.
+     * @param accessor Helix data accessor
+     * @param resource the name of the resource changed to triggering the execution
+     */
+    // TODO: 2018/7/25 by zmyer
+    public static void invokeRebalance(HelixDataAccessor accessor, String resource) {
+        LOG.info("invoke rebalance for " + resource);
+        PropertyKey key = accessor.keyBuilder().idealStates(resource);
+        IdealState is = accessor.getProperty(key);
+        if (is != null) {
+            if (!accessor.updateProperty(key, is)) {
+                LOG.warn("Failed to invoke rebalance on resource {}", resource);
+            }
+        } else {
+            LOG.warn("Can't find ideal state for {}", resource);
+        }
     }
-  }
-
-  /**
-   * Trigger the controller to perform rebalance for a given resource.
-   * @param accessor Helix data accessor
-   * @param resource the name of the resource changed to triggering the execution
-   */
-  public static void invokeRebalance(HelixDataAccessor accessor, String resource) {
-    LOG.info("invoke rebalance for " + resource);
-    PropertyKey key = accessor.keyBuilder().idealStates(resource);
-    IdealState is = accessor.getProperty(key);
-    if (is != null) {
-      if (!accessor.updateProperty(key, is)) {
-        LOG.warn("Failed to invoke rebalance on resource {}", resource);
-      }
-    } else {
-      LOG.warn("Can't find ideal state for {}", resource);
-    }
-  }
 }

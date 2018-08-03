@@ -51,6 +51,7 @@ public class ZNRecordDelta {
      * @param record
      * @param mergeOperation
      */
+    // TODO: 2018/7/27 by zmyer
     public ZNRecordDelta(ZNRecord record, MergeOperation mergeOperation) {
         _record = new ZNRecord(record);
         _mergeOperation = mergeOperation;

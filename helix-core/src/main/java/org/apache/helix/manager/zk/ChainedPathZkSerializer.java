@@ -26,8 +26,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+// TODO: 2018/7/25 by zmyer
 public class ChainedPathZkSerializer implements PathBasedZkSerializer {
 
+    // TODO: 2018/7/27 by zmyer
     public static class Builder {
         private final ZkSerializer _defaultSerializer;
         private List<ChainItem> _items = new ArrayList<ChainItem>();
@@ -49,6 +51,7 @@ public class ChainedPathZkSerializer implements PathBasedZkSerializer {
         /**
          * Builds the serializer with the given strategies and default serializer.
          */
+        // TODO: 2018/7/27 by zmyer
         public ChainedPathZkSerializer build() {
             return new ChainedPathZkSerializer(_defaultSerializer, _items);
         }
@@ -58,6 +61,7 @@ public class ChainedPathZkSerializer implements PathBasedZkSerializer {
      * Create a builder that will use the given serializer by default
      * if no other strategy is given to solve the path in question.
      */
+    // TODO: 2018/7/27 by zmyer
     public static Builder builder(ZkSerializer defaultSerializer) {
         return new Builder(defaultSerializer);
     }
@@ -94,6 +98,7 @@ public class ChainedPathZkSerializer implements PathBasedZkSerializer {
         return _defaultSerializer.deserialize(bytes);
     }
 
+    // TODO: 2018/7/27 by zmyer
     private static class ChainItem implements Comparable<ChainItem> {
         final String _path;
         final ZkSerializer _serializer;
