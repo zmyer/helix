@@ -33,6 +33,7 @@ import org.apache.helix.PreConnectCallback;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.ZNRecordBucketizer;
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.messaging.DefaultMessagingService;
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.HelixConfigScope;
@@ -41,6 +42,7 @@ import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.ParticipantHistory;
 import org.apache.helix.model.StateModelDefinition;
+import org.apache.helix.model.HelixConfigScope.ConfigScopeProperty;
 import org.apache.helix.model.builder.HelixConfigScopeBuilder;
 import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.participant.statemachine.ScheduledTaskStateModelFactory;
@@ -61,41 +63,40 @@ import java.util.concurrent.TimeUnit;
 public class ParticipantManager {
     private static Logger LOG = LoggerFactory.getLogger(ParticipantManager.class);
 
-    final ZkClient _zkclient;
-    final HelixManager _manager;
-    final PropertyKey.Builder _keyBuilder;
-    final String _clusterName;
-    final String _instanceName;
-    final String _sessionId;
-    final int _sessionTimeout;
-    final ConfigAccessor _configAccessor;
-    final InstanceType _instanceType;
-    final HelixAdmin _helixAdmin;
-    final ZKHelixDataAccessor _dataAccessor;
-    final DefaultMessagingService _messagingService;
-    final StateMachineEngine _stateMachineEngine;
-    final LiveInstanceInfoProvider _liveInstanceInfoProvider;
-    final List<PreConnectCallback> _preConnectCallbacks;
+  final HelixZkClient _zkclient;
+  final HelixManager _manager;
+  final PropertyKey.Builder _keyBuilder;
+  final String _clusterName;
+  final String _instanceName;
+  final String _sessionId;
+  final int _sessionTimeout;
+  final ConfigAccessor _configAccessor;
+  final InstanceType _instanceType;
+  final HelixAdmin _helixAdmin;
+  final ZKHelixDataAccessor _dataAccessor;
+  final DefaultMessagingService _messagingService;
+  final StateMachineEngine _stateMachineEngine;
+  final LiveInstanceInfoProvider _liveInstanceInfoProvider;
+  final List<PreConnectCallback> _preConnectCallbacks;
 
-    // TODO: 2018/7/26 by zmyer
-    public ParticipantManager(HelixManager manager, ZkClient zkclient, int sessionTimeout,
-            LiveInstanceInfoProvider liveInstanceInfoProvider, List<PreConnectCallback> preConnectCallbacks) {
-        _zkclient = zkclient;
-        _manager = manager;
-        _clusterName = manager.getClusterName();
-        _instanceName = manager.getInstanceName();
-        _keyBuilder = new PropertyKey.Builder(_clusterName);
-        _sessionId = manager.getSessionId();
-        _sessionTimeout = sessionTimeout;
-        _configAccessor = manager.getConfigAccessor();
-        _instanceType = manager.getInstanceType();
-        _helixAdmin = manager.getClusterManagmentTool();
-        _dataAccessor = (ZKHelixDataAccessor) manager.getHelixDataAccessor();
-        _messagingService = (DefaultMessagingService) manager.getMessagingService();
-        _stateMachineEngine = manager.getStateMachineEngine();
-        _liveInstanceInfoProvider = liveInstanceInfoProvider;
-        _preConnectCallbacks = preConnectCallbacks;
-    }
+  public ParticipantManager(HelixManager manager, HelixZkClient zkclient, int sessionTimeout,
+      LiveInstanceInfoProvider liveInstanceInfoProvider, List<PreConnectCallback> preConnectCallbacks) {
+    _zkclient = zkclient;
+    _manager = manager;
+    _clusterName = manager.getClusterName();
+    _instanceName = manager.getInstanceName();
+    _keyBuilder = new PropertyKey.Builder(_clusterName);
+    _sessionId = manager.getSessionId();
+    _sessionTimeout = sessionTimeout;
+    _configAccessor = manager.getConfigAccessor();
+    _instanceType = manager.getInstanceType();
+    _helixAdmin = manager.getClusterManagmentTool();
+    _dataAccessor = (ZKHelixDataAccessor) manager.getHelixDataAccessor();
+    _messagingService = (DefaultMessagingService) manager.getMessagingService();
+    _stateMachineEngine = manager.getStateMachineEngine();
+    _liveInstanceInfoProvider = liveInstanceInfoProvider;
+    _preConnectCallbacks = preConnectCallbacks;
+  }
 
     /**
      * Handle new session for a participang.
@@ -375,10 +376,14 @@ public class ParticipantManager {
     public void reset() {
     }
 
-    public void disconnect() {
-        ParticipantHistory history = getHistory();
-        history.reportOffline();
-        persistHistory(history);
-        reset();
+  public void disconnect() {
+    try {
+      ParticipantHistory history = getHistory();
+      history.reportOffline();
+      persistHistory(history);
+    } catch (Exception e) {
+      LOG.error("Failed to report participant offline.", e);
     }
+    reset();
+  }
 }

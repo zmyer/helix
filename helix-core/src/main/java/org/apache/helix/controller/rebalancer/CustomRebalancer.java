@@ -67,29 +67,29 @@ public class CustomRebalancer extends AbstractRebalancer {
 
         LOG.info("Computing BestPossibleMapping for " + resource.getResourceName());
 
-        String stateModelDefName = idealState.getStateModelDefRef();
-        StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefName);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Processing resource:" + resource.getResourceName());
-        }
-        partitionMapping = new ResourceAssignment(resource.getResourceName());
-        for (Partition partition : resource.getPartitions()) {
-            Map<String, String> currentStateMap =
-                    currentStateOutput.getCurrentStateMap(resource.getResourceName(), partition);
-            Set<String> disabledInstancesForPartition =
-                    cache.getDisabledInstancesForPartition(resource.getResourceName(), partition.toString());
-            Map<String, String> idealStateMap =
-                    idealState.getInstanceStateMap(partition.getPartitionName());
-            Map<String, String> bestStateForPartition =
-                    computeCustomizedBestStateForPartition(cache, stateModelDef, idealStateMap,
-                            currentStateMap, disabledInstancesForPartition, idealState.isEnabled());
-            partitionMapping.addReplicaMap(partition, bestStateForPartition);
-        }
-
-        cache.setCachedResourceAssignment(resource.getResourceName(), partitionMapping);
-
-        return partitionMapping;
+    String stateModelDefName = idealState.getStateModelDefRef();
+    StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefName);
+    partitionMapping = new ResourceAssignment(resource.getResourceName());
+    for (Partition partition : resource.getPartitions()) {
+      Map<String, String> currentStateMap =
+          currentStateOutput.getCurrentStateMap(resource.getResourceName(), partition);
+      Set<String> disabledInstancesForPartition =
+          cache.getDisabledInstancesForPartition(resource.getResourceName(), partition.toString());
+      Map<String, String> idealStateMap =
+          idealState.getInstanceStateMap(partition.getPartitionName());
+      Map<String, String> bestStateForPartition =
+          computeCustomizedBestStateForPartition(cache, stateModelDef, idealStateMap,
+              currentStateMap, disabledInstancesForPartition, idealState.isEnabled());
+      partitionMapping.addReplicaMap(partition, bestStateForPartition);
     }
+
+    cache.setCachedResourceAssignment(resource.getResourceName(), partitionMapping);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(String.format("Processing resource: %s", resource.getResourceName()));
+      LOG.debug(String.format("Final Mapping of resource : %s", partitionMapping.toString()));
+    }
+    return partitionMapping;
+  }
 
     /**
      * compute best state for resource in CUSTOMIZED ideal state mode

@@ -35,5 +35,8 @@ public enum AttributeName {
   clusterStatusMonitor,
   changeContext,
   instanceName,
-  eventData
+  eventData,
+  AsyncFIFOWorkerPool,
+  PipelineType,
+  LastRebalanceFinishTimeStamp
 }

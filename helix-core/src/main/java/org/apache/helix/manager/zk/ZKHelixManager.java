@@ -20,11 +20,8 @@ package org.apache.helix.manager.zk;
  */
 
 import org.I0Itec.zkclient.IZkStateListener;
-import org.I0Itec.zkclient.ZkConnection;
-import org.apache.helix.BaseDataAccessor;
-import org.apache.helix.ClusterMessagingService;
-import org.apache.helix.ConfigAccessor;
-import org.apache.helix.HelixAdmin;
+import org.I0Itec.zkclient.exception.ZkInterruptedException;
+import org.apache.helix.*;
 import org.apache.helix.HelixConstants.ChangeType;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
@@ -36,10 +33,6 @@ import org.apache.helix.LiveInstanceInfoProvider;
 import org.apache.helix.PreConnectCallback;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyKey.Builder;
-import org.apache.helix.PropertyPathBuilder;
-import org.apache.helix.PropertyType;
-import org.apache.helix.SystemPropertyKeys;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.api.listeners.ClusterConfigChangeListener;
 import org.apache.helix.api.listeners.ConfigChangeListener;
 import org.apache.helix.api.listeners.ControllerChangeListener;
@@ -55,6 +48,9 @@ import org.apache.helix.controller.GenericHelixController;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollector;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollectorImpl;
 import org.apache.helix.healthcheck.ParticipantHealthReportTask;
+import org.apache.helix.manager.zk.client.DedicatedZkClientFactory;
+import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.manager.zk.client.SharedZkClientFactory;
 import org.apache.helix.messaging.DefaultMessagingService;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
 import org.apache.helix.model.HelixConfigScope.ConfigScopeProperty;
@@ -68,7 +64,6 @@ import org.apache.helix.store.zk.ZkHelixPropertyStore;
 import org.apache.helix.util.HelixUtil;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
-import org.apache.zookeeper.ZooKeeper.States;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,29 +77,25 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.concurrent.TimeUnit;
 
-// TODO: 2018/6/4 by zmyer
 public class ZKHelixManager implements HelixManager, IZkStateListener {
     private static Logger LOG = LoggerFactory.getLogger(ZKHelixManager.class);
 
-    public static final int FLAPPING_TIME_WINDOW = 300000; // Default to 300 sec
-    public static final int MAX_DISCONNECT_THRESHOLD = 5;
-    public static final String ALLOW_PARTICIPANT_AUTO_JOIN = "allowParticipantAutoJoin";
-    private static final int DEFAULT_CONNECTION_ESTABLISHMENT_RETRY_TIMEOUT = 120000; // Default to 120 sec
-    private static final int DEFAULT_WAIT_CONNECTED_TIMEOUT = 10 * 1000;  // wait until connected for up to 10 seconds.
+  public static final String ALLOW_PARTICIPANT_AUTO_JOIN = "allowParticipantAutoJoin";
+  private static final int FLAPPING_TIME_WINDOW = 300000; // Default to 300 sec
+  public static final int DEFAULT_MAX_DISCONNECT_THRESHOLD = 600; // Default to be a large number
+  private static final int DEFAULT_WAIT_CONNECTED_TIMEOUT = 10 * 1000;  // wait until connected for up to 10 seconds.
 
-    protected final String _zkAddress;
-    private final String _clusterName;
-    private final String _instanceName;
-    private final InstanceType _instanceType;
-    private final int _waitForConnectedTimeout; // wait time for testing connect
-    private final int _sessionTimeout;
-    // client side session timeout, will be overridden by server timeout. Disconnect after timeout
-    private final int _connectionInitTimeout; // client timeout to init connect
-    private final int _connectionRetryTimeout; // retry when connect being re-established
-    private final List<PreConnectCallback> _preConnectCallbacks;
-    protected final List<CallbackHandler> _handlers;
-    private final HelixManagerProperties _properties;
-    private final HelixManagerStateListener _stateListener;
+  protected final String _zkAddress;
+  private final String _clusterName;
+  private final String _instanceName;
+  private final InstanceType _instanceType;
+  private final int _waitForConnectedTimeout; // wait time for testing connect
+  private final int _sessionTimeout; // client side session timeout, will be overridden by server timeout. Disconnect after timeout
+  private final int _connectionInitTimeout; // client timeout to init connect
+  private final List<PreConnectCallback> _preConnectCallbacks;
+  protected final List<CallbackHandler> _handlers;
+  private final HelixManagerProperties _properties;
+  private final HelixManagerStateListener _stateListener;
 
     /**
      * helix version#
@@ -112,9 +103,9 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     private final String _version;
     private int _reportLatency;
 
-    protected ZkClient _zkclient = null;
-    private final DefaultMessagingService _messagingService;
-    private Map<ChangeType, HelixCallbackMonitor> _callbackMonitors;
+  protected HelixZkClient _zkclient = null;
+  private final DefaultMessagingService _messagingService;
+  private Map<ChangeType, HelixCallbackMonitor> _callbackMonitors;
 
     private BaseDataAccessor<ZNRecord> _baseDataAccessor;
     private ZKHelixDataAccessor _dataAccessor;
@@ -246,20 +237,16 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         _flappingTimeWindowMs = HelixUtil.getSystemPropertyAsInt(SystemPropertyKeys.FLAPPING_TIME_WINDOW,
                 ZKHelixManager.FLAPPING_TIME_WINDOW);
 
-        _maxDisconnectThreshold = HelixUtil
-                .getSystemPropertyAsInt(SystemPropertyKeys.MAX_DISCONNECT_THRESHOLD,
-                        ZKHelixManager.MAX_DISCONNECT_THRESHOLD);
+    _maxDisconnectThreshold = HelixUtil
+        .getSystemPropertyAsInt(SystemPropertyKeys.MAX_DISCONNECT_THRESHOLD,
+            ZKHelixManager.DEFAULT_MAX_DISCONNECT_THRESHOLD);
 
-        _sessionTimeout = HelixUtil.getSystemPropertyAsInt(SystemPropertyKeys.ZK_SESSION_TIMEOUT,
-                ZkClient.DEFAULT_SESSION_TIMEOUT);
+    _sessionTimeout = HelixUtil.getSystemPropertyAsInt(SystemPropertyKeys.ZK_SESSION_TIMEOUT,
+        HelixZkClient.DEFAULT_SESSION_TIMEOUT);
 
-        _connectionInitTimeout = HelixUtil
-                .getSystemPropertyAsInt(SystemPropertyKeys.ZK_CONNECTION_TIMEOUT,
-                        ZkClient.DEFAULT_CONNECTION_TIMEOUT);
-
-        _connectionRetryTimeout = HelixUtil
-                .getSystemPropertyAsInt(SystemPropertyKeys.ZK_REESTABLISHMENT_CONNECTION_TIMEOUT,
-                        DEFAULT_CONNECTION_ESTABLISHMENT_RETRY_TIMEOUT);
+    _connectionInitTimeout = HelixUtil
+        .getSystemPropertyAsInt(SystemPropertyKeys.ZK_CONNECTION_TIMEOUT,
+            HelixZkClient.DEFAULT_CONNECTION_TIMEOUT);
 
         _waitForConnectedTimeout = HelixUtil
                 .getSystemPropertyAsInt(SystemPropertyKeys.ZK_WAIT_CONNECTED_TIMEOUT,
@@ -335,18 +322,17 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         checkConnected(-1);
     }
 
-    /**
-     * Check if HelixManager is connected, if it is not connected,
-     * wait for the specified timeout and check again before return.
-     *
-     * @param timeout
-     */
-    // TODO: 2018/7/27 by zmyer
-    void checkConnected(long timeout) {
-        if (_zkclient == null) {
-            throw new HelixException(
-                    "HelixManager (ZkClient) is not connected. Call HelixManager#connect()");
-        }
+  /**
+   * Check if HelixManager is connected, if it is not connected,
+   * wait for the specified timeout and check again before return.
+   *
+   * @param timeout
+   */
+  void checkConnected(long timeout) {
+    if (_zkclient == null || _zkclient.isClosed()) {
+      throw new HelixException(
+          "HelixManager (ZkClient) is not connected. Call HelixManager#connect()");
+    }
 
         boolean isConnected = isConnected();
         if (!isConnected && timeout > 0) {
@@ -600,16 +586,25 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         return _clusterName;
     }
 
-    @Override
-    public String getInstanceName() {
-        return _instanceName;
-    }
+  /**
+   * Returns a string that can be used to connect to metadata store for this HelixManager instance
+   * i.e. for ZkHelixManager, this will have format "{zookeeper-address}:{port}"
+   * @return a string used to connect to metadata store
+   */
+  @Override
+  public String getMetadataStoreConnectionString() {
+    return _zkAddress;
+  }
 
-    // TODO: 2018/6/15 by zmyer
-    BaseDataAccessor<ZNRecord> createBaseDataAccessor() {
+  @Override
+  public String getInstanceName() {
+    return _instanceName;
+  }
 
-        return new ZkBaseDataAccessor<>(_zkclient);
-    }
+  BaseDataAccessor<ZNRecord> createBaseDataAccessor() {
+    ZkBaseDataAccessor<ZNRecord> baseDataAccessor = new ZkBaseDataAccessor<>(_zkclient);
+    return baseDataAccessor;
+  }
 
     /**
      * Add Helix built-in state model definitions if not exist
@@ -622,53 +617,71 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         }
     }
 
-    // TODO: 2018/6/15 by zmyer
-    void createClient() throws Exception {
-        PathBasedZkSerializer zkSerializer =
-                ChainedPathZkSerializer.builder(new ZNRecordStreamingSerializer()).build();
+  void createClient() throws Exception {
+    PathBasedZkSerializer zkSerializer =
+        ChainedPathZkSerializer.builder(new ZNRecordSerializer()).build();
 
-        ZkClient.Builder zkClientBuilder = new ZkClient.Builder();
-        zkClientBuilder.setZkServer(_zkAddress).setSessionTimeout(_sessionTimeout)
-                .setConnectionTimeout(_connectionInitTimeout).setZkSerializer(zkSerializer)
-                .setMonitorType(_instanceType.name())
-                .setMonitorKey(_clusterName)
-                .setMonitorInstanceName(_instanceName)
-                .setMonitorRootPathOnly(!_instanceType.equals(InstanceType.CONTROLLER) && !_instanceType
-                        .equals(InstanceType.CONTROLLER_PARTICIPANT));
-        _zkclient = zkClientBuilder.build();
+    HelixZkClient.ZkConnectionConfig connectionConfig = new HelixZkClient.ZkConnectionConfig(_zkAddress);
+    connectionConfig.setSessionTimeout(_sessionTimeout);
+    HelixZkClient.ZkClientConfig clientConfig = new HelixZkClient.ZkClientConfig();
+    clientConfig
+        .setZkSerializer(zkSerializer)
+        .setConnectInitTimeout(_connectionInitTimeout)
+        .setMonitorType(_instanceType.name())
+        .setMonitorKey(_clusterName)
+        .setMonitorInstanceName(_instanceName)
+        .setMonitorRootPathOnly(!_instanceType.equals(InstanceType.CONTROLLER) && !_instanceType
+            .equals(InstanceType.CONTROLLER_PARTICIPANT));
 
-        _baseDataAccessor = createBaseDataAccessor();
-
-        _dataAccessor = new ZKHelixDataAccessor(_clusterName, _instanceType, _baseDataAccessor);
-        _configAccessor = new ConfigAccessor(_zkclient);
-
-        if (_instanceType == InstanceType.CONTROLLER
-                || _instanceType == InstanceType.CONTROLLER_PARTICIPANT) {
-            addBuiltInStateModelDefinitions();
-        }
-
-        int retryCount = 0;
-
-        _zkclient.subscribeStateChanges(this);
-        while (retryCount < 3) {
-            try {
-                _zkclient.waitUntilConnected(_connectionInitTimeout, TimeUnit.MILLISECONDS);
-                handleStateChanged(KeeperState.SyncConnected);
-                handleNewSession();
-                break;
-            } catch (HelixException e) {
-                LOG.error("fail to createClient.", e);
-                throw e;
-            } catch (Exception e) {
-                retryCount++;
-
-                LOG.error("fail to createClient. retry " + retryCount, e);
-                if (retryCount == 3) {
-                    throw e;
-                }
-            }
-        }
+    HelixZkClient newClient;
+    switch (_instanceType) {
+    case ADMINISTRATOR:
+      newClient = SharedZkClientFactory.getInstance().buildZkClient(connectionConfig, clientConfig);
+      break;
+    default:
+      newClient = DedicatedZkClientFactory
+          .getInstance().buildZkClient(connectionConfig, clientConfig);
+      break;
     }
+
+    synchronized (this) {
+      if (_zkclient != null) {
+        _zkclient.close();
+      }
+      _zkclient = newClient;
+
+      _baseDataAccessor = createBaseDataAccessor();
+
+      _dataAccessor = new ZKHelixDataAccessor(_clusterName, _instanceType, _baseDataAccessor);
+      _configAccessor = new ConfigAccessor(_zkclient);
+
+      if (_instanceType == InstanceType.CONTROLLER
+          || _instanceType == InstanceType.CONTROLLER_PARTICIPANT) {
+        addBuiltInStateModelDefinitions();
+      }
+    }
+
+    // subscribe to state change
+    _zkclient.subscribeStateChanges(this);
+    int retryCount = 0;
+    while (retryCount < 3) {
+      try {
+        _zkclient.waitUntilConnected(_connectionInitTimeout, TimeUnit.MILLISECONDS);
+        handleStateChanged(KeeperState.SyncConnected);
+        handleNewSession();
+        break;
+      } catch (HelixException e) {
+        LOG.error("fail to createClient.", e);
+        throw e;
+      } catch (Exception e) {
+        retryCount++;
+        LOG.error("fail to createClient. retry " + retryCount, e);
+        if (retryCount == 3) {
+          throw e;
+        }
+      }
+    }
+  }
 
     // TODO: 2018/6/15 by zmyer
     @Override
@@ -692,25 +705,26 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
             break;
         }
 
-        try {
-            createClient();
-            _messagingService.onConnected();
-            if (_stateListener != null) {
-                _stateListener.onConnected(this);
-            }
-        } catch (Exception e) {
-            LOG.error("fail to connect " + _instanceName, e);
-            disconnect();
-            throw e;
-        }
+    try {
+      createClient();
+      _messagingService.onConnected();
+    } catch (Exception e) {
+      LOG.error("fail to connect " + _instanceName, e);
+      try {
+        disconnect();
+      } catch (Exception ex) {
+        // if zk connection fails to be created, disconnect may throw exception about reporting disconnect to ZK.
+      }
+      throw e;
     }
+  }
 
-    @Override
-    public void disconnect() {
-        if (_zkclient == null) {
-            LOG.info("instanceName: " + _instanceName + " already disconnected");
-            return;
-        }
+  @Override
+  public void disconnect() {
+    if (_zkclient == null || _zkclient.isClosed()) {
+      LOG.info("instanceName: " + _instanceName + " already disconnected");
+      return;
+    }
 
         LOG.info("disconnect " + _instanceName + "(" + _instanceType + ") from " + _clusterName);
 
@@ -726,42 +740,54 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
              */
             _messagingService.getExecutor().shutdown();
 
-            // TODO reset user defined handlers only
-            resetHandlers();
+      // TODO reset user defined handlers only
+      // TODO Fix the issue that when connection disconnected, reset handlers will be blocked. -- JJ
+      // This is because reset logic contains ZK operations.
+      resetHandlers();
 
             if (_leaderElectionHandler != null) {
                 _leaderElectionHandler.reset();
             }
 
-        } finally {
-            if (_controller != null) {
-                try {
-                    _controller.shutdown();
-                } catch (InterruptedException e) {
-                    LOG.info("Interrupted shutting down GenericHelixController", e);
-                } finally {
-                    _controller = null;
-                    _leaderElectionHandler = null;
-                }
-            }
-
-            if (_participantManager != null) {
-                _participantManager.disconnect();
-                _participantManager = null;
-            }
-
-            for (HelixCallbackMonitor callbackMonitor : _callbackMonitors.values()) {
-                callbackMonitor.unregister();
-            }
-
-            _helixPropertyStore = null;
-
-            _zkclient.close();
-            _zkclient = null;
-            _sessionStartTime = null;
-            LOG.info("Cluster manager: " + _instanceName + " disconnected");
+    } finally {
+      GenericHelixController controller = _controller;
+      if (controller != null) {
+        try {
+          controller.shutdown();
+        } catch (InterruptedException e) {
+          LOG.info("Interrupted shutting down GenericHelixController", e);
         }
+      }
+
+      ParticipantManager participantManager = _participantManager;
+      if (participantManager != null) {
+        participantManager.disconnect();
+      }
+
+      for (HelixCallbackMonitor callbackMonitor : _callbackMonitors.values()) {
+        callbackMonitor.unregister();
+      }
+
+      _helixPropertyStore = null;
+
+      synchronized (this) {
+        if (_controller != null) {
+          _controller = null;
+          _leaderElectionHandler = null;
+        }
+
+        if (_participantManager != null) {
+          _participantManager = null;
+        }
+
+        if (_zkclient != null) {
+          _zkclient.close();
+        }
+      }
+      _sessionStartTime = null;
+      LOG.info("Cluster manager: " + _instanceName + " disconnected");
     }
+  }
 
     @Override
     public String getSessionId() {
@@ -769,18 +795,20 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         return _sessionId;
     }
 
-    @Override
-    public boolean isConnected() {
-        if (_zkclient == null) {
-            return false;
-        }
-        ZkConnection zkconnection = (ZkConnection) _zkclient.getConnection();
-        if (zkconnection != null) {
-            States state = zkconnection.getZookeeperState();
-            return state != null ? state.isConnected() : false;
-        }
-        return false;
+  @Override
+  public boolean isConnected() {
+    if (_zkclient == null || _zkclient.isClosed()) {
+      return false;
     }
+    // Don't check ZkConnection state, which is different from ZkClient's watcher state.
+    // ZkConnection state is the internal state of the connection, which can be different from the
+    // ZkClient state due to internal thread/retry logic.
+    try {
+      return _zkclient.waitUntilConnected(0, TimeUnit.MILLISECONDS);
+    } catch (ZkInterruptedException ex) {
+      return false;
+    }
+  }
 
     @Override
     public long getLastNotificationTime() {
@@ -793,55 +821,66 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         _preConnectCallbacks.add(callback);
     }
 
-    @Override
-    public boolean isLeader() {
-        if (_instanceType != InstanceType.CONTROLLER
-                && _instanceType != InstanceType.CONTROLLER_PARTICIPANT) {
-            return false;
-        }
-
-        if (!isConnected()) {
-            return false;
-        }
-
-        try {
-            LiveInstance leader = _dataAccessor.getProperty(_keyBuilder.controllerLeader());
-            if (leader != null) {
-                String leaderName = leader.getInstanceName();
-                String sessionId = leader.getSessionId();
-                if (leaderName != null && leaderName.equals(_instanceName) && sessionId != null
-                        && sessionId.equals(_sessionId)) {
-                    return true;
-                }
-            }
-        } catch (Exception e) {
-            // log
-        }
-        return false;
+  @Override
+  public boolean isLeader() {
+    String warnLogPrefix = String
+        .format("Instance %s is not leader of cluster %s due to", _instanceName, _clusterName);
+    if (_instanceType != InstanceType.CONTROLLER
+        && _instanceType != InstanceType.CONTROLLER_PARTICIPANT) {
+      LOG.warn(String
+          .format("%s instance type %s does not match to CONTROLLER/CONTROLLER_PARTICIPANT",
+              warnLogPrefix, _instanceType.name()));
+      return false;
     }
+
+    if (!isConnected()) {
+      LOG.warn(String.format("%s HelixManager is not connected", warnLogPrefix));
+      return false;
+    }
+
+    try {
+      LiveInstance leader = _dataAccessor.getProperty(_keyBuilder.controllerLeader());
+      if (leader != null) {
+        String leaderName = leader.getInstanceName();
+        String sessionId = leader.getSessionId();
+        if (leaderName != null && leaderName.equals(_instanceName) && sessionId != null && sessionId
+            .equals(_sessionId)) {
+          return true;
+        }
+        LOG.warn(String
+            .format("%s current session %s does not match leader session %s", warnLogPrefix,
+                _sessionId, sessionId));
+      }
+      LOG.warn(String.format("%s leader ZNode is null", warnLogPrefix));
+
+    } catch (Exception e) {
+      // log
+      LOG.warn(String.format("%s exception happen when session check", warnLogPrefix), e);
+    }
+    return false;
+  }
 
     @Override
     public synchronized ZkHelixPropertyStore<ZNRecord> getHelixPropertyStore() {
         checkConnected(_waitForConnectedTimeout);
 
-        if (_helixPropertyStore == null) {
-            String path = PropertyPathBuilder.propertyStore(_clusterName);
-            String fallbackPath = String.format("/%s/%s", _clusterName, "HELIX_PROPERTYSTORE");
-            _helixPropertyStore =
-                    new AutoFallbackPropertyStore<ZNRecord>(new ZkBaseDataAccessor<ZNRecord>(_zkclient),
-                            path, fallbackPath);
-        }
+    if (_helixPropertyStore == null) {
+      String path = PropertyPathBuilder.propertyStore(_clusterName);
+      String fallbackPath = String.format("/%s/%s", _clusterName, "HELIX_PROPERTYSTORE");
+      _helixPropertyStore =
+          new AutoFallbackPropertyStore<>(new ZkBaseDataAccessor<ZNRecord>(_zkclient),
+              path, fallbackPath);
+    }
 
         return _helixPropertyStore;
     }
 
-    // TODO: 2018/7/26 by zmyer
-    @Override
-    public synchronized HelixAdmin getClusterManagmentTool() {
-        checkConnected(_waitForConnectedTimeout);
-        if (_zkclient != null) {
-            return new ZKHelixAdmin(_zkclient);
-        }
+  @Override
+  public synchronized HelixAdmin getClusterManagmentTool() {
+    checkConnected(_waitForConnectedTimeout);
+    if (_zkclient != null && !_zkclient.isClosed()) {
+      return new ZKHelixAdmin(_zkclient);
+    }
 
         LOG.error("Couldn't get ZKClusterManagementTool because zkclient is null");
         return null;
@@ -897,26 +936,24 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         _liveInstanceInfoProvider = liveInstanceInfoProvider;
     }
 
-    /**
-     * wait until we get a non-zero session-id. note that we might lose zkconnection
-     * right after we read session-id. but it's ok to get stale session-id and we will have
-     * another handle-new-session callback to correct this.
-     */
-    // TODO: 2018/7/25 by zmyer
-    void waitUntilConnected() {
-        boolean isConnected;
-        do {
-            isConnected =
-                    _zkclient.waitUntilConnected(ZkClient.DEFAULT_CONNECTION_TIMEOUT, TimeUnit.MILLISECONDS);
-            if (!isConnected) {
-                LOG.error("fail to connect zkserver: " + _zkAddress + " in "
-                        + ZkClient.DEFAULT_CONNECTION_TIMEOUT + "ms. expiredSessionId: " + _sessionId
-                        + ", clusterName: " + _clusterName);
-                continue;
-            }
+  /**
+   * wait until we get a non-zero session-id. note that we might lose zkconnection
+   * right after we read session-id. but it's ok to get stale session-id and we will have
+   * another handle-new-session callback to correct this.
+   */
+  void waitUntilConnected() {
+    boolean isConnected;
+    do {
+      isConnected =
+          _zkclient.waitUntilConnected(HelixZkClient.DEFAULT_CONNECTION_TIMEOUT, TimeUnit.MILLISECONDS);
+      if (!isConnected) {
+        LOG.error("fail to connect zkserver: " + _zkAddress + " in "
+            + HelixZkClient.DEFAULT_CONNECTION_TIMEOUT + "ms. expiredSessionId: " + _sessionId
+            + ", clusterName: " + _clusterName);
+        continue;
+      }
 
-            final ZkConnection zkConnection = ((ZkConnection) _zkclient.getConnection());
-            _sessionId = Long.toHexString(zkConnection.getZookeeper().getSessionId());
+      _sessionId = Long.toHexString(_zkclient.getSessionId());
 
             /**
              * at the time we read session-id, zkconnection might be lost again
@@ -924,10 +961,9 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
              */
         } while (!isConnected || "0".equals(_sessionId));
 
-        LOG.info("Handling new session, session id: " + _sessionId + ", instance: " + _instanceName
-                + ", instanceTye: " + _instanceType + ", cluster: " + _clusterName + ", zkconnection: "
-                + ((ZkConnection) _zkclient.getConnection()).getZookeeper());
-    }
+    LOG.info("Handling new session, session id: " + _sessionId + ", instance: " + _instanceName
+        + ", instanceTye: " + _instanceType + ", cluster: " + _clusterName);
+  }
 
     // TODO: 2018/7/27 by zmyer
     void initHandlers(List<CallbackHandler> handlers) {
@@ -941,13 +977,13 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         }
     }
 
-    void resetHandlers() {
-        synchronized (this) {
-            if (_handlers != null) {
-                // get a copy of the list and iterate over the copy list
-                // in case handler.reset() modify the original handler list
-                final List<CallbackHandler> tmpHandlers = new ArrayList<CallbackHandler>();
-                tmpHandlers.addAll(_handlers);
+  void resetHandlers() {
+    synchronized (this) {
+      if (_handlers != null) {
+        // get a copy of the list and iterate over the copy list
+        // in case handler.reset() modify the original handler list
+        List<CallbackHandler> tmpHandlers = new ArrayList<>();
+        tmpHandlers.addAll(_handlers);
 
                 for (CallbackHandler handler : tmpHandlers) {
                     handler.reset();
@@ -957,76 +993,90 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         }
     }
 
-    /**
-     * If zk state has changed into Disconnected for _maxDisconnectThreshold times during previous
-     * _timeWindowLengthMs Ms
-     * time window, we think that there are something wrong going on and disconnect the zkHelixManager
-     * from zk.
-     */
-    boolean isFlapping() {
-        if (_disconnectTimeHistory.size() == 0) {
-            return false;
-        }
-        long mostRecentTimestamp = _disconnectTimeHistory.get(_disconnectTimeHistory.size() - 1);
-
-        // Remove disconnect history timestamp that are older than _flappingTimeWindowMs ago
-        while ((_disconnectTimeHistory.get(0) + _flappingTimeWindowMs) < mostRecentTimestamp) {
-            _disconnectTimeHistory.remove(0);
-        }
-        return _disconnectTimeHistory.size() > _maxDisconnectThreshold;
+  /**
+   * If zk state has changed into Disconnected for maxDisconnectThreshold times during previous
+   * timeWindowLengthMs Ms
+   * time window, we think that there are something wrong going on and disconnect the zkHelixManager
+   * from zk.
+   */
+  boolean isFlapping() {
+    if (_disconnectTimeHistory.size() == 0) {
+      return false;
     }
+    long mostRecentTimestamp = _disconnectTimeHistory.get(_disconnectTimeHistory.size() - 1);
 
-    // TODO: 2018/7/24 by zmyer
-    @Override
-    public void handleStateChanged(KeeperState state) throws Exception {
-        switch (state) {
-        case SyncConnected:
-            ZkConnection zkConnection = (ZkConnection) _zkclient.getConnection();
-            LOG.info("KeeperState: " + state + ", instance: "
-                    + _instanceName + ", type: " + _instanceType + ", zookeeper:" + zkConnection.getZookeeper());
-            break;
-        case Disconnected:
-            LOG.info("KeeperState:" + state + ", disconnectedSessionId: " + _sessionId + ", instance: "
-                    + _instanceName + ", type: " + _instanceType);
-
-            /**
-             * Track the time stamp that the disconnected happens, then check history and see if
-             * we should disconnect the helix-manager
-             */
-            _disconnectTimeHistory.add(System.currentTimeMillis());
-            if (isFlapping()) {
-                String errorMsg = "instanceName: " + _instanceName + " is flapping. disconnect it. "
-                        + " maxDisconnectThreshold: " + _maxDisconnectThreshold + " disconnects in "
-                        + _flappingTimeWindowMs + "ms.";
-                LOG.error(errorMsg);
-
-                // Only disable the instance when it's instance type is PARTICIPANT
-                if (_instanceType.equals(InstanceType.PARTICIPANT)) {
-                    LOG.warn("instanceName: " + _instanceName
-                            + " is flapping. Since it is a participant, disable it.");
-                    getClusterManagmentTool().enableInstance(_clusterName, _instanceName, false);
-                }
-                disconnect();
-                if (_stateListener != null) {
-                    _stateListener.onDisconnected(this, new HelixException(errorMsg));
-                }
-            }
-            break;
-        case Expired:
-            LOG.info("KeeperState:" + state + ", expiredSessionId: " + _sessionId + ", instance: "
-                    + _instanceName + ", type: " + _instanceType);
-            break;
-        default:
-            break;
-        }
+    // Remove disconnect history timestamp that are older than flappingTimeWindowMs ago
+    while ((_disconnectTimeHistory.get(0) + _flappingTimeWindowMs) < mostRecentTimestamp) {
+      _disconnectTimeHistory.remove(0);
     }
+    return _disconnectTimeHistory.size() > _maxDisconnectThreshold;
+  }
 
-    // TODO: 2018/7/24 by zmyer
-    @Override
-    public void handleNewSession() throws Exception {
-        LOG.info("Handle new session, sessionId: " + _sessionId + ", instance: " + _instanceName + ", type: " +
-                _instanceType);
-        waitUntilConnected();
+  @Override
+  public void handleStateChanged(KeeperState state) {
+    switch (state) {
+    case SyncConnected:
+      LOG.info("KeeperState: " + state + ", instance: " + _instanceName + ", type: " + _instanceType);
+      break;
+    case Disconnected:
+      /**
+       * Track the time stamp that the disconnected happens, then check history and see if
+       * we should disconnect the helix-manager
+       */
+      _disconnectTimeHistory.add(System.currentTimeMillis());
+      if (isFlapping()) {
+        String errorMsg = "instanceName: " + _instanceName + " is flapping. disconnect it. "
+            + " maxDisconnectThreshold: " + _maxDisconnectThreshold + " disconnects in "
+            + _flappingTimeWindowMs + "ms.";
+        LOG.error(errorMsg);
+
+        // Only disable the instance when it's instance type is PARTICIPANT
+        if (_instanceType.equals(InstanceType.PARTICIPANT)) {
+          LOG.warn("instanceName: " + _instanceName
+              + " is flapping. Since it is a participant, disable it.");
+          try {
+            getClusterManagmentTool().enableInstance(_clusterName, _instanceName, false);
+          } catch (Exception e) {
+            LOG.error("Failed to disable participant before disconnecting participant.", e);
+          }
+        }
+
+        try {
+          // TODO Call disconnect in another thread.
+          // handleStateChanged is triggered in ZkClient eventThread. The disconnect logic will
+          // interrupt this thread. This issue prevents the ZkClient.close() from complete. So the
+          // client is left in a strange state.
+          disconnect();
+        } catch (Exception ex) {
+          LOG.error("Disconnect HelixManager is not completely done.", ex);
+        }
+
+        if (_stateListener != null) {
+          try {
+            _stateListener.onDisconnected(this, new HelixException(errorMsg));
+          } catch (Exception e) {
+            LOG.warn("stateListener.onDisconnected callback fails", e);
+          }
+        }
+        break;
+      }
+    // if not flapping, share the continuous logic with Expired case
+    case Expired:
+      LOG.warn("KeeperState:" + state + ", SessionId: " + _sessionId + ", instance: "
+          + _instanceName + ", type: " + _instanceType);
+      break;
+    default:
+      LOG.info("KeeperState:" + state + ", currentSessionId: " + _sessionId + ", instance: "
+          + _instanceName + ", type: " + _instanceType);
+      break;
+    }
+  }
+
+  @Override
+  public void handleNewSession() throws Exception {
+    LOG.info(
+        "Handle new session, instance: " + _instanceName + ", type: " + _instanceType);
+    waitUntilConnected();
 
         /**
          * stop all timer tasks, reset all handlers, make sure cleanup completed for previous session
@@ -1071,13 +1121,21 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
 
         startTimerTasks();
 
-        /**
-         * init handlers
-         * ok to init message handler and data-accessor twice
-         * the second init will be skipped (see CallbackHandler)
-         */
-        initHandlers(_handlers);
+    /**
+     * init handlers
+     * ok to init message handler and data-accessor twice
+     * the second init will be skipped (see CallbackHandler)
+     */
+    initHandlers(_handlers);
+
+    if (_stateListener != null) {
+      try {
+        _stateListener.onConnected(this);
+      } catch (Exception e) {
+        LOG.warn("stateListener.onConnected callback fails", e);
+      }
     }
+  }
 
     // TODO: 2018/7/26 by zmyer
     void handleNewSessionAsParticipant() throws Exception {
@@ -1109,42 +1167,15 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         return _participantHealthInfoCollector;
     }
 
-    @Override
-    public void handleSessionEstablishmentError(Throwable error) throws Exception {
-        LOG.warn("Handling Session Establishment Error. Try to reset connection.", error);
-        // Cleanup ZKHelixManager
-        if (_zkclient != null) {
-            _zkclient.close();
-        }
-        disconnect();
-        // Try to establish connections
-        long operationStartTime = System.currentTimeMillis();
-        while (!isConnected()) {
-            try {
-                connect();
-                break;
-            } catch (Exception e) {
-                if (System.currentTimeMillis() - operationStartTime >= _connectionRetryTimeout) {
-                    break;
-                }
-                // If retry fails, use the latest exception.
-                error = e;
-                LOG.error("Fail to reset connection after session establishment error happens. Will retry.", error);
-                // Yield until next retry.
-                Thread.yield();
-            }
-        }
+  @Override
+  public void handleSessionEstablishmentError(Throwable error) throws Exception {
+    LOG.warn("Handling Session Establishment Error. Disconnect Helix Manager.", error);
+    disconnect();
 
-        if (!isConnected()) {
-            LOG.error("Fail to reset connection after session establishment error happens.", error);
-            // retry failed, trigger error handler
-            if (_stateListener != null) {
-                _stateListener.onDisconnected(this, error);
-            }
-        } else {
-            LOG.info("Connection is recovered.");
-        }
+    if (_stateListener != null) {
+      _stateListener.onDisconnected(this, error);
     }
+  }
 
     @Override
     public Long getSessionStartTime() {

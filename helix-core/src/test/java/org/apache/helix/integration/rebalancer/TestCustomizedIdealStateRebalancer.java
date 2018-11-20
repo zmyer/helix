@@ -34,6 +34,7 @@ import org.apache.helix.integration.common.ZkStandAloneCMTestBase;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
 import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.IdealState.IdealStateProperty;
@@ -77,14 +78,14 @@ public class TestCustomizedIdealStateRebalancer extends ZkStandAloneCMTestBase {
 
   @Test
   public void testCustomizedIdealStateRebalancer() throws InterruptedException {
-    _setupTool.addResourceToCluster(CLUSTER_NAME, db2, 60, "MasterSlave");
-    _setupTool.addResourceProperty(CLUSTER_NAME, db2,
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, db2, 60, "MasterSlave");
+    _gSetupTool.addResourceProperty(CLUSTER_NAME, db2,
         IdealStateProperty.REBALANCER_CLASS_NAME.toString(),
         TestCustomizedIdealStateRebalancer.TestRebalancer.class.getName());
-    _setupTool.addResourceProperty(CLUSTER_NAME, db2, IdealStateProperty.REBALANCE_MODE.toString(),
+    _gSetupTool.addResourceProperty(CLUSTER_NAME, db2, IdealStateProperty.REBALANCE_MODE.toString(),
         RebalanceMode.USER_DEFINED.toString());
 
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, db2, 3);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, db2, 3);
 
     boolean result =
         ClusterStateVerifier.verifyByZkCallback(new ExternalViewBalancedVerifier(_gZkClient,
@@ -109,11 +110,11 @@ public class TestCustomizedIdealStateRebalancer extends ZkStandAloneCMTestBase {
   }
 
   public static class ExternalViewBalancedVerifier implements ZkVerifier {
-    ZkClient _client;
+    HelixZkClient _client;
     String _clusterName;
     String _resourceName;
 
-    public ExternalViewBalancedVerifier(ZkClient client, String clusterName, String resourceName) {
+    public ExternalViewBalancedVerifier(HelixZkClient client, String clusterName, String resourceName) {
       _client = client;
       _clusterName = clusterName;
       _resourceName = resourceName;
@@ -154,14 +155,13 @@ public class TestCustomizedIdealStateRebalancer extends ZkStandAloneCMTestBase {
 
     @Override
     public ZkClient getZkClient() {
-      return _client;
+      return (ZkClient) _client;
     }
 
     @Override
     public String getClusterName() {
       return _clusterName;
     }
-
   }
 
   static boolean verifyBalanceExternalView(ZNRecord externalView, int partitionCount,

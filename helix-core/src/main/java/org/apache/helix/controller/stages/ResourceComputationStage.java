@@ -27,6 +27,7 @@ import org.apache.helix.model.IdealState;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.Resource;
 import org.apache.helix.task.TaskConstants;
+import org.apache.helix.controller.LogUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,18 +45,18 @@ import java.util.Set;
 public class ResourceComputationStage extends AbstractBaseStage {
     private static Logger LOG = LoggerFactory.getLogger(ResourceComputationStage.class);
 
-    // TODO: 2018/7/25 by zmyer
-    @Override
-    public void process(ClusterEvent event) throws Exception {
-        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-        if (cache == null) {
-            throw new StageException("Missing attributes in event:" + event + ". Requires DataCache");
-        }
+  @Override
+  public void process(ClusterEvent event) throws Exception {
+    _eventId = event.getEventId();
+    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    if (cache == null) {
+      throw new StageException("Missing attributes in event:" + event + ". Requires DataCache");
+    }
 
         Map<String, IdealState> idealStates = cache.getIdealStates();
 
-        Map<String, Resource> resourceMap = new LinkedHashMap<>();
-        Map<String, Resource> resourceToRebalance = new LinkedHashMap<>();
+    Map<String, Resource> resourceMap = new LinkedHashMap<>();
+    Map<String, Resource> resourceToRebalance = new LinkedHashMap<>();
 
         if (idealStates != null && idealStates.size() > 0) {
             for (IdealState idealState : idealStates.values()) {
@@ -144,13 +145,14 @@ public class ResourceComputationStage extends AbstractBaseStage {
                         }
                     }
 
-                    if (currentState.getStateModelDefRef() == null) {
-                        LOG.error("state model def is null." + "resource:" + currentState.getResourceName()
-                                + ", partitions: " + currentState.getPartitionStateMap().keySet() + ", states: "
-                                + currentState.getPartitionStateMap().values());
-                        throw new StageException("State model def is null for resource:"
-                                + currentState.getResourceName());
-                    }
+          if (currentState.getStateModelDefRef() == null) {
+            LogUtil.logError(LOG, _eventId,
+                "state model def is null." + "resource:" + currentState.getResourceName()
+                    + ", partitions: " + currentState.getPartitionStateMap().keySet() + ", states: "
+                    + currentState.getPartitionStateMap().values());
+            throw new StageException("State model def is null for resource:"
+                + currentState.getResourceName());
+          }
 
                     for (final String partition : resourceStateMap.keySet()) {
                         addPartition(partition, resourceName, resourceMap);

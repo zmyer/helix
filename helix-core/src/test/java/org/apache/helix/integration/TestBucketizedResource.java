@@ -20,32 +20,28 @@ package org.apache.helix.integration;
  */
 
 import java.util.Arrays;
-import java.util.Date;
 import java.util.List;
-
 import org.apache.helix.ExternalViewChangeListener;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.NotificationContext;
+import org.apache.helix.NotificationContext.Type;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
-import org.apache.helix.NotificationContext.Type;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZKHelixAdmin;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
-import org.apache.helix.tools.ClusterStateVerifier;
-import org.apache.helix.tools.ClusterStateVerifier.MasterNbInExtViewVerifier;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.apache.helix.tools.DefaultIdealStateCalculator;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class TestBucketizedResource extends ZkIntegrationTestBase {
+public class TestBucketizedResource extends ZkTestBase {
 
   private void setupCluster(String clusterName, List<String> instanceNames, String dbName,
       int replica, int partitions, int bucketSize) {
@@ -81,8 +77,6 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     int n = instanceNames.size();
     String dbName = "TestDB0";
 
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
     MockParticipantManager[] participants = new MockParticipantManager[5];
 
     setupCluster(clusterName, instanceNames, dbName, 3, 10, 1);
@@ -99,22 +93,19 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     }
     PropertyKey evKey = accessor.keyBuilder().externalView(dbName);
 
-    boolean result =
-        ClusterStateVerifier
-            .verifyByZkCallback(new MasterNbInExtViewVerifier(ZK_ADDR, clusterName));
-    Assert.assertTrue(result);
-
-    HelixClusterVerifier _clusterVerifier =
+    BestPossibleExternalViewVerifier _clusterVerifier =
         new BestPossibleExternalViewVerifier.Builder(clusterName).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     ExternalView ev = accessor.getProperty(evKey);
     int v1 = ev.getRecord().getVersion();
     // disable the participant
     _gSetupTool.getClusterManagementTool().enableInstance(clusterName,
         participants[0].getInstanceName(), false);
+
     // wait for change in EV
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
+
 
     // read the version in EV
     ev = accessor.getProperty(evKey);
@@ -126,12 +117,11 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     for (int i = 0; i < n; i++) {
       participants[i].syncStop();
     }
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
+    deleteCluster(clusterName);
   }
 
   @Test
-  public void testBounceDisableAndDrop() {
+  public void testBounceDisableAndDrop() throws Exception {
     String className = TestHelper.getTestClassName();
     String methodName = TestHelper.getTestMethodName();
     String clusterName = className + "_" + methodName;
@@ -139,8 +129,6 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     List<String> instanceNames =
         Arrays.asList("localhost_0", "localhost_1", "localhost_2", "localhost_3", "localhost_4");
     int n = instanceNames.size();
-
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
 
     ZKHelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, _baseAccessor);
     PropertyKey.Builder keyBuilder = accessor.keyBuilder();
@@ -158,16 +146,16 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
       participants[i].syncStart();
     }
 
-    HelixClusterVerifier _clusterVerifier =
+    ZkHelixClusterVerifier _clusterVerifier =
         new BestPossibleExternalViewVerifier.Builder(clusterName).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // bounce
     participants[0].syncStop();
     participants[0] = new MockParticipantManager(ZK_ADDR, clusterName, instanceNames.get(0));
     participants[0].syncStart();
-    
-    Assert.assertTrue(_clusterVerifier.verify());
+
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // make sure participants[0]'s current state is bucketzied correctly during carryover
     String path =
@@ -180,16 +168,24 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     HelixAdmin admin = new ZKHelixAdmin(_gZkClient);
     admin.enableResource(clusterName, dbName, false);
 
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // drop the bucketize resource
     _gSetupTool.dropResourceFromCluster(clusterName, dbName);
 
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // make sure external-view is cleaned up
-    path = keyBuilder.externalView(dbName).getPath();
-    boolean result = _baseAccessor.exists(path, 0);
+    final String evPath = keyBuilder.externalView(dbName).getPath();
+
+    TestHelper.verify(new TestHelper.Verifier() {
+        @Override
+        public boolean verify() {
+          return !_baseAccessor.exists(evPath, 0);
+        }
+      }, 3000);
+
+    boolean result = _baseAccessor.exists(evPath, 0);
     Assert.assertFalse(result);
 
     // clean up
@@ -197,7 +193,7 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     for (MockParticipantManager participant : participants) {
       participant.syncStop();
     }
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
+    deleteCluster(clusterName);
   }
 
   class TestExternalViewListener implements ExternalViewChangeListener {
@@ -210,7 +206,6 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
         cbCnt++;
       }
     }
-
   }
 
   @Test
@@ -222,8 +217,6 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     List<String> instanceNames =
         Arrays.asList("localhost_0", "localhost_1", "localhost_2", "localhost_3", "localhost_4");
     int n = instanceNames.size();
-
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
 
     ZKHelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, _baseAccessor);
     PropertyKey.Builder keyBuilder = accessor.keyBuilder();
@@ -241,27 +234,26 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
       participants[i].syncStart();
     }
 
-    HelixClusterVerifier _clusterVerifier =
+    ZkHelixClusterVerifier _clusterVerifier =
         new BestPossibleExternalViewVerifier.Builder(clusterName).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // add an external view listener
-    TestExternalViewListener listener = new TestExternalViewListener();
+    final TestExternalViewListener listener = new TestExternalViewListener();
     controller.addExternalViewChangeListener(listener);
 
     // remove "TestDB0"
     _gSetupTool.dropResourceFromCluster(clusterName, dbName);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // wait callback to finish
-    int waitTime =0;
-    do {
-      Thread.sleep(100);
-      waitTime += 100;
-      if (waitTime > 30000) {
-        break;
+    TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        return listener.cbCnt > 0;
       }
-    } while (listener.cbCnt == 0);
+    }, 20000);
+    Assert.assertTrue(listener.cbCnt > 0);
+
     listener.cbCnt = 0;
 
     // add a new db
@@ -277,9 +269,14 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     idealState.setReplicas(Integer.toString(r));
     accessor.setProperty(keyBuilder.idealStates(newDbName), idealState);
 
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
-    Thread.sleep(200);
+    TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        return listener.cbCnt > 0;
+      }
+    }, 20000);
+
     Assert.assertTrue(listener.cbCnt > 0);
 
     // clean up
@@ -287,7 +284,6 @@ public class TestBucketizedResource extends ZkIntegrationTestBase {
     for (MockParticipantManager participant : participants) {
       participant.syncStop();
     }
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
+    deleteCluster(clusterName);
   }
 }

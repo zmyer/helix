@@ -19,9 +19,9 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
+import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.List;
-
 import org.apache.helix.TestHelper;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.JobQueue;
@@ -31,8 +31,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.Sets;
 
 public class TestJobFailureDependence extends TaskTestBase {
   private static final Logger LOG = LoggerFactory.getLogger(TestJobFailureDependence.class);
@@ -62,7 +60,7 @@ public class TestJobFailureDependence extends TaskTestBase {
     }
 
     _driver.start(queueBuilder.build());
-    _setupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(2));
+    _gSetupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(2));
 
     // all jobs after failed job should fail too.
     for (int i = 2; i < _numDbs; i++) {
@@ -90,7 +88,7 @@ public class TestJobFailureDependence extends TaskTestBase {
     }
 
     _driver.start(queueBuilder.build());
-    _setupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(2));
+    _gSetupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(2));
 
     String namedSpaceJob1 = String.format("%s_%s", queueName, currentJobNames.get(2));
     _driver.pollForJobState(queueName, namedSpaceJob1, TaskState.FAILED);
@@ -115,7 +113,7 @@ public class TestJobFailureDependence extends TaskTestBase {
     }
 
     _driver.start(queueBuilder.build());
-    _setupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(2));
+    _gSetupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(2));
     String namedSpaceJob2 = String.format("%s_%s", queueName, currentJobNames.get(2));
     _driver.pollForJobState(queueName, namedSpaceJob2, TaskState.FAILED);
 
@@ -145,7 +143,7 @@ public class TestJobFailureDependence extends TaskTestBase {
     }
 
     _driver.start(queueBuilder.build());
-    _setupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(1));
+    _gSetupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(1));
 
     String namedSpaceJob1 = String.format("%s_%s", queueName, currentJobNames.get(1));
     _driver.pollForJobState(queueName, namedSpaceJob1, TaskState.FAILED);

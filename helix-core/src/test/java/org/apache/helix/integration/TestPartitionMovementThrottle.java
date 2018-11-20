@@ -23,14 +23,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.api.config.StateTransitionThrottleConfig;
@@ -43,9 +42,7 @@ import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.IdealState.RebalanceMode;
 import org.apache.helix.model.Message;
-import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
@@ -60,18 +57,12 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
   public void beforeClass() throws Exception {
     System.out.println("START " + CLASS_NAME + " at " + new Date(System.currentTimeMillis()));
 
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-    _setupTool = new ClusterSetup(_gZkClient);
-
     // setup storage cluster
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
 
     for (int i = 0; i < NODE_NR; i++) {
       String storageNodeName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
-      _setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
+      _gSetupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
     }
 
     // add dummy participants
@@ -91,6 +82,8 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
     _controller.syncStart();
 
     setupThrottleConfig();
+
+    _clusterVerifier = new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
   }
 
   private void setupThrottleConfig() {
@@ -108,19 +101,18 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
         new StateTransitionThrottleConfig(StateTransitionThrottleConfig.RebalanceType.LOAD_BALANCE,
             StateTransitionThrottleConfig.ThrottleScope.CLUSTER, 100);
 
+    StateTransitionThrottleConfig resourceRecoveryThrottle = new StateTransitionThrottleConfig(
+        StateTransitionThrottleConfig.RebalanceType.RECOVERY_BALANCE,
+        StateTransitionThrottleConfig.ThrottleScope.RESOURCE, 3);
 
-        StateTransitionThrottleConfig resourceRecoveryThrottle = new StateTransitionThrottleConfig(
-            StateTransitionThrottleConfig.RebalanceType.RECOVERY_BALANCE,
-            StateTransitionThrottleConfig.ThrottleScope.RESOURCE, 3);
+    StateTransitionThrottleConfig clusterRecoveryThrottle = new StateTransitionThrottleConfig(
+        StateTransitionThrottleConfig.RebalanceType.RECOVERY_BALANCE,
+        StateTransitionThrottleConfig.ThrottleScope.CLUSTER, 100);
 
-        StateTransitionThrottleConfig clusterRecoveryThrottle = new StateTransitionThrottleConfig(
-            StateTransitionThrottleConfig.RebalanceType.RECOVERY_BALANCE,
-            StateTransitionThrottleConfig.ThrottleScope.CLUSTER, 100);
-
-    clusterConfig.setStateTransitionThrottleConfigs(Arrays
-        .asList(resourceLoadThrottle, instanceLoadThrottle, clusterLoadThrottle,
-    resourceRecoveryThrottle, clusterRecoveryThrottle));
-
+    clusterConfig
+        .setStateTransitionThrottleConfigs(Arrays
+            .asList(resourceLoadThrottle, instanceLoadThrottle, clusterLoadThrottle,
+                resourceRecoveryThrottle, clusterRecoveryThrottle));
 
     clusterConfig.setPersistIntermediateAssignment(true);
     _configAccessor.setClusterConfig(CLUSTER_NAME, clusterConfig);
@@ -135,16 +127,13 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
 
     for (int i = 0; i < 5; i++) {
       String dbName = "TestDB-" + i;
-      _setupTool.addResourceToCluster(CLUSTER_NAME, dbName, 10, STATE_MODEL,
+      _gSetupTool.addResourceToCluster(CLUSTER_NAME, dbName, 10, STATE_MODEL,
           RebalanceMode.FULL_AUTO + "");
-      _setupTool.rebalanceStorageCluster(CLUSTER_NAME, dbName, _replica);
+      _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, dbName, _replica);
       _dbs.add(dbName);
     }
 
-    HelixClusterVerifier _clusterVerifier =
-        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(_clusterVerifier.verify());
-
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     DelayedTransition.setDelay(20);
     DelayedTransition.enableThrottleRecord();
@@ -157,7 +146,11 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
     Thread.sleep(2000);
 
     for (String db : _dbs) {
-      validateThrottle(DelayedTransition.getResourcePatitionTransitionTimes(), db, 2);
+      // After the fix in IntermediateCalcStage where downward load-balance is now allowed even if
+      // there are recovery or error partitions present, maxPendingTransition below is adjusted from
+      // 2 to 5 because BOTH recovery balance and load balance could happen in the same pipeline
+      // iteration
+      validateThrottle(DelayedTransition.getResourcePatitionTransitionTimes(), db, 5);
     }
   }
 
@@ -167,13 +160,11 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
     for (int i = 0; i < NODE_NR - 2; i++) {
       _participants[i].syncStart();
     }
-    _setupTool.addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, 10, STATE_MODEL,
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, 10, STATE_MODEL,
         RebalanceMode.FULL_AUTO.name());
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, _replica);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, _replica);
 
-    HelixClusterVerifier _clusterVerifier =
-        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // Set throttling after states are stable. Otherwise it takes too long to reach stable state
     setSingleThrottlingConfig(StateTransitionThrottleConfig.RebalanceType.RECOVERY_BALANCE,
@@ -201,14 +192,12 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
     for (int i = 0; i < NODE_NR - 3; i++) {
       _participants[i].syncStart();
     }
-    _setupTool.addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB + "_ANY", 20,
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB + "_ANY", 20,
         STATE_MODEL, RebalanceMode.FULL_AUTO.name());
-    _setupTool
-        .rebalanceStorageCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB + "_ANY", _replica);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB + "_ANY",
+        _replica);
 
-    HelixClusterVerifier _clusterVerifier =
-        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // Set ANY type throttling after states are stable.
     setSingleThrottlingConfig(StateTransitionThrottleConfig.RebalanceType.ANY,
@@ -233,7 +222,7 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
   @AfterMethod
   public void cleanupTest() throws InterruptedException {
     for (String db : _dbs) {
-      _setupTool.dropResourceFromCluster(CLUSTER_NAME, db);
+      _gSetupTool.dropResourceFromCluster(CLUSTER_NAME, db);
       Thread.sleep(20);
     }
     _dbs.clear();
@@ -249,7 +238,9 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
     DelayedTransition.clearThrottleRecord();
   }
 
-  @Test (dependsOnMethods = {"testResourceThrottle"})
+  @Test(dependsOnMethods = {
+      "testResourceThrottle"
+  })
   public void testResourceThrottleWithDelayRebalancer() throws Exception {
     // start a few participants
     for (int i = 0; i < NODE_NR - 2; i++) {
@@ -264,7 +255,7 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
     for (int i = 0; i < 5; i++) {
       String dbName = "TestDB-" + i;
       IdealState is =
-          _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, dbName);
+          _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, dbName);
       if (is != null) {
         System.err.println(dbName + "exists!");
         is.setReplicas(String.valueOf(replica));
@@ -273,19 +264,16 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
           is.setRebalanceDelay(delay);
         }
         is.setRebalancerClassName(DelayedAutoRebalancer.class.getName());
-        _setupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, dbName, is);
+        _gSetupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, dbName, is);
       } else {
         createResourceWithDelayedRebalance(CLUSTER_NAME, dbName, STATE_MODEL, partition, replica,
             minActiveReplica, delay);
       }
-      _setupTool.rebalanceStorageCluster(CLUSTER_NAME, dbName, _replica);
+      _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, dbName, _replica);
       _dbs.add(dbName);
     }
 
-    HelixClusterVerifier _clusterVerifier =
-        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(_clusterVerifier.verify());
-
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     DelayedTransition.setDelay(20);
     DelayedTransition.enableThrottleRecord();
@@ -295,7 +283,7 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
       _participants[i].syncStart();
     }
 
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _dbs) {
       validateThrottle(DelayedTransition.getResourcePatitionTransitionTimes(), db, 2);
@@ -362,7 +350,6 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
         "Throttle condition does not meet for " + throttledItemName);
   }
 
-
   private int size(List<PartitionTransitionTime> timeList) {
     Set<String> partitions = new HashSet<String>();
     for (PartitionTransitionTime p : timeList) {
@@ -382,7 +369,8 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
       this.end = end;
     }
 
-    @Override public String toString() {
+    @Override
+    public String toString() {
       return "[" +
           "partition='" + partition + '\'' +
           ", start=" + start +
@@ -440,14 +428,14 @@ public class TestPartitionMovementThrottle extends ZkStandAloneCMTestBase {
             new PartitionTransitionTime(message.getPartitionName(), start, end);
 
         if (!resourcePatitionTransitionTimes.containsKey(message.getResourceName())) {
-          resourcePatitionTransitionTimes
-              .put(message.getResourceName(), Collections.synchronizedList(new ArrayList<PartitionTransitionTime>()));
+          resourcePatitionTransitionTimes.put(message.getResourceName(),
+              Collections.synchronizedList(new ArrayList<PartitionTransitionTime>()));
         }
         resourcePatitionTransitionTimes.get(message.getResourceName()).add(partitionTransitionTime);
 
         if (!instancePatitionTransitionTimes.containsKey(message.getTgtName())) {
-          instancePatitionTransitionTimes
-              .put(message.getTgtName(), Collections.synchronizedList(new ArrayList<PartitionTransitionTime>()));
+          instancePatitionTransitionTimes.put(message.getTgtName(),
+              Collections.synchronizedList(new ArrayList<PartitionTransitionTime>()));
         }
         instancePatitionTransitionTimes.get(message.getTgtName()).add(partitionTransitionTime);
       }

@@ -20,9 +20,8 @@ package org.apache.helix.controller.stages;
  */
 
 import java.util.Map;
-
-import org.apache.helix.ZNRecord;
 import org.apache.helix.PropertyKey.Builder;
+import org.apache.helix.ZNRecord;
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.Message;
 import org.apache.helix.model.Partition;
@@ -79,7 +78,7 @@ public class TestCurrentStateComputationStage extends BaseStageTest {
     runStage(event, stage);
     CurrentStateOutput output2 = event.getAttribute(AttributeName.CURRENT_STATE.name());
     String pendingState =
-        output2.getPendingState("testResourceName", new Partition("testResourceName_1"),
+        output2.getPendingMessage("testResourceName", new Partition("testResourceName_1"),
             "localhost_3").getToState();
     AssertJUnit.assertEquals(pendingState, "SLAVE");
 

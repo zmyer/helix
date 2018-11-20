@@ -30,17 +30,8 @@ import javax.ws.rs.core.Application;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import org.apache.helix.ConfigAccessor;
-import org.apache.helix.HelixAdmin;
-import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
-import org.apache.helix.ZNRecord;
-import org.apache.helix.manager.zk.ZkClient;
-import org.apache.helix.rest.common.ContextPropertyKeys;
-import org.apache.helix.rest.server.ServerContext;
 import org.apache.helix.rest.server.auditlog.AuditLog;
-import org.apache.helix.task.TaskDriver;
-import org.apache.helix.tools.ClusterSetup;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
 import org.slf4j.Logger;
@@ -73,6 +64,7 @@ public class AbstractResource {
     delete,
     rebalance,
     reset,
+    resetPartitions,
     removeInstanceTag
   }
 
@@ -162,13 +154,12 @@ public class AbstractResource {
 
   protected Command getCommand(String commandStr) throws HelixException {
     if (commandStr == null) {
-      throw new HelixException("Unknown command " + commandStr);
+      throw new HelixException("Command string is null!");
     }
     try {
-      Command command = Command.valueOf(commandStr);
-      return command;
+      return Command.valueOf(commandStr);
     } catch (IllegalArgumentException ex) {
-      throw new HelixException("Unknown command " + commandStr);
+      throw new HelixException("Unknown command: " + commandStr);
     }
   }
 }

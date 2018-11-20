@@ -19,15 +19,21 @@ package org.apache.helix.controller.pipeline;
  * under the License.
  */
 
-import org.apache.helix.controller.stages.ClusterEvent;
-
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
-// TODO: 2018/6/15 by zmyer
+import org.apache.helix.common.DedupEventProcessor;
+import org.apache.helix.controller.stages.AttributeName;
+import org.apache.helix.controller.stages.ClusterEvent;
+
 public class AbstractBaseStage implements Stage {
-    @Override
-    public void init(StageContext context) {
+  protected String _eventId;
+
+  @Override
+  public void init(StageContext context) {
 
     }
 
@@ -59,9 +65,22 @@ public class AbstractBaseStage implements Stage {
         return className;
     }
 
-    public static <T> void asyncExecute(ExecutorService service, Callable<T> task) {
-        if (service != null) {
-            service.submit(task);
-        }
+  public static <T> Future asyncExecute(ExecutorService service, Callable<T> task) {
+    if (service != null) {
+      return service.submit(task);
     }
+    return null;
+  }
+
+  protected DedupEventProcessor<String, Runnable> getAsyncWorkerFromClusterEvent(ClusterEvent event,
+      AsyncWorkerType workerType) {
+    Map<AsyncWorkerType, DedupEventProcessor<String, Runnable>> workerPool =
+        event.getAttribute(AttributeName.AsyncFIFOWorkerPool.name());
+    if (workerPool != null) {
+      if (workerPool.containsKey(workerType)) {
+        return workerPool.get(workerType);
+      }
+    }
+    return null;
+  }
 }

@@ -21,7 +21,6 @@ package org.apache.helix.integration;
 
 import java.util.HashMap;
 import java.util.Map;
-
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixRollbackException;
 import org.apache.helix.NotificationContext;
@@ -43,7 +42,8 @@ import org.apache.helix.task.Task;
 import org.apache.helix.task.TaskCallbackContext;
 import org.apache.helix.task.TaskFactory;
 import org.apache.helix.task.TaskStateModelFactory;
-import org.apache.helix.tools.ClusterSetup;
+import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -53,21 +53,19 @@ import org.testng.annotations.Test;
 public class TestStateTransitionCancellation extends TaskTestBase {
   // TODO: Replace the thread sleep with synchronized condition check
   private ConfigAccessor _configAccessor;
+  private ZkHelixClusterVerifier _verifier;
 
   @BeforeClass
   public void beforeClass() throws Exception {
     _participants = new MockParticipantManager[_numNodes];
     _numDbs = 1;
-    _numParitions = 20;
+    _numPartitions = 20;
     _numNodes = 2;
     _numReplicas = 2;
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
+    _verifier =
+        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
 
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     setupParticipants();
     setupDBs();
 
@@ -93,13 +91,13 @@ public class TestStateTransitionCancellation extends TaskTestBase {
     Thread.sleep(2000);
 
     // Disable the resource
-    _setupTool.getClusterManagementTool()
+    _gSetupTool.getClusterManagementTool()
         .enableResource(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, false);
 
 
     // Wait for pipeline reaching final stage
-    Thread.sleep(2000L);
-    ExternalView externalView = _setupTool.getClusterManagementTool()
+    Assert.assertTrue(_verifier.verifyByPolling());
+    ExternalView externalView = _gSetupTool.getClusterManagementTool()
         .getResourceExternalView(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB);
     for (String partition : externalView.getPartitionSet()) {
       for (String currentState : externalView.getStateMap(partition).values()) {
@@ -117,19 +115,19 @@ public class TestStateTransitionCancellation extends TaskTestBase {
 
     // Reenable resource
     stateCleanUp();
-    _setupTool.getClusterManagementTool()
+    _gSetupTool.getClusterManagementTool()
         .enableResource(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, true);
 
     // Wait for assignment done
     Thread.sleep(2000);
 
     // Disable the resource
-    _setupTool.getClusterManagementTool()
+    _gSetupTool.getClusterManagementTool()
         .enableResource(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, false);
 
     // Wait for pipeline reaching final stage
     Thread.sleep(2000L);
-    ExternalView externalView = _setupTool.getClusterManagementTool()
+    ExternalView externalView = _gSetupTool.getClusterManagementTool()
         .getResourceExternalView(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB);
     for (String partition : externalView.getPartitionSet()) {
       Assert.assertTrue(externalView.getStateMap(partition).values().contains("SLAVE"));
@@ -146,7 +144,7 @@ public class TestStateTransitionCancellation extends TaskTestBase {
 
     // Reenable resource
     stateCleanUp();
-    _setupTool.getClusterManagementTool()
+    _gSetupTool.getClusterManagementTool()
         .enableResource(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, true);
 
     // Wait for assignment done
@@ -154,7 +152,7 @@ public class TestStateTransitionCancellation extends TaskTestBase {
     int numNodesToStart = 10;
     for (int i = 0; i < numNodesToStart; i++) {
       String storageNodeName = PARTICIPANT_PREFIX + "_" + (_startPort + _numNodes + i);
-      _setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
+      _gSetupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
     }
     MockParticipantManager[] newParticipants = new MockParticipantManager[numNodesToStart];
     registerParticipants(newParticipants, numNodesToStart, _startPort + _numNodes, 1000, -3000000L);
@@ -162,7 +160,7 @@ public class TestStateTransitionCancellation extends TaskTestBase {
     // Wait for pipeline reaching final stage
     Thread.sleep(2000L);
     int numOfMasters = 0;
-    ExternalView externalView = _setupTool.getClusterManagementTool()
+    ExternalView externalView = _gSetupTool.getClusterManagementTool()
         .getResourceExternalView(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB);
     for (String partition : externalView.getPartitionSet()) {
       if (externalView.getStateMap(partition).values().contains("MASTER")) {
@@ -176,7 +174,7 @@ public class TestStateTransitionCancellation extends TaskTestBase {
 
     // Either partial of state transitions have been cancelled or all the Slave -> Master
     // reassigned to other cluster
-    Assert.assertTrue((numOfMasters > 0 && numOfMasters <= _numParitions));
+    Assert.assertTrue((numOfMasters > 0 && numOfMasters <= _numPartitions));
   }
 
   private void stateCleanUp() {

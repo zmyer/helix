@@ -19,13 +19,19 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import com.google.common.collect.Maps;
 import org.apache.helix.AccessOption;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.controller.common.PartitionStateMap;
-import org.apache.helix.controller.pipeline.AbstractBaseStage;
+import org.apache.helix.controller.pipeline.AbstractAsyncBaseStage;
+import org.apache.helix.controller.pipeline.AsyncWorkerType;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.Partition;
@@ -33,43 +39,41 @@ import org.apache.helix.model.Resource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+public class TargetExteralViewCalcStage extends AbstractAsyncBaseStage {
+  private static final Logger LOG = LoggerFactory.getLogger(TargetExteralViewCalcStage.class);
 
-// TODO: 2018/7/25 by zmyer
-public class TargetExteralViewCalcStage extends AbstractBaseStage {
-    private static final Logger LOG = LoggerFactory.getLogger(TargetExteralViewCalcStage.class);
+  @Override
+  public AsyncWorkerType getAsyncWorkerType() {
+    return AsyncWorkerType.TargetExternalViewCalcWorker;
+  }
 
-    @Override
-    public void process(ClusterEvent event) throws Exception {
-        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-        ClusterConfig clusterConfig = cache.getClusterConfig();
-
-        if (cache.isTaskCache() || !clusterConfig.isTargetExternalViewEnabled()) {
-            return;
-        }
+  @Override
+  public void execute(final ClusterEvent event) throws Exception {
+    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    ClusterConfig clusterConfig = cache.getClusterConfig();
+    if (cache.isTaskCache() || !clusterConfig.isTargetExternalViewEnabled()) {
+      return;
+    }
 
         HelixManager helixManager = event.getAttribute(AttributeName.helixmanager.name());
         HelixDataAccessor accessor = helixManager.getHelixDataAccessor();
 
-        if (!accessor.getBaseDataAccessor()
-                .exists(accessor.keyBuilder().targetExternalViews().getPath(), AccessOption.PERSISTENT)) {
-            accessor.getBaseDataAccessor()
-                    .create(accessor.keyBuilder().targetExternalViews().getPath(), null,
-                            AccessOption.PERSISTENT);
-        }
+    BestPossibleStateOutput bestPossibleAssignments =
+        event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
 
-        BestPossibleStateOutput bestPossibleAssignments =
-                event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
+    IntermediateStateOutput intermediateAssignments =
+        event.getAttribute(AttributeName.INTERMEDIATE_STATE.name());
+    Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
 
-        IntermediateStateOutput intermediateAssignments =
-                event.getAttribute(AttributeName.INTERMEDIATE_STATE.name());
-        Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
+    if (!accessor.getBaseDataAccessor()
+        .exists(accessor.keyBuilder().targetExternalViews().getPath(), AccessOption.PERSISTENT)) {
+      accessor.getBaseDataAccessor()
+          .create(accessor.keyBuilder().targetExternalViews().getPath(), null,
+              AccessOption.PERSISTENT);
+    }
 
-        List<PropertyKey> keys = new ArrayList<>();
-        List<ExternalView> targetExternalViews = new ArrayList<>();
+    List<PropertyKey> keys = new ArrayList<>();
+    List<ExternalView> targetExternalViews = new ArrayList<>();
 
         for (String resourceName : bestPossibleAssignments.resourceSet()) {
             if (cache.getIdealState(resourceName) == null || cache.getIdealState(resourceName)
@@ -108,22 +112,24 @@ public class TargetExteralViewCalcStage extends AbstractBaseStage {
                     needPersist = true;
                 }
 
-                if (needPersist) {
-                    keys.add(accessor.keyBuilder().targetExternalView(resourceName));
-                    targetExternalViews.add(targetExternalView);
-                    cache.updateTargetExternalView(resourceName, targetExternalView);
-                }
-            }
+        if (needPersist) {
+          keys.add(accessor.keyBuilder().targetExternalView(resourceName));
+          targetExternalViews.add(targetExternalView);
+          cache.updateTargetExternalView(resourceName, targetExternalView);
         }
-        accessor.setChildren(keys, targetExternalViews);
+      }
     }
+    // TODO (HELIX-964): remove TEV when idealstate is removed
+    accessor.setChildren(keys, targetExternalViews);
+  }
 
-    private Map<String, Map<String, String>> convertToMapFields(
-            Map<Partition, Map<String, String>> partitionMapMap) {
-        Map<String, Map<String, String>> mapFields = Maps.newHashMap();
-        for (Partition p : partitionMapMap.keySet()) {
-            mapFields.put(p.getPartitionName(), new HashMap<>(partitionMapMap.get(p)));
-        }
-        return mapFields;
+  private Map<String, Map<String, String>> convertToMapFields(
+      Map<Partition, Map<String, String>> partitionMapMap) {
+    Map<String, Map<String, String>> mapFields = Maps.newHashMap();
+    for (Partition p : partitionMapMap.keySet()) {
+      mapFields.put(p.getPartitionName(), new HashMap<>(partitionMapMap.get(p)));
     }
+    return mapFields;
+  }
+
 }

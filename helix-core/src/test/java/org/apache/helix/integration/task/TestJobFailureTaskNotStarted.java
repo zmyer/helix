@@ -47,17 +47,13 @@ import org.apache.helix.task.TaskStateModelFactory;
 import org.apache.helix.task.TaskSynchronizedTestBase;
 import org.apache.helix.task.TaskUtil;
 import org.apache.helix.task.Workflow;
-import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 
 public class TestJobFailureTaskNotStarted extends TaskSynchronizedTestBase {
-
-  private ClusterControllerManager _controller;
   private static final String DB_NAME = WorkflowGenerator.DEFAULT_TGT_DB;
   private static final String UNBALANCED_DB_NAME = "UnbalancedDB";
   private MockParticipantManager _blockedParticipant;
@@ -68,16 +64,10 @@ public class TestJobFailureTaskNotStarted extends TaskSynchronizedTestBase {
     _participants =  new MockParticipantManager[_numNodes];
     _numDbs = 1;
     _numNodes = 2;
-    _numParitions = 2;
+    _numPartitions = 2;
     _numReplicas = 1;
 
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     setupParticipants();
     setupDBs();
     startParticipantsWithStuckTaskStateModelFactory();
@@ -90,6 +80,8 @@ public class TestJobFailureTaskNotStarted extends TaskSynchronizedTestBase {
     ClusterConfig clusterConfig = _configAccessor.getClusterConfig(CLUSTER_NAME);
     clusterConfig.stateTransitionCancelEnabled(true);
     _configAccessor.setClusterConfig(CLUSTER_NAME, clusterConfig);
+
+    _clusterVerifier = new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
   }
 
   protected void startParticipantsWithStuckTaskStateModelFactory() {
@@ -101,7 +93,7 @@ public class TestJobFailureTaskNotStarted extends TaskSynchronizedTestBase {
       }
     });
 
-    List<String> instances = _setupTool.getClusterManagementTool().getInstancesInCluster(CLUSTER_NAME);
+    List<String> instances = _gSetupTool.getClusterManagementTool().getInstancesInCluster(CLUSTER_NAME);
 
     _participants[0] = new MockParticipantManager(ZK_ADDR, CLUSTER_NAME, instances.get(0));
     StateMachineEngine stateMachine = _participants[0].getStateMachineEngine();
@@ -166,11 +158,16 @@ public class TestJobFailureTaskNotStarted extends TaskSynchronizedTestBase {
         TaskState.FAILED);
     _driver.pollForWorkflowState(FAIL_WORKFLOW_NAME, TaskState.FAILED);
 
-    JobContext jobContext = _driver.getJobContext(TaskUtil.getNamespacedJobName(FAIL_WORKFLOW_NAME, FAIL_JOB_NAME));
+    JobContext jobContext =
+        _driver.getJobContext(TaskUtil.getNamespacedJobName(FAIL_WORKFLOW_NAME, FAIL_JOB_NAME));
     for (int pId : jobContext.getPartitionSet()) {
+      String assignedParticipant = jobContext.getAssignedParticipant(pId);
+      if (assignedParticipant == null) {
+        continue; // May not have been assigned at all due to quota limitations
+      }
       if (jobContext.getAssignedParticipant(pId).equals(_blockedParticipant.getInstanceName())) {
         Assert.assertEquals(jobContext.getPartitionState(pId), TaskPartitionState.TASK_ABORTED);
-      } else if (jobContext.getAssignedParticipant(pId).equals(_normalParticipant.getInstanceName())) {
+      } else if (assignedParticipant.equals(_normalParticipant.getInstanceName())) {
         Assert.assertEquals(jobContext.getPartitionState(pId), TaskPartitionState.TASK_ERROR);
       } else {
         throw new HelixException("There should be only 2 instances, 1 blocked, 1 normal.");
@@ -180,12 +177,12 @@ public class TestJobFailureTaskNotStarted extends TaskSynchronizedTestBase {
 
   private void setupUnbalancedDB() throws InterruptedException {
     // Start with Full-Auto mode to create the partitions, Semi-Auto won't create partitions.
-    _setupTool.addResourceToCluster(CLUSTER_NAME, UNBALANCED_DB_NAME, 50, MASTER_SLAVE_STATE_MODEL,
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, UNBALANCED_DB_NAME, 50, MASTER_SLAVE_STATE_MODEL,
         IdealState.RebalanceMode.FULL_AUTO.toString());
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, UNBALANCED_DB_NAME, 1);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, UNBALANCED_DB_NAME, 1);
 
     // Set preference list to put all partitions to one instance.
-    IdealState idealState = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME,
+    IdealState idealState = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME,
         UNBALANCED_DB_NAME);
     Set<String> partitions = idealState.getPartitionSet();
     for (String partition : partitions) {
@@ -193,10 +190,8 @@ public class TestJobFailureTaskNotStarted extends TaskSynchronizedTestBase {
     }
     idealState.setRebalanceMode(IdealState.RebalanceMode.SEMI_AUTO);
 
-    _setupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, UNBALANCED_DB_NAME, idealState);
+    _gSetupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, UNBALANCED_DB_NAME, idealState);
 
-    HelixClusterVerifier clusterVerifier =
-        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkClient(_gZkClient).build();
-    Assert.assertTrue(clusterVerifier.verify(10000));
+    Assert.assertTrue(_clusterVerifier.verifyByPolling(10000, 100));
   }
 }

@@ -19,6 +19,9 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
+import java.util.Map;
+
+import org.apache.helix.controller.LogUtil;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
 import org.apache.helix.model.IdealState;
@@ -33,50 +36,52 @@ import java.util.Map;
 public class ResourceValidationStage extends AbstractBaseStage {
     private static final Logger LOG = LoggerFactory.getLogger(ResourceValidationStage.class);
 
-    // TODO: 2018/7/25 by zmyer
-    @Override
-    public void process(final ClusterEvent event) throws Exception {
-        final ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-        if (cache == null) {
-            throw new StageException("Missing attributes in event:" + event + ". Requires DataCache");
-        }
-        final Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
-        if (resourceMap == null) {
-            throw new StageException("Resources must be computed prior to validation!");
-        }
-        final  Map<String, IdealState> idealStateMap = cache.getIdealStates();
-        final Map<String, Map<String, String>> idealStateRuleMap = cache.getIdealStateRules();
-
-        for (final String resourceName : idealStateMap.keySet()) {
-            // check every ideal state against the ideal state rules
-            // the pipeline should not process any resources that have an unsupported ideal state
-            final IdealState idealState = idealStateMap.get(resourceName);
-            if (!idealStateRuleMap.isEmpty()) {
-                boolean hasMatchingRule = false;
-                for (final String ruleName : idealStateRuleMap.keySet()) {
-                    final Map<String, String> rule = idealStateRuleMap.get(ruleName);
-                    final boolean matches = idealStateMatchesRule(idealState, rule);
-                    hasMatchingRule = hasMatchingRule || matches;
-                    if (matches) {
-                        break;
-                    }
-                }
-                if (!hasMatchingRule) {
-                    LOG.warn("Resource " + resourceName + " does not have a valid ideal state!");
-                    resourceMap.remove(resourceName);
-                }
-            }
-
-            // check that every resource to process has a live state model definition
-            final String stateModelDefRef = idealState.getStateModelDefRef();
-            final StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefRef);
-            if (stateModelDef == null) {
-                LOG.warn("Resource " + resourceName + " uses state model " + stateModelDefRef
-                        + ", but it is not on the cluster!");
-                resourceMap.remove(resourceName);
-            }
-        }
+  @Override
+  public void process(ClusterEvent event) throws Exception {
+    _eventId = event.getEventId();
+    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    if (cache == null) {
+      throw new StageException("Missing attributes in event:" + event + ". Requires DataCache");
     }
+    Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
+    if (resourceMap == null) {
+      throw new StageException("Resources must be computed prior to validation!");
+    }
+    Map<String, IdealState> idealStateMap = cache.getIdealStates();
+    Map<String, Map<String, String>> idealStateRuleMap = cache.getIdealStateRules();
+
+    for (String resourceName : idealStateMap.keySet()) {
+      // check every ideal state against the ideal state rules
+      // the pipeline should not process any resources that have an unsupported ideal state
+      IdealState idealState = idealStateMap.get(resourceName);
+      if (!idealStateRuleMap.isEmpty()) {
+        boolean hasMatchingRule = false;
+        for (String ruleName : idealStateRuleMap.keySet()) {
+          Map<String, String> rule = idealStateRuleMap.get(ruleName);
+          boolean matches = idealStateMatchesRule(idealState, rule);
+          hasMatchingRule = hasMatchingRule || matches;
+          if (matches) {
+            break;
+          }
+        }
+        if (!hasMatchingRule) {
+          LogUtil.logWarn(LOG, _eventId,
+              "Resource " + resourceName + " does not have a valid ideal state!");
+          resourceMap.remove(resourceName);
+        }
+      }
+
+      // check that every resource to process has a live state model definition
+      String stateModelDefRef = idealState.getStateModelDefRef();
+      StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefRef);
+      if (stateModelDef == null) {
+        LogUtil.logWarn(LOG, _eventId,
+            "Resource " + resourceName + " uses state model " + stateModelDefRef
+                + ", but it is not on the cluster!");
+        resourceMap.remove(resourceName);
+      }
+    }
+  }
 
     /**
      * Check if the ideal state adheres to a rule

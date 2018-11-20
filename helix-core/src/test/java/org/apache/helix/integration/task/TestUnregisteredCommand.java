@@ -19,8 +19,6 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
-import java.util.Map;
-
 import org.apache.helix.TestHelper;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.TaskPartitionState;
@@ -39,7 +37,8 @@ public class TestUnregisteredCommand extends TaskTestBase {
     super.beforeClass();
   }
 
-  @Test public void testUnregisteredCommand() throws InterruptedException {
+  @Test
+  public void testUnregisteredCommand() throws InterruptedException {
     String workflowName = TestHelper.getTestMethodName();
     Workflow.Builder builder = new Workflow.Builder(workflowName);
 

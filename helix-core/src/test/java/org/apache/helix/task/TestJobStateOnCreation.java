@@ -29,7 +29,6 @@ import org.apache.helix.integration.task.WorkflowGenerator;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.Resource;
 import org.apache.helix.model.ResourceAssignment;
-import org.apache.helix.tools.ClusterSetup;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -50,12 +49,8 @@ public class TestJobStateOnCreation extends TaskSynchronizedTestBase {
     _resource = new Resource(WORKFLOW_NAME);
     _currStateOutput = new CurrentStateOutput();
     _participants =  new MockParticipantManager[_numNodes];
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     createManagers();
   }
 

@@ -20,6 +20,11 @@ package org.apache.helix.model;
  */
 
 import com.google.common.collect.Maps;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.apache.helix.HelixProperty;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.api.config.HelixConfigProperty;
@@ -37,55 +42,71 @@ import java.util.Map;
  */
 // TODO: 2018/7/25 by zmyer
 public class ClusterConfig extends HelixProperty {
-    /**
-     * Configurable characteristics of a cluster.
-     *
-     * NOTE: Do NOT use this field name directly, use its corresponding getter/setter in the ClusterConfig.
-     */
-    public enum ClusterConfigProperty {
-        HELIX_DISABLE_PIPELINE_TRIGGERS,
-        PERSIST_BEST_POSSIBLE_ASSIGNMENT,
-        PERSIST_INTERMEDIATE_ASSIGNMENT,
-        TOPOLOGY,
-        // cluster topology definition, for example, "/zone/rack/host/instance"
-        FAULT_ZONE_TYPE,
-        // the type in which isolation should be applied on when Helix places the replicas from same partition.
-        TOPOLOGY_AWARE_ENABLED,
-        // whether topology aware rebalance is enabled.
-        @Deprecated
-        DELAY_REBALANCE_DISABLED,
-        // disabled the delayed rebalaning in case node goes offline.
-        DELAY_REBALANCE_ENABLED,
-        // whether the delayed rebalaning is enabled.
-        DELAY_REBALANCE_TIME,
-        // delayed time in ms that the delay time Helix should hold until rebalancing.
-        STATE_TRANSITION_THROTTLE_CONFIGS,
-        STATE_TRANSITION_CANCELLATION_ENABLED,
-        MISS_TOP_STATE_DURATION_THRESHOLD,
-        RESOURCE_PRIORITY_FIELD,
-        REBALANCE_TIMER_PERIOD,
-        MAX_CONCURRENT_TASK_PER_INSTANCE,
-        MAX_PARTITIONS_PER_INSTANCE,
-        MAX_OFFLINE_INSTANCES_ALLOWED,
-        TARGET_EXTERNALVIEW_ENABLED,
-        ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE,
-        // Controller won't execute load balance state transition if the number of partitons that need recovery exceeds this limitation
-        DISABLED_INSTANCES
-    }
+  /**
+   * Configurable characteristics of a cluster.
+   * NOTE: Do NOT use this field name directly, use its corresponding getter/setter in the
+   * ClusterConfig.
+   */
+  public enum ClusterConfigProperty {
+    HELIX_DISABLE_PIPELINE_TRIGGERS,
+    PERSIST_BEST_POSSIBLE_ASSIGNMENT,
+    PERSIST_INTERMEDIATE_ASSIGNMENT,
+    TOPOLOGY, // cluster topology definition, for example, "/zone/rack/host/instance"
+    FAULT_ZONE_TYPE, // the type in which isolation should be applied on when Helix places the
+    // replicas from same partition.
+    TOPOLOGY_AWARE_ENABLED, // whether topology aware rebalance is enabled.
+    @Deprecated
+    DELAY_REBALANCE_DISABLED, // disabled the delayed rebalaning in case node goes offline.
+    DELAY_REBALANCE_ENABLED, // whether the delayed rebalaning is enabled.
+    DELAY_REBALANCE_TIME, // delayed time in ms that the delay time Helix should hold until
+    // rebalancing.
+    STATE_TRANSITION_THROTTLE_CONFIGS,
+    STATE_TRANSITION_CANCELLATION_ENABLED,
+    MISS_TOP_STATE_DURATION_THRESHOLD,
+    RESOURCE_PRIORITY_FIELD,
+    REBALANCE_TIMER_PERIOD,
+    MAX_CONCURRENT_TASK_PER_INSTANCE,
+    MAX_PARTITIONS_PER_INSTANCE,
+    MAX_OFFLINE_INSTANCES_ALLOWED,
+    TARGET_EXTERNALVIEW_ENABLED,
+    @Deprecated // ERROR_OR_RECOVERY_PARTITION_THRESHOLD_FOR_LOAD_BALANCE will take
+        // precedence if it is set
+        ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE, // Controller won't execute load balance state
+    // transition if the number of partitons that need
+    // recovery exceeds this limitation
+    ERROR_OR_RECOVERY_PARTITION_THRESHOLD_FOR_LOAD_BALANCE, // Controller won't execute load balance
+    // state transition if the number of
+    // partitons that need recovery or in
+    // error exceeds this limitation
+    DISABLED_INSTANCES,
+    VIEW_CLUSTER, // Set to "true" to indicate this is a view cluster
+    VIEW_CLUSTER_SOURCES, // Map field, key is the name of source cluster, value is
+    // ViewClusterSourceConfig JSON string
+    VIEW_CLUSTER_REFRESH_PERIOD, // In second
 
-    private final static int DEFAULT_MAX_CONCURRENT_TASK_PER_INSTANCE = 40;
-    private final static int DEFAULT_ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE = 0;
-    // By default, no load balance if any error partition
-    private static final String IDEAL_STATE_RULE_PREFIX = "IdealStateRule!";
+    // Specifies job types and used for quota allocation
+    QUOTA_TYPES
+  }
 
-    /**
-     * Instantiate for a specific cluster
-     *
-     * @param cluster the cluster identifier
-     */
-    public ClusterConfig(String cluster) {
-        super(cluster);
-    }
+  private final static int DEFAULT_MAX_CONCURRENT_TASK_PER_INSTANCE = 40;
+  // By default, no load balance if any error partition
+  @Deprecated
+  private final static int DEFAULT_ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE = 0;
+  // By default, no load balance if any error or recovery partition. -1 implies that the threshold
+  // is not set and will be given a default value of 1
+  private final static int DEFAULT_ERROR_OR_RECOVERY_PARTITION_THRESHOLD_FOR_LOAD_BALANCE = -1;
+  private static final String IDEAL_STATE_RULE_PREFIX = "IdealStateRule!";
+  private final static int DEFAULT_VIEW_CLUSTER_REFRESH_PERIOD = 30;
+
+  public final static String TASK_QUOTA_RATIO_NOT_SET = "-1";
+
+  /**
+   * Instantiate for a specific cluster
+   * @param cluster the cluster identifier
+   */
+  public ClusterConfig(String cluster) {
+    super(cluster);
+  }
 
     /**
      * Instantiate with a pre-populated record
@@ -96,15 +117,111 @@ public class ClusterConfig extends HelixProperty {
         super(record);
     }
 
-    /**
-     * Whether to persist best possible assignment in a resource's idealstate.
-     *
-     * @return
-     */
-    public Boolean isPersistBestPossibleAssignment() {
-        return _record
-                .getBooleanField(ClusterConfigProperty.PERSIST_BEST_POSSIBLE_ASSIGNMENT.toString(), false);
+  public void setViewCluster() {
+    _record.setBooleanField(ClusterConfigProperty.VIEW_CLUSTER.name(), true);
+  }
+
+  /**
+   * Whether this cluster is a ViewCluster
+   * @return
+   */
+  public boolean isViewCluster() {
+    return _record
+        .getBooleanField(ClusterConfigProperty.VIEW_CLUSTER.name(), false);
+  }
+
+  /**
+   * Set task quota type with the ratio of this quota.
+   * @param quotaType String
+   * @param quotaRatio int
+   */
+  public void setTaskQuotaRatio(String quotaType, int quotaRatio) {
+    if (_record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()) == null) {
+      _record.setMapField(ClusterConfigProperty.QUOTA_TYPES.name(), new HashMap<String, String>());
     }
+    _record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name())
+        .put(quotaType, Integer.toString(quotaRatio));
+  }
+
+  /**
+   * Set task quota type with the ratio of this quota. Quota ratio must be a String that is
+   * parse-able into an int.
+   * @param quotaType String
+   * @param quotaRatio String
+   */
+  public void setTaskQuotaRatio(String quotaType, String quotaRatio) {
+    if (_record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()) == null) {
+      _record.setMapField(ClusterConfigProperty.QUOTA_TYPES.name(), new HashMap<String, String>());
+    }
+    _record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name())
+        .put(quotaType, quotaRatio);
+  }
+
+  /**
+   * Remove task quota with the given quota type.
+   * @param quotaType
+   */
+  public void removeTaskQuotaRatio(String quotaType) {
+    if (_record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()) != null) {
+      _record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()).remove(quotaType);
+    }
+  }
+
+  /**
+   * Given quota type, return ratio of the quota. If quota type does not exist, return "0"
+   * @param quotaType quota type
+   * @return ratio of quota type
+   */
+  public String getTaskQuotaRatio(String quotaType) {
+    if (_record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()) == null
+        || _record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()).get(quotaType) == null) {
+      return TASK_QUOTA_RATIO_NOT_SET;
+    }
+
+    return _record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()).get(quotaType);
+  }
+
+  /**
+   * Get all task quota and their ratios
+   *
+   * @return a task quota -> quota ratio mapping
+   */
+  public Map<String, String> getTaskQuotaRatioMap() {
+    return _record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name());
+  }
+
+  /**
+   * Resets all quota-related information in this ClusterConfig.
+   */
+  public void resetTaskQuotaRatioMap() {
+    if (_record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()) != null) {
+      _record.getMapField(ClusterConfigProperty.QUOTA_TYPES.name()).clear();
+    }
+  }
+
+  /**
+   * Set view cluster max refresh period
+   * @param refreshPeriod refresh period in second
+   */
+  public void setViewClusterRefreshPeriod(int refreshPeriod) {
+    _record.setIntField(ClusterConfigProperty.VIEW_CLUSTER_REFRESH_PERIOD.name(),
+        refreshPeriod);
+  }
+
+  public int getViewClusterRefershPeriod() {
+    return _record.getIntField(ClusterConfigProperty.VIEW_CLUSTER_REFRESH_PERIOD.name(),
+        DEFAULT_VIEW_CLUSTER_REFRESH_PERIOD);
+  }
+
+  /**
+   * Whether to persist best possible assignment in a resource's idealstate.
+   *
+   * @return
+   */
+  public Boolean isPersistBestPossibleAssignment() {
+    return _record
+        .getBooleanField(ClusterConfigProperty.PERSIST_BEST_POSSIBLE_ASSIGNMENT.toString(), false);
+  }
 
     /**
      * Enable/Disable persist best possible assignment in a resource's idealstate.
@@ -467,33 +584,61 @@ public class ClusterConfig extends HelixProperty {
                 maxConcurrentTaskPerInstance);
     }
 
-    /**
-     * Get maximum allowed error partitions for a resource to be load balanced.
-     * If limitation is set to negative number, Helix won't check error partition count before schedule load balance.
-     * @return the maximum allowed error partition count
-     */
-    public int getErrorPartitionThresholdForLoadBalance() {
-        return _record.getIntField(ClusterConfigProperty.ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE.name(),
-                DEFAULT_ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE);
-    }
+  /**
+   * Get maximum allowed error partitions for a resource to be load balanced.
+   * If limitation is set to negative number, Helix won't check error partition count before
+   * schedule load balance.
+   * @return the maximum allowed error partition count
+   */
+  public int getErrorPartitionThresholdForLoadBalance() {
+    return _record.getIntField(
+        ClusterConfigProperty.ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE.name(),
+        DEFAULT_ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE);
+  }
 
-    /**
-     * Set maximum allowed error partitions for a resource to be load balanced.
-     * If limitation is set to negative number, Helix won't check error partition count before schedule load balance.
-     * @param errorPartitionThreshold the maximum allowed error partition count
-     */
-    public void setErrorPartitionThresholdForLoadBalance(int errorPartitionThreshold) {
-        _record.setIntField(ClusterConfigProperty.ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE.name(),
-                errorPartitionThreshold);
-    }
+  /**
+   * Set maximum allowed error partitions for a resource to be load balanced.
+   * If limitation is set to negative number, Helix won't check error partition count before
+   * schedule load balance.
+   * @param errorPartitionThreshold the maximum allowed error partition count
+   */
+  public void setErrorPartitionThresholdForLoadBalance(int errorPartitionThreshold) {
+    _record.setIntField(ClusterConfigProperty.ERROR_PARTITION_THRESHOLD_FOR_LOAD_BALANCE.name(),
+        errorPartitionThreshold);
+  }
 
-    /**
-     * Set the disabled instance list
-     * @param disabledInstances
-     */
-    public void setDisabledInstances(Map<String, String> disabledInstances) {
-        _record.setMapField(ClusterConfigProperty.DISABLED_INSTANCES.name(), disabledInstances);
-    }
+  /**
+   * Get the threshold for the number of partitions needing recovery or in error. Default value is set at
+   * Integer.MAX_VALUE to allow recovery rebalance and load rebalance to happen in the same pipeline
+   * cycle. If the number of partitions needing recovery is greater than this threshold, recovery
+   * balance will take precedence and load balance will not happen during this cycle.
+   * @return the threshold
+   */
+  public int getErrorOrRecoveryPartitionThresholdForLoadBalance() {
+    return _record.getIntField(
+        ClusterConfigProperty.ERROR_OR_RECOVERY_PARTITION_THRESHOLD_FOR_LOAD_BALANCE.name(),
+        DEFAULT_ERROR_OR_RECOVERY_PARTITION_THRESHOLD_FOR_LOAD_BALANCE);
+  }
+
+  /**
+   * Set the threshold for the number of partitions needing recovery or in error. Default value is set at
+   * Integer.MAX_VALUE to allow recovery rebalance and load rebalance to happen in the same pipeline
+   * cycle. If the number of partitions needing recovery is greater than this threshold, recovery
+   * balance will take precedence and load balance will not happen during this cycle.
+   * @param recoveryPartitionThreshold
+   */
+  public void setErrorOrRecoveryPartitionThresholdForLoadBalance(int recoveryPartitionThreshold) {
+    _record.setIntField(ClusterConfigProperty.ERROR_OR_RECOVERY_PARTITION_THRESHOLD_FOR_LOAD_BALANCE.name(),
+        recoveryPartitionThreshold);
+  }
+
+  /**
+   * Set the disabled instance list
+   * @param disabledInstances
+   */
+  public void setDisabledInstances(Map<String, String> disabledInstances) {
+    _record.setMapField(ClusterConfigProperty.DISABLED_INSTANCES.name(), disabledInstances);
+  }
 
     /**
      * Get current disabled instance map of <instance, disabledTimeStamp>
@@ -533,22 +678,22 @@ public class ClusterConfig extends HelixProperty {
     public Map<String, Map<String, String>> getIdealStateRules() {
         Map<String, Map<String, String>> idealStateRuleMap = new HashMap<>();
 
-        for (String simpleKey : getRecord().getSimpleFields().keySet()) {
-            if (simpleKey.startsWith(IDEAL_STATE_RULE_PREFIX)) {
-                String simpleValue = getRecord().getSimpleField(simpleKey);
-                String[] rules = simpleValue.split("(?<!\\\\),");
-                Map<String, String> singleRule = Maps.newHashMap();
-                for (String rule : rules) {
-                    String[] keyValue = rule.split("(?<!\\\\)=");
-                    if (keyValue.length >= 2) {
-                        singleRule.put(keyValue[0], keyValue[1]);
-                    }
-                }
-                idealStateRuleMap.put(simpleKey, singleRule);
-            }
+    for (String simpleKey : getRecord().getSimpleFields().keySet()) {
+      if (simpleKey.startsWith(IDEAL_STATE_RULE_PREFIX)) {
+        String simpleValue = getRecord().getSimpleField(simpleKey);
+        String[] rules = simpleValue.split("(?<!\\\\),");
+        Map<String, String> singleRule = Maps.newHashMap();
+        for (String rule : rules) {
+          String[] keyValue = rule.split("(?<!\\\\)=");
+          if (keyValue.length >= 2) {
+            singleRule.put(keyValue[0], keyValue[1]);
+          }
         }
-        return idealStateRuleMap;
+        idealStateRuleMap.put(simpleKey, singleRule);
+      }
     }
+    return idealStateRuleMap;
+  }
 
     @Override
     public int hashCode() {
@@ -564,4 +709,3 @@ public class ClusterConfig extends HelixProperty {
         return _record.getId();
     }
 }
-

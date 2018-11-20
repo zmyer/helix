@@ -3,15 +3,15 @@ package org.apache.helix.integration;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import org.I0Itec.zkclient.serialize.BytesPushThroughSerializer;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.TestHelper;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.manager.zk.client.SharedZkClientFactory;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.builder.CustomModeISBuilder;
 import org.apache.helix.tools.ClusterStateVerifier;
@@ -43,7 +43,7 @@ import org.testng.annotations.Test;
  * Compression can be enabled for a specific resource by setting enableCompression=true in the
  * idealstate of the resource. Generally this is used when the number of partitions is large
  */
-public class TestEnableCompression extends ZkIntegrationTestBase {
+public class TestEnableCompression extends ZkTestBase {
   @Test()
   public void testEnableCompressionResource() throws Exception {
     // Logger.getRootLogger().setLevel(Level.INFO);
@@ -87,9 +87,11 @@ public class TestEnableCompression extends ZkIntegrationTestBase {
     idealstate.getRecord().setBooleanField("enableCompression", true);
     _gSetupTool.getClusterManagementTool().addResource(clusterName, resourceName, idealstate);
 
-    ZkClient zkClient =
-        new ZkClient(ZK_ADDR, 60 * 1000, 60 * 1000, new BytesPushThroughSerializer());
-    zkClient.waitUntilConnected(10, TimeUnit.SECONDS);
+    HelixZkClient.ZkClientConfig clientConfig = new HelixZkClient.ZkClientConfig();
+    clientConfig.setZkSerializer(new BytesPushThroughSerializer())
+        .setOperationRetryTimeout((long) (60 * 1000)).setConnectInitTimeout(60 * 1000);
+    HelixZkClient zkClient = SharedZkClientFactory.getInstance()
+        .buildZkClient(new HelixZkClient.ZkConnectionConfig(ZK_ADDR), clientConfig);
 
     ClusterControllerManager controller =
         new ClusterControllerManager(ZK_ADDR, clusterName, "controller_0");
@@ -127,7 +129,7 @@ public class TestEnableCompression extends ZkIntegrationTestBase {
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  private void findCompressedZNodes(ZkClient zkClient, String path, List<String> compressedPaths) {
+  private void findCompressedZNodes(HelixZkClient zkClient, String path, List<String> compressedPaths) {
     List<String> children = zkClient.getChildren(path);
     if (children != null && children.size() > 0) {
       for (String child : children) {

@@ -19,9 +19,19 @@ package org.apache.helix.integration;
  * under the License.
  */
 
-import org.apache.helix.*;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.apache.helix.HelixDataAccessor;
+import org.apache.helix.NotificationContext;
+import org.apache.helix.PropertyKey;
+import org.apache.helix.TestHelper;
+import org.apache.helix.ZNRecord;
 import org.apache.helix.api.config.StateTransitionThrottleConfig;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
@@ -36,9 +46,7 @@ import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import java.util.*;
-
-public class TestStateTransitionThrottle extends ZkIntegrationTestBase {
+public class TestStateTransitionThrottle extends ZkTestBase {
   int participantCount = 4;
   String resourceName = "TestDB0";
   String resourceNamePrefix = "TestDB";
@@ -87,22 +95,22 @@ public class TestStateTransitionThrottle extends ZkIntegrationTestBase {
         "localhost_" + (12918 + participantCount - 1));
     participants[participantCount - 1].syncStart();
 
-    // Load balance transition won't be scheduled since there is pending recovery balance transition
-    Assert.assertFalse(
-        pollForPartitionAssignment(accessor, participants[participantCount - 1], resourceName,
-            5000));
+    // Load balance transition (downward) will be scheduled even though there is pending recovery
+    // balance transition
+    Assert.assertTrue(pollForPartitionAssignment(accessor, participants[participantCount - 1],
+        resourceName, 5000));
 
     // Stop participant, so blocking transition is removed.
     participants[0].syncStop();
-    Assert.assertTrue(
-        pollForPartitionAssignment(accessor, participants[participantCount - 1], resourceName,
-            5000));
+    Assert.assertTrue(pollForPartitionAssignment(accessor, participants[participantCount - 1],
+        resourceName, 5000));
 
     // clean up
     controller.syncStop();
     for (int i = 0; i < participantCount; i++) {
       participants[i].syncStop();
     }
+    deleteCluster(clusterName);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -158,26 +166,26 @@ public class TestStateTransitionThrottle extends ZkIntegrationTestBase {
     participants[participantCount - 1] = new MockParticipantManager(ZK_ADDR, clusterName,
         "localhost_" + (12918 + participantCount - 1));
     participants[participantCount - 1].syncStart();
-    // Since error partition exists, no load balance transition will be done
-    Assert.assertFalse(
-        pollForPartitionAssignment(accessor, participants[participantCount - 1], resourceName,
-            5000));
+    // Even though there is an error partition, downward load balance will take place
+    Assert.assertTrue(pollForPartitionAssignment(accessor, participants[participantCount - 1],
+        resourceName, 5000));
 
     // Update cluster config to tolerate error partition, so load balance transition will be done
     clusterConfig = accessor.getProperty(accessor.keyBuilder().clusterConfig());
     clusterConfig.setErrorPartitionThresholdForLoadBalance(1);
     accessor.setProperty(keyBuilder.clusterConfig(), clusterConfig);
+
     _gSetupTool.rebalanceResource(clusterName, resourceName, 3);
 
-    Assert.assertTrue(
-        pollForPartitionAssignment(accessor, participants[participantCount - 1], resourceName,
-            3000));
+    Assert.assertTrue(pollForPartitionAssignment(accessor, participants[participantCount - 1],
+        resourceName, 3000));
 
     // clean up
     controller.syncStop();
     for (int i = 0; i < participantCount; i++) {
       participants[i].syncStop();
     }
+    deleteCluster(clusterName);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -214,8 +222,8 @@ public class TestStateTransitionThrottle extends ZkIntegrationTestBase {
       @Override
       public boolean verify() throws Exception {
         PropertyKey.Builder keyBuilder = accessor.keyBuilder();
-        PropertyKey partitionStatusKey = keyBuilder
-            .currentState(participant.getInstanceName(), participant.getSessionId(), resourceName);
+        PropertyKey partitionStatusKey = keyBuilder.currentState(participant.getInstanceName(),
+            participant.getSessionId(), resourceName);
         CurrentState currentState = accessor.getProperty(partitionStatusKey);
         return currentState != null && !currentState.getPartitionStateMap().isEmpty();
       }

@@ -19,6 +19,8 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 import org.apache.helix.TestHelper;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
@@ -31,32 +33,21 @@ import org.apache.helix.task.TaskSynchronizedTestBase;
 import org.apache.helix.task.TaskUtil;
 import org.apache.helix.task.Workflow;
 import org.apache.helix.task.WorkflowConfig;
-import org.apache.helix.tools.ClusterSetup;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Sets;
-
 public final class TestJobTimeout extends TaskSynchronizedTestBase {
-
-  private ClusterControllerManager _controller;
 
   @BeforeClass
   public void beforeClass() throws Exception {
     _numNodes = 2;
-    _numParitions = 2;
+    _numPartitions = 2;
     _numReplicas = 1; // only Master, no Slave
     _numDbs = 1;
     _participants =  new MockParticipantManager[_numNodes];
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
 
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     setupParticipants();
     setupDBs();
     startParticipants();

@@ -20,13 +20,11 @@ package org.apache.helix.util;
  */
 
 import java.util.Date;
-
 import org.I0Itec.zkclient.ZkServer;
 import org.I0Itec.zkclient.exception.ZkNoNodeException;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.manager.zk.ZkClient;
-import org.apache.helix.util.ZKClientPool;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -37,7 +35,7 @@ public class TestZKClientPool {
     String testName = "TestZKClientPool";
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String zkAddr = "localhost:2189";
+    String zkAddr = "localhost:21891";
     ZkServer zkServer = TestHelper.startZkServer(zkAddr);
     ZkClient zkClient = ZKClientPool.getZkClient(zkAddr);
 

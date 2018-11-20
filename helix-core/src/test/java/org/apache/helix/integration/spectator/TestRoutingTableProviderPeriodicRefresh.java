@@ -10,7 +10,7 @@ import org.apache.helix.HelixManagerFactory;
 import org.apache.helix.InstanceType;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.PropertyType;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
@@ -20,14 +20,14 @@ import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.spectator.RoutingTableProvider;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-public class TestRoutingTableProviderPeriodicRefresh extends ZkIntegrationTestBase {
+public class TestRoutingTableProviderPeriodicRefresh extends ZkTestBase {
   private static final org.slf4j.Logger logger = LoggerFactory.getLogger(TestRoutingTableProviderPeriodicRefresh.class);
 
   private static final String STATE_MODEL = BuiltInStateModelDefinitions.MasterSlave.name();
@@ -46,7 +46,7 @@ public class TestRoutingTableProviderPeriodicRefresh extends ZkIntegrationTestBa
   private List<MockParticipantManager> _participants = new ArrayList<>();
   private List<String> _instances = new ArrayList<>();
   private ClusterControllerManager _controller;
-  private HelixClusterVerifier _clusterVerifier;
+  private ZkHelixClusterVerifier _clusterVerifier;
   private MockRoutingTableProvider _routingTableProvider;
   private MockRoutingTableProvider _routingTableProviderNoPeriodicRefresh;
   private MockRoutingTableProvider _routingTableProviderLongPeriodicRefresh;
@@ -114,7 +114,7 @@ public class TestRoutingTableProviderPeriodicRefresh extends ZkIntegrationTestBa
 
     _clusterVerifier =
         new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkClient(_gZkClient).build();
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
   }
 
@@ -129,7 +129,7 @@ public class TestRoutingTableProviderPeriodicRefresh extends ZkIntegrationTestBa
     _spectator.disconnect();
     _spectator_2.disconnect();
     _spectator_3.disconnect();
-    _gSetupTool.deleteCluster(CLUSTER_NAME);
+    deleteCluster(CLUSTER_NAME);
   }
 
   public class MockRoutingTableProvider extends RoutingTableProvider {
@@ -142,7 +142,7 @@ public class TestRoutingTableProviderPeriodicRefresh extends ZkIntegrationTestBa
     }
 
     @Override
-    public synchronized void refresh(List<ExternalView> externalViewList,
+    protected synchronized void refresh(List<ExternalView> externalViewList,
         NotificationContext changeContext) {
       super.refresh(externalViewList, changeContext);
       _refreshCount++;
@@ -152,7 +152,7 @@ public class TestRoutingTableProviderPeriodicRefresh extends ZkIntegrationTestBa
     }
 
     @Override
-    public synchronized void refresh(Collection<ExternalView> externalViews,
+    protected synchronized void refresh(Collection<ExternalView> externalViews,
         Collection<InstanceConfig> instanceConfigs, Collection<LiveInstance> liveInstances) {
       super.refresh(externalViews, instanceConfigs, liveInstances);
       _refreshCount++;

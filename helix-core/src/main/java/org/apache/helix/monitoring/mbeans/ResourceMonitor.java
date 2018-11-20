@@ -21,7 +21,15 @@ package org.apache.helix.monitoring.mbeans;
 
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.SlidingTimeWindowArrayReservoir;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import javax.management.JMException;
+import javax.management.ObjectName;
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
@@ -31,11 +39,14 @@ import org.apache.helix.monitoring.mbeans.dynamicMBeans.DynamicMetric;
 import org.apache.helix.monitoring.mbeans.dynamicMBeans.HistogramDynamicMetric;
 import org.apache.helix.monitoring.mbeans.dynamicMBeans.SimpleDynamicMetric;
 
-import javax.management.JMException;
-import javax.management.ObjectName;
-import java.util.*;
-
 public class ResourceMonitor extends DynamicMBeanProvider {
+
+  public enum RebalanceStatus {
+    UNKNOWN,
+    NORMAL,
+    BEST_POSSIBLE_STATE_CAL_FAILED,
+    INTERMEDIATE_STATE_CAL_FAILED
+  }
 
   // Gauges
   private SimpleDynamicMetric<Long> _numOfPartitions;
@@ -49,21 +60,27 @@ public class ResourceMonitor extends DynamicMBeanProvider {
   private SimpleDynamicMetric<Long> _numPendingLoadRebalancePartitions;
   private SimpleDynamicMetric<Long> _numRecoveryRebalanceThrottledPartitions;
   private SimpleDynamicMetric<Long> _numLoadRebalanceThrottledPartitions;
+  private SimpleDynamicMetric<Long> _numPendingStateTransitions;
 
   // Counters
   private SimpleDynamicMetric<Long> _successfulTopStateHandoffDurationCounter;
   private SimpleDynamicMetric<Long> _successTopStateHandoffCounter;
   private SimpleDynamicMetric<Long> _failedTopStateHandoffCounter;
   private SimpleDynamicMetric<Long> _maxSinglePartitionTopStateHandoffDuration;
-  private HistogramDynamicMetric _partitionTopStateHandoffDurationGauge;
   private SimpleDynamicMetric<Long> _totalMessageReceived;
+
+  // Histograms
+  private HistogramDynamicMetric _partitionTopStateHandoffDurationGauge;
+  private HistogramDynamicMetric _partitionTopStateHandoffHelixLatencyGauge;
+  private HistogramDynamicMetric _partitionTopStateNonGracefulHandoffDurationGauge;
+
+  private SimpleDynamicMetric<String> _rebalanceState;
 
   private String _tag = ClusterStatusMonitor.DEFAULT_TAG;
   private long _lastResetTime;
   private final String _resourceName;
   private final String _clusterName;
   private final ObjectName _initObjectName;
-  private ClusterStatusMonitor _clusterStatusMonitor;
 
   @Override
   public ResourceMonitor register() throws JMException {
@@ -84,75 +101,69 @@ public class ResourceMonitor extends DynamicMBeanProvider {
     attributeList.add(_failedTopStateHandoffCounter);
     attributeList.add(_maxSinglePartitionTopStateHandoffDuration);
     attributeList.add(_partitionTopStateHandoffDurationGauge);
+    attributeList.add(_partitionTopStateHandoffHelixLatencyGauge);
+    attributeList.add(_partitionTopStateNonGracefulHandoffDurationGauge);
     attributeList.add(_totalMessageReceived);
+    attributeList.add(_numPendingStateTransitions);
+    attributeList.add(_rebalanceState);
     doRegister(attributeList, _initObjectName);
     return this;
-  }
-
-  @Override
-  public synchronized void unregister() {
-    super.unregister();
-    // Also remove metrics propagated to aggregate metrics in ClusterStatusMonitor
-    if (_clusterStatusMonitor != null) {
-      _clusterStatusMonitor.applyDeltaToTotalPartitionCount(-_numOfPartitions.getValue());
-      _clusterStatusMonitor.applyDeltaToTotalErrorPartitionCount(-_numOfErrorPartitions.getValue());
-      _clusterStatusMonitor.applyDeltaToTotalExternalViewIdealStateMismatchPartitionCount(
-          -_externalViewIdealStateDiff.getValue());
-      _clusterStatusMonitor.applyDeltaToTotalPartitionsWithoutTopStateCount(-_numNonTopStatePartitions.getValue());
-    }
   }
 
   public enum MonitorState {
     TOP_STATE
   }
 
+  @SuppressWarnings("unchecked")
   public ResourceMonitor(String clusterName, String resourceName, ObjectName objectName) {
-    this(null, clusterName, resourceName, objectName);
-  }
-
-  public ResourceMonitor(ClusterStatusMonitor clusterStatusMonitor, String clusterName, String resourceName,
-      ObjectName objectName) {
-    if (clusterStatusMonitor == null) {
-      _logger.warn("ResourceMonitor initialized without a reference to ClusterStatusMonitor (null): metrics will not "
-          + "be aggregated at the cluster level.");
-    }
-    _clusterStatusMonitor = clusterStatusMonitor;
     _clusterName = clusterName;
     _resourceName = resourceName;
     _initObjectName = objectName;
 
-    _externalViewIdealStateDiff = new SimpleDynamicMetric("DifferenceWithIdealStateGauge", 0l);
+    _externalViewIdealStateDiff = new SimpleDynamicMetric("DifferenceWithIdealStateGauge", 0L);
     _numLoadRebalanceThrottledPartitions =
-        new SimpleDynamicMetric("LoadRebalanceThrottledPartitionGauge", 0l);
+        new SimpleDynamicMetric("LoadRebalanceThrottledPartitionGauge", 0L);
     _numRecoveryRebalanceThrottledPartitions =
-        new SimpleDynamicMetric("RecoveryRebalanceThrottledPartitionGauge", 0l);
+        new SimpleDynamicMetric("RecoveryRebalanceThrottledPartitionGauge", 0L);
     _numPendingLoadRebalancePartitions =
-        new SimpleDynamicMetric("PendingLoadRebalancePartitionGauge", 0l);
+        new SimpleDynamicMetric("PendingLoadRebalancePartitionGauge", 0L);
     _numPendingRecoveryRebalancePartitions =
-        new SimpleDynamicMetric("PendingRecoveryRebalancePartitionGauge", 0l);
-    _numLessReplicaPartitions = new SimpleDynamicMetric("MissingReplicaPartitionGauge", 0l);
+        new SimpleDynamicMetric("PendingRecoveryRebalancePartitionGauge", 0L);
+    _numLessReplicaPartitions = new SimpleDynamicMetric("MissingReplicaPartitionGauge", 0L);
     _numLessMinActiveReplicaPartitions =
-        new SimpleDynamicMetric("MissingMinActiveReplicaPartitionGauge", 0l);
-    _numNonTopStatePartitions = new SimpleDynamicMetric("MissingTopStatePartitionGauge", 0l);
-    _numOfErrorPartitions = new SimpleDynamicMetric("ErrorPartitionGauge", 0l);
-    _numOfPartitionsInExternalView = new SimpleDynamicMetric("ExternalViewPartitionGauge", 0l);
-    _numOfPartitions = new SimpleDynamicMetric("PartitionGauge", 0l);
+        new SimpleDynamicMetric("MissingMinActiveReplicaPartitionGauge", 0L);
+    _numNonTopStatePartitions = new SimpleDynamicMetric("MissingTopStatePartitionGauge", 0L);
+    _numOfErrorPartitions = new SimpleDynamicMetric("ErrorPartitionGauge", 0L);
+    _numOfPartitionsInExternalView = new SimpleDynamicMetric("ExternalViewPartitionGauge", 0L);
+    _numOfPartitions = new SimpleDynamicMetric("PartitionGauge", 0L);
+    _numPendingStateTransitions = new SimpleDynamicMetric("PendingStateTransitionGauge", 0L);
 
     _partitionTopStateHandoffDurationGauge =
         new HistogramDynamicMetric("PartitionTopStateHandoffDurationGauge", new Histogram(
             new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
-    _totalMessageReceived = new SimpleDynamicMetric("TotalMessageReceived", 0l);
+
+    _partitionTopStateHandoffHelixLatencyGauge =
+        new HistogramDynamicMetric("PartitionTopStateHandoffHelixLatencyGauge", new Histogram(
+            new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+    _partitionTopStateNonGracefulHandoffDurationGauge =
+        new HistogramDynamicMetric("PartitionTopStateNonGracefulHandoffGauge", new Histogram(
+            new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+
+    _totalMessageReceived = new SimpleDynamicMetric("TotalMessageReceived", 0L);
     _maxSinglePartitionTopStateHandoffDuration =
-        new SimpleDynamicMetric("MaxSinglePartitionTopStateHandoffDurationGauge", 0l);
-    _failedTopStateHandoffCounter = new SimpleDynamicMetric("FailedTopStateHandoffCounter", 0l);
-    _successTopStateHandoffCounter = new SimpleDynamicMetric("SucceededTopStateHandoffCounter", 0l);
+        new SimpleDynamicMetric("MaxSinglePartitionTopStateHandoffDurationGauge", 0L);
+    _failedTopStateHandoffCounter = new SimpleDynamicMetric("FailedTopStateHandoffCounter", 0L);
+    _successTopStateHandoffCounter = new SimpleDynamicMetric("SucceededTopStateHandoffCounter", 0L);
     _successfulTopStateHandoffDurationCounter =
-        new SimpleDynamicMetric("SuccessfulTopStateHandoffDurationCounter", 0l);
+        new SimpleDynamicMetric("SuccessfulTopStateHandoffDurationCounter", 0L);
+
+    _rebalanceState = new SimpleDynamicMetric<>("RebalanceStatus", RebalanceStatus.UNKNOWN.name());
   }
 
   @Override
   public String getSensorName() {
-    return String.format("%s.%s.%s.%s", ClusterStatusMonitor.RESOURCE_STATUS_KEY, _clusterName, _tag, _resourceName);
+    return String.format("%s.%s.%s.%s", ClusterStatusMonitor.RESOURCE_STATUS_KEY, _clusterName,
+        _tag, _resourceName);
   }
 
   public long getPartitionGauge() {
@@ -183,6 +194,18 @@ public class ResourceMonitor extends DynamicMBeanProvider {
     return _maxSinglePartitionTopStateHandoffDuration.getValue();
   }
 
+  public HistogramDynamicMetric getPartitionTopStateHandoffDurationGauge() {
+    return _partitionTopStateHandoffDurationGauge;
+  }
+
+  public HistogramDynamicMetric getPartitionTopStateNonGracefulHandoffDurationGauge() {
+    return _partitionTopStateNonGracefulHandoffDurationGauge;
+  }
+
+  public HistogramDynamicMetric getPartitionTopStateHandoffHelixLatencyGauge() {
+    return _partitionTopStateHandoffHelixLatencyGauge;
+  }
+
   public long getFailedTopStateHandoffCounter() {
     return _failedTopStateHandoffCounter.getValue();
   }
@@ -203,7 +226,7 @@ public class ResourceMonitor extends DynamicMBeanProvider {
     return _clusterName + " " + _resourceName;
   }
 
-  public void updateResource(ExternalView externalView, IdealState idealState,
+  public void updateResourceState(ExternalView externalView, IdealState idealState,
       StateModelDefinition stateModelDef) {
     if (externalView == null) {
       _logger.warn("External view is null");
@@ -218,7 +241,7 @@ public class ResourceMonitor extends DynamicMBeanProvider {
       }
     }
 
-    resetGauges();
+    resetResourceStateGauges();
 
     if (idealState == null) {
       _logger.warn("ideal state is null for {}", _resourceName);
@@ -293,17 +316,6 @@ public class ResourceMonitor extends DynamicMBeanProvider {
       }
     }
 
-    // Update cluster-level aggregate metrics in ClusterStatusMonitor
-    if (_clusterStatusMonitor != null) {
-      _clusterStatusMonitor.applyDeltaToTotalPartitionCount(partitions.size() - _numOfPartitions.getValue());
-      _clusterStatusMonitor.applyDeltaToTotalErrorPartitionCount(
-          numOfErrorPartitions - _numOfErrorPartitions.getValue());
-      _clusterStatusMonitor.applyDeltaToTotalExternalViewIdealStateMismatchPartitionCount(
-          numOfDiff - _externalViewIdealStateDiff.getValue());
-      _clusterStatusMonitor.applyDeltaToTotalPartitionsWithoutTopStateCount(
-          (partitions.size() - numOfPartitionWithTopState) - _numNonTopStatePartitions.getValue());
-    }
-
     // Update resource-level metrics
     _numOfPartitions.updateValue((long) partitions.size());
     _numOfErrorPartitions.updateValue(numOfErrorPartitions);
@@ -319,53 +331,58 @@ public class ResourceMonitor extends DynamicMBeanProvider {
     }
   }
 
-  private void resetGauges() {
-    // Disable reset for the following gauges:
-    // 1) Need the previous values for these gauges to compute delta for cluster-level metrics.
-    // 2) These four gauges are reset every time updateResource is called anyway.
-    //_numOfErrorPartitions.updateValue(0l);
-    //_numNonTopStatePartitions.updateValue(0l);
-    //_externalViewIdealStateDiff.updateValue(0l);
-    //_numOfPartitionsInExternalView.updateValue(0l);
-
-    // The following gauges are computed each call to updateResource by way of looping so need to be reset.
-    _numLessMinActiveReplicaPartitions.updateValue(0l);
-    _numLessReplicaPartitions.updateValue(0l);
-    _numPendingRecoveryRebalancePartitions.updateValue(0l);
-    _numPendingLoadRebalancePartitions.updateValue(0l);
-    _numRecoveryRebalanceThrottledPartitions.updateValue(0l);
-    _numLoadRebalanceThrottledPartitions.updateValue(0l);
+  private void resetResourceStateGauges() {
+    _numOfErrorPartitions.updateValue(0L);
+    _numNonTopStatePartitions.updateValue(0L);
+    _externalViewIdealStateDiff.updateValue(0L);
+    _numOfPartitionsInExternalView.updateValue(0L);
+    _numLessMinActiveReplicaPartitions.updateValue(0L);
+    _numLessReplicaPartitions.updateValue(0L);
   }
 
-  public void updateStateHandoffStats(MonitorState monitorState, long duration, boolean succeeded) {
+  public void updatePendingStateTransitionMessages(int messageCount) {
+    _numPendingStateTransitions.updateValue((long) messageCount);
+  }
+
+  public void updateStateHandoffStats(MonitorState monitorState, long totalDuration,
+      long helixLatency, boolean isGraceful, boolean succeeded) {
     switch (monitorState) {
-      case TOP_STATE:
-        if (succeeded) {
-          _successTopStateHandoffCounter.updateValue(_successTopStateHandoffCounter.getValue() + 1);
-          _successfulTopStateHandoffDurationCounter
-              .updateValue(_successfulTopStateHandoffDurationCounter.getValue() + duration);
-          _partitionTopStateHandoffDurationGauge.updateValue(duration);
-          if (duration > _maxSinglePartitionTopStateHandoffDuration.getValue()) {
-            _maxSinglePartitionTopStateHandoffDuration.updateValue(duration);
-            _lastResetTime = System.currentTimeMillis();
-          }
+    case TOP_STATE:
+      if (succeeded) {
+        _successTopStateHandoffCounter.updateValue(_successTopStateHandoffCounter.getValue() + 1);
+        _successfulTopStateHandoffDurationCounter
+            .updateValue(_successfulTopStateHandoffDurationCounter.getValue() + totalDuration);
+        if (isGraceful) {
+          _partitionTopStateHandoffDurationGauge.updateValue(totalDuration);
+          _partitionTopStateHandoffHelixLatencyGauge.updateValue(helixLatency);
         } else {
-          _failedTopStateHandoffCounter.updateValue(_failedTopStateHandoffCounter.getValue() + 1);
+          _partitionTopStateNonGracefulHandoffDurationGauge.updateValue(totalDuration);
         }
-        break;
-      default:
-        _logger.warn(
-            String.format("Wrong monitor state \"%s\" that not supported ", monitorState.name()));
+        if (totalDuration > _maxSinglePartitionTopStateHandoffDuration.getValue()) {
+          _maxSinglePartitionTopStateHandoffDuration.updateValue(totalDuration);
+          _lastResetTime = System.currentTimeMillis();
+        }
+      } else {
+        _failedTopStateHandoffCounter.updateValue(_failedTopStateHandoffCounter.getValue() + 1);
+      }
+      break;
+    default:
+      _logger.warn(
+          String.format("Wrong monitor state \"%s\" that not supported ", monitorState.name()));
     }
   }
 
-  public void updateRebalancerStat(long numPendingRecoveryRebalancePartitions,
+  public void updateRebalancerStats(long numPendingRecoveryRebalancePartitions,
       long numPendingLoadRebalancePartitions, long numRecoveryRebalanceThrottledPartitions,
       long numLoadRebalanceThrottledPartitions) {
     _numPendingRecoveryRebalancePartitions.updateValue(numPendingRecoveryRebalancePartitions);
     _numPendingLoadRebalancePartitions.updateValue(numPendingLoadRebalancePartitions);
     _numRecoveryRebalanceThrottledPartitions.updateValue(numRecoveryRebalanceThrottledPartitions);
     _numLoadRebalanceThrottledPartitions.updateValue(numLoadRebalanceThrottledPartitions);
+  }
+
+  public void setRebalanceState(RebalanceStatus state) {
+    _rebalanceState.updateValue(state.name());
   }
 
   public long getExternalViewPartitionGauge() {
@@ -396,9 +413,17 @@ public class ResourceMonitor extends DynamicMBeanProvider {
     return _numLoadRebalanceThrottledPartitions.getValue();
   }
 
+  public long getNumPendingStateTransitionGauge() {
+    return _numPendingStateTransitions.getValue();
+  }
+
+  public String getRebalanceState() {
+    return _rebalanceState.getValue();
+  }
+
   public void resetMaxTopStateHandoffGauge() {
     if (_lastResetTime + DEFAULT_RESET_INTERVAL_MS <= System.currentTimeMillis()) {
-      _maxSinglePartitionTopStateHandoffDuration.updateValue(0l);
+      _maxSinglePartitionTopStateHandoffDuration.updateValue(0L);
       _lastResetTime = System.currentTimeMillis();
     }
   }

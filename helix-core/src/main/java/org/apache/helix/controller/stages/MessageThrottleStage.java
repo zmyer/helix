@@ -19,6 +19,14 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.helix.controller.LogUtil;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
 import org.apache.helix.model.ClusterConstraints;
@@ -46,27 +54,29 @@ public class MessageThrottleStage extends AbstractBaseStage {
     int valueOf(String valueStr) {
         int value = Integer.MAX_VALUE;
 
-        try {
-            ConstraintValue valueToken = ConstraintValue.valueOf(valueStr);
-            switch (valueToken) {
-            case ANY:
-                value = Integer.MAX_VALUE;
-                break;
-            default:
-                LOG.error("Invalid constraintValue token:" + valueStr + ". Use default value:"
-                        + Integer.MAX_VALUE);
-                break;
-            }
-        } catch (Exception e) {
-            try {
-                value = Integer.parseInt(valueStr);
-            } catch (NumberFormatException ne) {
-                LOG.error("Invalid constraintValue string:" + valueStr + ". Use default value:"
-                        + Integer.MAX_VALUE);
-            }
-        }
-        return value;
+    try {
+      ConstraintValue valueToken = ConstraintValue.valueOf(valueStr);
+      switch (valueToken) {
+      case ANY:
+        value = Integer.MAX_VALUE;
+        break;
+      default:
+        LogUtil.logError(LOG, _eventId,
+            "Invalid constraintValue token:" + valueStr + ". Use default value:"
+                + Integer.MAX_VALUE);
+        break;
+      }
+    } catch (Exception e) {
+      try {
+        value = Integer.parseInt(valueStr);
+      } catch (NumberFormatException ne) {
+        LogUtil.logError(LOG, _eventId,
+            "Invalid constraintValue string:" + valueStr + ". Use default value:"
+                + Integer.MAX_VALUE);
+      }
     }
+    return value;
+  }
 
     /**
      * constraints are selected in the order of the following rules: 1) don't select
@@ -85,57 +95,58 @@ public class MessageThrottleStage extends AbstractBaseStage {
                 continue;
             }
 
-            String key = item.filter(attributes).toString();
-            if (!selectedItems.containsKey(key)) {
-                selectedItems.put(key, item);
-            } else {
-                ConstraintItem existingItem = selectedItems.get(key);
-                if (existingItem.match(item.getAttributes())) {
-                    // item is more specific than existingItem
-                    selectedItems.put(key, item);
-                } else if (!item.match(existingItem.getAttributes())) {
-                    // existingItem and item are of incomparable specificity
-                    int value = valueOf(item.getConstraintValue());
-                    int existingValue = valueOf(existingItem.getConstraintValue());
-                    if (value < existingValue) {
-                        // item's constraint value is less than that of existingItem
-                        selectedItems.put(key, item);
-                    } else if (value == existingValue) {
-                        if (item.toString().compareTo(existingItem.toString()) < 0) {
-                            // item is ahead of existingItem in alphabetic order
-                            selectedItems.put(key, item);
-                        }
-                    }
-                }
+      String key = item.filter(attributes).toString();
+      if (!selectedItems.containsKey(key)) {
+        selectedItems.put(key, item);
+      } else {
+        ConstraintItem existingItem = selectedItems.get(key);
+        if (existingItem.match(item.getAttributes())) {
+          // item is more specific than existingItem
+          selectedItems.put(key, item);
+        } else if (!item.match(existingItem.getAttributes())) {
+          // existingItem and item are of incomparable specificity
+          int value = valueOf(item.getConstraintValue());
+          int existingValue = valueOf(existingItem.getConstraintValue());
+          if (value < existingValue) {
+            // item's constraint value is less than that of existingItem
+            selectedItems.put(key, item);
+          } else if (value == existingValue) {
+            if (item.toString().compareTo(existingItem.toString()) < 0) {
+              // item is ahead of existingItem in alphabetic order
+              selectedItems.put(key, item);
             }
+          }
         }
-        return new HashSet<ConstraintItem>(selectedItems.values());
+      }
     }
+    return new HashSet<>(selectedItems.values());
+  }
 
-    @Override
-    public void process(ClusterEvent event) throws Exception {
-        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-        MessageSelectionStageOutput msgSelectionOutput =
-                event.getAttribute(AttributeName.MESSAGES_SELECTED.name());
-        Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
+  @Override
+  public void process(ClusterEvent event) throws Exception {
+    _eventId = event.getEventId();
+    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    MessageOutput msgSelectionOutput =
+        event.getAttribute(AttributeName.MESSAGES_SELECTED.name());
+    Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
 
         if (cache == null || resourceMap == null || msgSelectionOutput == null) {
             throw new StageException("Missing attributes in event: " + event
                     + ". Requires ClusterDataCache|RESOURCES|MESSAGES_SELECTED");
         }
 
-        MessageThrottleStageOutput output = new MessageThrottleStageOutput();
+    MessageOutput output = new MessageOutput();
 
         ClusterConstraints constraint = cache.getConstraint(ConstraintType.MESSAGE_CONSTRAINT);
         Map<String, Integer> throttleCounterMap = new HashMap<String, Integer>();
 
-        if (constraint != null) {
-            // go through all pending messages, they should be counted but not throttled
-            for (String instance : cache.getLiveInstances().keySet()) {
-                throttle(throttleCounterMap, constraint, new ArrayList<Message>(cache.getMessages(instance)
-                        .values()), false);
-            }
-        }
+    if (constraint != null) {
+      // go through all pending messages, they should be counted but not throttled
+      for (String instance : cache.getLiveInstances().keySet()) {
+        throttle(throttleCounterMap, constraint, new ArrayList<>(cache.getMessages(instance)
+            .values()), false);
+      }
+    }
 
         // go through all new messages, throttle if necessary
         // assume messages should be sorted by state transition priority in messageSelection stage
@@ -176,16 +187,17 @@ public class MessageThrottleStage extends AbstractBaseStage {
                 if (needThrottle && value < 0) {
                     msgThrottled = true;
 
-                    if (LOG.isDebugEnabled()) {
-                        // TODO: printout constraint item that throttles the message
-                        LOG.debug("message: " + message + " is throttled by constraint: " + item);
-                    }
-                }
-            }
-            if (!msgThrottled) {
-                throttleOutputMsgs.add(message);
-            }
+          if (LOG.isDebugEnabled()) {
+            // TODO: printout constraint item that throttles the message
+            LogUtil.logDebug(LOG, _eventId,
+                "message: " + message + " is throttled by constraint: " + item);
+          }
         }
+      }
+      if (!msgThrottled) {
+        throttleOutputMsgs.add(message);
+      }
+    }
 
         return throttleOutputMsgs;
     }

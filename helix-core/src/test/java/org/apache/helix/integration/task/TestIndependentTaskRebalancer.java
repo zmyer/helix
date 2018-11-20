@@ -19,12 +19,15 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.helix.HelixManagerFactory;
 import org.apache.helix.InstanceType;
 import org.apache.helix.TestHelper;
@@ -45,36 +48,25 @@ import org.apache.helix.task.TaskState;
 import org.apache.helix.task.TaskStateModelFactory;
 import org.apache.helix.task.Workflow;
 import org.apache.helix.task.WorkflowContext;
-import org.apache.helix.tools.ClusterSetup;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 import org.testng.collections.Sets;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 public class TestIndependentTaskRebalancer extends TaskTestBase {
   private Set<String> _invokedClasses = Sets.newHashSet();
   private Map<String, Integer> _runCounts = Maps.newHashMap();
-
+  private static final AtomicBoolean _failureCtl = new AtomicBoolean(true);
 
   @BeforeClass
   public void beforeClass() throws Exception {
     _participants = new MockParticipantManager[_numNodes];
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
 
-    // Setup cluster and instances
-    ClusterSetup setupTool = new ClusterSetup(ZK_ADDR);
-    setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     for (int i = 0; i < _numNodes; i++) {
       String storageNodeName = PARTICIPANT_PREFIX + "_" + (_startPort + i);
-      setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
+      _gSetupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
     }
 
     // start dummy participants
@@ -95,6 +87,25 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
           return new TaskTwo(context, instanceName);
         }
       });
+      taskFactoryReg.put("ControllableFailTask", new TaskFactory() {
+        @Override public Task createNewTask(TaskCallbackContext context) {
+          return new Task() {
+            @Override
+            public TaskResult run() {
+              if (_failureCtl.get()) {
+                return new TaskResult(Status.FAILED, null);
+              } else {
+                return new TaskResult(Status.COMPLETED, null);
+              }
+            }
+
+            @Override
+            public void cancel() {
+
+            }
+          };
+        }
+      });
       taskFactoryReg.put("SingleFailTask", new TaskFactory() {
         @Override
         public Task createNewTask(TaskCallbackContext context) {
@@ -106,8 +117,8 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
 
       // Register a Task state model factory.
       StateMachineEngine stateMachine = _participants[i].getStateMachineEngine();
-      stateMachine.registerStateModelFactory("Task", new TaskStateModelFactory(_participants[i],
-          taskFactoryReg));
+      stateMachine.registerStateModelFactory("Task",
+          new TaskStateModelFactory(_participants[i], taskFactoryReg));
       _participants[i].syncStart();
     }
 
@@ -117,9 +128,8 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
     _controller.syncStart();
 
     // Start an admin connection
-    _manager =
-        HelixManagerFactory.getZKHelixManager(CLUSTER_NAME, "Admin", InstanceType.ADMINISTRATOR,
-            ZK_ADDR);
+    _manager = HelixManagerFactory.getZKHelixManager(CLUSTER_NAME, "Admin",
+        InstanceType.ADMINISTRATOR, ZK_ADDR);
     _manager.connect();
     _driver = new TaskDriver(_manager);
   }
@@ -130,7 +140,8 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
     _runCounts.clear();
   }
 
-  @Test public void testDifferentTasks() throws Exception {
+  @Test
+  public void testDifferentTasks() throws Exception {
     // Create a job with two different tasks
     String jobName = TestHelper.getTestMethodName();
     Workflow.Builder workflowBuilder = new Workflow.Builder(jobName);
@@ -141,22 +152,21 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
     taskConfigs.add(taskConfig2);
     Map<String, String> jobCommandMap = Maps.newHashMap();
     jobCommandMap.put("Timeout", "1000");
-    JobConfig.Builder jobBuilder =
-        new JobConfig.Builder().setCommand("DummyCommand").addTaskConfigs(taskConfigs)
-            .setJobCommandConfigMap(jobCommandMap);
+    JobConfig.Builder jobBuilder = new JobConfig.Builder().setCommand("DummyCommand")
+        .addTaskConfigs(taskConfigs).setJobCommandConfigMap(jobCommandMap);
     workflowBuilder.addJob(jobName, jobBuilder);
     _driver.start(workflowBuilder.build());
 
     // Ensure the job completes
     _driver.pollForWorkflowState(jobName, TaskState.COMPLETED);
 
-
     // Ensure that each class was invoked
     Assert.assertTrue(_invokedClasses.contains(TaskOne.class.getName()));
     Assert.assertTrue(_invokedClasses.contains(TaskTwo.class.getName()));
   }
 
-  @Test public void testThresholdFailure() throws Exception {
+  @Test
+  public void testThresholdFailure() throws Exception {
     // Create a job with two different tasks
     String jobName = TestHelper.getTestMethodName();
     Workflow.Builder workflowBuilder = new Workflow.Builder(jobName);
@@ -168,9 +178,8 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
     taskConfigs.add(taskConfig2);
     Map<String, String> jobConfigMap = Maps.newHashMap();
     jobConfigMap.put("Timeout", "1000");
-    JobConfig.Builder jobBuilder =
-        new JobConfig.Builder().setCommand("DummyCommand").setFailureThreshold(1)
-            .addTaskConfigs(taskConfigs).setJobCommandConfigMap(jobConfigMap);
+    JobConfig.Builder jobBuilder = new JobConfig.Builder().setCommand("DummyCommand")
+        .setFailureThreshold(1).addTaskConfigs(taskConfigs).setJobCommandConfigMap(jobConfigMap);
     workflowBuilder.addJob(jobName, jobBuilder);
     _driver.start(workflowBuilder.build());
 
@@ -183,38 +192,48 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
     Assert.assertTrue(_invokedClasses.contains(TaskTwo.class.getName()));
   }
 
-  @Test public void testReassignment() throws Exception {
-    final int NUM_INSTANCES = 5;
-    String jobName = TestHelper.getTestMethodName();
-    Workflow.Builder workflowBuilder = new Workflow.Builder(jobName);
+  @Test
+  public void testReassignment() throws Exception {
+    String workflowName = TestHelper.getTestMethodName();
+    String jobNameSuffix = "job";
+    String jobName = String.format("%s_%s", workflowName, jobNameSuffix);
+    Workflow.Builder workflowBuilder = new Workflow.Builder(workflowName);
     List<TaskConfig> taskConfigs = Lists.newArrayListWithCapacity(2);
-    Map<String, String> taskConfigMap = Maps.newHashMap(ImmutableMap
-        .of("fail", "" + true, "failInstance", PARTICIPANT_PREFIX + '_' + (_startPort + 1)));
-    TaskConfig taskConfig1 = new TaskConfig("TaskOne", taskConfigMap);
+
+    TaskConfig taskConfig1 = new TaskConfig("ControllableFailTask", new HashMap<String, String>());
     taskConfigs.add(taskConfig1);
     Map<String, String> jobCommandMap = Maps.newHashMap();
     jobCommandMap.put("Timeout", "1000");
 
-    JobConfig.Builder jobBuilder = new JobConfig.Builder().setCommand("DummyCommand")
-        .addTaskConfigs(taskConfigs)
-        .setJobCommandConfigMap(jobCommandMap);
-    workflowBuilder.addJob(jobName, jobBuilder);
+    // Retry forever
+    JobConfig.Builder jobBuilder =
+        new JobConfig.Builder().setCommand("DummyCommand").addTaskConfigs(taskConfigs)
+            .setJobCommandConfigMap(jobCommandMap).setMaxAttemptsPerTask(Integer.MAX_VALUE);
+    workflowBuilder.addJob(jobNameSuffix, jobBuilder);
 
     _driver.start(workflowBuilder.build());
 
-    // Ensure the job completes
-    _driver.pollForWorkflowState(jobName, TaskState.IN_PROGRESS);
-    _driver.pollForWorkflowState(jobName, TaskState.COMPLETED);
+    // Poll to ensure that the gets re-attempted first
+    int trial = 0;
+    while (trial < 1000) { // 100 sec
+      JobContext jctx = _driver.getJobContext(jobName);
+      if (jctx != null && jctx.getPartitionNumAttempts(0) > 1) {
+        break;
+      }
+      Thread.sleep(100);
+      trial += 1;
+    }
 
-    // Ensure that the class was invoked
-    Assert.assertTrue(_invokedClasses.contains(TaskOne.class.getName()));
+    if (trial == 1000) {
+      // Fail if no re-attempts
+      Assert.fail("Job " + jobName + " is not retried");
+    }
 
-    // Ensure that this was tried on two different instances, the first of which exhausted the
-    // attempts number, and the other passes on the first try
-    Assert.assertEquals(_runCounts.size(), 2);
-    Assert.assertTrue(
-        _runCounts.values().contains(JobConfig.DEFAULT_MAX_ATTEMPTS_PER_TASK / NUM_INSTANCES));
-    Assert.assertTrue(_runCounts.values().contains(1));
+    // Signal the next retry to be successful
+    _failureCtl.set(false);
+
+    // Verify that retry will go on and the workflow will finally complete
+    _driver.pollForWorkflowState(workflowName, TaskState.COMPLETED);
   }
 
   @Test
@@ -229,8 +248,7 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
     jobCommandMap.put("Timeout", "1000");
 
     JobConfig.Builder jobBuilder = new JobConfig.Builder().setCommand("DummyCommand")
-        .addTaskConfigs(taskConfigs)
-        .setJobCommandConfigMap(jobCommandMap);
+        .addTaskConfigs(taskConfigs).setJobCommandConfigMap(jobCommandMap);
     workflowBuilder.addJob(jobName, jobBuilder);
 
     long inFiveSeconds = System.currentTimeMillis() + (5 * 1000);
@@ -247,7 +265,7 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
     // Check that the workflow only started after the start time (with a 1 second buffer)
     WorkflowContext workflowCtx = _driver.getWorkflowContext(jobName);
     long startTime = workflowCtx.getStartTime();
-    Assert.assertTrue((startTime + 1000) >= inFiveSeconds);
+    Assert.assertTrue(startTime <= inFiveSeconds);
   }
 
   @Test
@@ -263,8 +281,7 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
     Map<String, String> jobCommandMap = Maps.newHashMap();
 
     JobConfig.Builder jobBuilder = new JobConfig.Builder().setCommand("DummyCommand")
-        .setTaskRetryDelay(delay).addTaskConfigs(taskConfigs)
-        .setJobCommandConfigMap(jobCommandMap);
+        .setTaskRetryDelay(delay).addTaskConfigs(taskConfigs).setJobCommandConfigMap(jobCommandMap);
     workflowBuilder.addJob(jobName, jobBuilder);
 
     SingleFailTask.hasFailed = false;
@@ -294,9 +311,8 @@ public class TestIndependentTaskRebalancer extends TaskTestBase {
         if (configMap != null && configMap.containsKey("fail")
             && Boolean.parseBoolean(configMap.get("fail"))) {
           // if a specific instance is specified, only fail for that one
-          shouldFail =
-              !configMap.containsKey("failInstance")
-                  || configMap.get("failInstance").equals(instanceName);
+          shouldFail = !configMap.containsKey("failInstance")
+              || configMap.get("failInstance").equals(instanceName);
         }
       }
       _shouldFail = shouldFail;

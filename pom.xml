@@ -29,7 +29,7 @@ under the License.
 
   <groupId>org.apache.helix</groupId>
   <artifactId>helix</artifactId>
-  <version>0.8.2-SNAPSHOT</version>
+  <version>0.8.3-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>Apache Helix</name>
 
@@ -216,6 +216,15 @@ under the License.
       <email>jxue@apache.org</email>
       <roles>
         <role>Committer / PMC Member</role>
+      </roles>
+      <timezone>-8</timezone>
+    </developer>
+    <developer>
+      <id>jiajunwang</id>
+      <name>Jiajun Wang</name>
+      <email>jiajunwang@apache.org</email>
+      <roles>
+        <role>Committer</role>
       </roles>
       <timezone>-8</timezone>
     </developer>
@@ -443,7 +452,7 @@ under the License.
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-release-plugin</artifactId>
-          <version>2.5.1</version>
+          <version>2.5.2</version>
           <configuration>
             <preparationGoals>${helix.release.preparationGoals}</preparationGoals>
             <goals>${helix.release.performGoals}</goals>

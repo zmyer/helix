@@ -32,9 +32,8 @@ import org.apache.helix.task.JobContext;
 import org.apache.helix.task.TaskSynchronizedTestBase;
 import org.apache.helix.task.TaskUtil;
 import org.apache.helix.task.Workflow;
-import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
@@ -42,8 +41,6 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
-
-  private ClusterControllerManager _controller;
   private final String JOB = "test_job";
   private String WORKFLOW;
   private final String DATABASE = WorkflowGenerator.DEFAULT_TGT_DB;
@@ -51,19 +48,13 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
   @BeforeClass
   public void beforeClass() throws Exception {
-    _participants =  new MockParticipantManager[_numNodes];
+    _participants = new MockParticipantManager[_numNodes];
     _numNodes = 2;
-    _numParitions = 2;
+    _numPartitions = 2;
     _numReplicas = 1; // only Master, no Slave
     _numDbs = 1;
 
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     setupParticipants();
     setupDBs();
 
@@ -74,8 +65,15 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
   @BeforeMethod
   public void beforeMethod() throws InterruptedException {
+    // Added to make sure that jobs in each test fail/complete
+    MockTask._signalFail = true;
+    startParticipants();
+    Thread.sleep(1000);
+    stopParticipants();
+
     startParticipants(_initialNumNodes);
     Thread.sleep(1000);
+    MockTask._signalFail = false;
   }
 
   @AfterMethod
@@ -112,7 +110,7 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
   private int getNumOfInstances() {
     JobContext jobContext = _driver.getJobContext(TaskUtil.getNamespacedJobName(WORKFLOW, JOB));
-    Set<String> instances = new HashSet<String>();
+    Set<String> instances = new HashSet<>();
     for (int pId : jobContext.getPartitionSet()) {
       instances.add(jobContext.getAssignedParticipant(pId));
     }
@@ -121,7 +119,7 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
   /**
    * Task type: generic
-   * Rebalance raunning task: disabled
+   * Rebalance running task: disabled
    * Story: 1 node is down
    */
   @Test
@@ -129,16 +127,15 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
     WORKFLOW = TestHelper.getTestMethodName();
     startParticipant(_initialNumNodes);
 
-    JobConfig.Builder jobBuilder = new JobConfig.Builder()
-        .setWorkflow(WORKFLOW)
-        .setNumberOfTasks(10) // should be enough for consistent hashing to place tasks on
-        // different instances
-        .setNumConcurrentTasksPerInstance(100)
-        .setCommand(MockTask.TASK_COMMAND)
-        .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "99999999")); // task stuck
+    JobConfig.Builder jobBuilder =
+        new JobConfig.Builder().setWorkflow(WORKFLOW).setNumberOfTasks(10) // should be enough for
+            // consistent hashing to
+            // place tasks on
+            // different instances
+            .setNumConcurrentTasksPerInstance(100).setCommand(MockTask.TASK_COMMAND)
+            .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "99999999")); // task stuck
 
-    Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW)
-        .addJob(JOB, jobBuilder);
+    Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW).addJob(JOB, jobBuilder);
 
     _driver.start(workflowBuilder.build());
 
@@ -150,23 +147,19 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
   /**
    * Task type: generic
-   * Rebalance raunning task: disabled
+   * Rebalance running task: disabled
    * Story: new node added, then current task fails
    */
   @Test
-  public void testGenericTaskAndDisabledRebalanceAndNodeAddedAndTaskFail() throws InterruptedException {
+  public void testGenericTaskAndDisabledRebalanceAndNodeAddedAndTaskFail()
+      throws InterruptedException {
     WORKFLOW = TestHelper.getTestMethodName();
-    JobConfig.Builder jobBuilder = new JobConfig.Builder()
-        .setWorkflow(WORKFLOW)
-        .setNumberOfTasks(10)
-        .setNumConcurrentTasksPerInstance(100)
-        .setCommand(MockTask.TASK_COMMAND)
-        .setFailureThreshold(10)
-        .setMaxAttemptsPerTask(2)
+    JobConfig.Builder jobBuilder = new JobConfig.Builder().setWorkflow(WORKFLOW)
+        .setNumberOfTasks(10).setNumConcurrentTasksPerInstance(100)
+        .setCommand(MockTask.TASK_COMMAND).setFailureThreshold(10).setMaxAttemptsPerTask(2)
         .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "99999999")); // task stuck
 
-    Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW)
-        .addJob(JOB, jobBuilder);
+    Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW).addJob(JOB, jobBuilder);
 
     _driver.start(workflowBuilder.build());
 
@@ -186,22 +179,24 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
   /**
    * Task type: generic
-   * Rebalance raunning task: enabled
+   * Rebalance running task: enabled
    * Story: new node added
+   * NOTE: This test is disabled because this "load-balancing" would happen at the Task Assigner
+   * level. In the legacy assignment strategy (Consistent Hashing) did not take instance's capacity
+   * into account. However, the new quota-based scheduling takes capacity into account, and it will
+   * generally assign to the most "free" instance, so load-balancing of tasks will happen at the
+   * Assigner layer. Deprecating this test.
    */
-  @Test
+  @Deprecated
+  @Test(enabled = false)
   public void testGenericTaskAndEnabledRebalanceAndNodeAdded() throws InterruptedException {
     WORKFLOW = TestHelper.getTestMethodName();
-    JobConfig.Builder jobBuilder = new JobConfig.Builder()
-        .setWorkflow(WORKFLOW)
-        .setNumberOfTasks(10)
-        .setNumConcurrentTasksPerInstance(100)
-        .setCommand(MockTask.TASK_COMMAND)
-        .setRebalanceRunningTask(true)
+    JobConfig.Builder jobBuilder = new JobConfig.Builder().setWorkflow(WORKFLOW)
+        .setNumberOfTasks(10).setNumConcurrentTasksPerInstance(100)
+        .setCommand(MockTask.TASK_COMMAND).setRebalanceRunningTask(true)
         .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "99999999")); // task stuck
 
-    Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW)
-        .addJob(JOB, jobBuilder);
+    Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW).addJob(JOB, jobBuilder);
 
     _driver.start(workflowBuilder.build());
 
@@ -214,7 +209,7 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
   /**
    * Task type: fixed target
-   * Rebalance raunning task: disabled
+   * Rebalance running task: disabled
    * Story: 1 node is down
    */
   @Test
@@ -222,18 +217,13 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
     WORKFLOW = TestHelper.getTestMethodName();
     startParticipant(_initialNumNodes);
 
-    JobConfig.Builder jobBuilder = new JobConfig.Builder()
-        .setWorkflow(WORKFLOW)
-        .setTargetResource(DATABASE)
-        .setNumConcurrentTasksPerInstance(100)
-        .setCommand(MockTask.TASK_COMMAND)
-        .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "99999999"));
+    JobConfig.Builder jobBuilder =
+        new JobConfig.Builder().setWorkflow(WORKFLOW).setTargetResource(DATABASE)
+            .setNumConcurrentTasksPerInstance(100).setCommand(MockTask.TASK_COMMAND)
+            .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "99999999"));
 
-    Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW)
-        .addJob(JOB, jobBuilder);
-
+    Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW).addJob(JOB, jobBuilder);
     _driver.start(workflowBuilder.build());
-
     Assert.assertTrue(checkTasksOnDifferentInstances());
     // Stop a participant and partitions will be moved to the same instance,
     // and tasks rebalanced accordingly
@@ -243,22 +233,18 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
   /**
    * Task type: fixed target
-   * Rebalance raunning task: disabled
+   * Rebalance running task: disabled
    * Story: new node added
    */
   @Test
   public void testFixedTargetTaskAndDisabledRebalanceAndNodeAdded() throws InterruptedException {
     WORKFLOW = TestHelper.getTestMethodName();
-    JobConfig.Builder jobBuilder = new JobConfig.Builder()
-        .setWorkflow(WORKFLOW)
-        .setTargetResource(DATABASE)
-        .setTargetPartitionStates(Sets.newHashSet(MasterSlaveSMD.States.MASTER.name()))
-        .setNumConcurrentTasksPerInstance(100)
-        .setFailureThreshold(2)
-        .setMaxAttemptsPerTask(2)
-        .setCommand(MockTask.TASK_COMMAND)
-        .setJobCommandConfigMap(
-            ImmutableMap.of(MockTask.JOB_DELAY, "99999999")); // task stuck
+    JobConfig.Builder jobBuilder =
+        new JobConfig.Builder().setWorkflow(WORKFLOW).setTargetResource(DATABASE)
+            .setTargetPartitionStates(Sets.newHashSet(MasterSlaveSMD.States.MASTER.name()))
+            .setNumConcurrentTasksPerInstance(100).setFailureThreshold(2).setMaxAttemptsPerTask(2)
+            .setCommand(MockTask.TASK_COMMAND)
+            .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "99999999")); // task stuck
 
     Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW).addJob(JOB, jobBuilder);
 
@@ -267,32 +253,30 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
     // All tasks stuck on the same instance
     Assert.assertTrue(checkTasksOnSameInstances());
     // Add a new instance, partition is rebalanced
+    System.out.println("Start new participant");
     startParticipant(_initialNumNodes);
-    HelixClusterVerifier clusterVerifier =
+    ZkHelixClusterVerifier clusterVerifier =
         new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkClient(_gZkClient)
             .setResources(Sets.newHashSet(DATABASE)).build();
-    Assert.assertTrue(clusterVerifier.verify(10*1000));
+    Assert.assertTrue(clusterVerifier.verify(10 * 1000));
     // Running tasks are also rebalanced, even though RebalanceRunningTask is disabled
     Assert.assertTrue(checkTasksOnDifferentInstances());
   }
 
   /**
    * Task type: fixed target
-   * Rebalance raunning task: enabled
+   * Rebalance running task: enabled
    * Story: new node added
    */
   @Test
   public void testFixedTargetTaskAndEnabledRebalanceAndNodeAdded() throws InterruptedException {
     WORKFLOW = TestHelper.getTestMethodName();
-    JobConfig.Builder jobBuilder = new JobConfig.Builder()
-        .setWorkflow(WORKFLOW)
-        .setTargetResource(DATABASE)
-        .setTargetPartitionStates(Sets.newHashSet(MasterSlaveSMD.States.MASTER.name()))
-        .setNumConcurrentTasksPerInstance(100)
-        .setRebalanceRunningTask(true)
-        .setCommand(MockTask.TASK_COMMAND)
-        .setJobCommandConfigMap(
-            ImmutableMap.of(MockTask.JOB_DELAY, "99999999")); // task stuck
+    JobConfig.Builder jobBuilder =
+        new JobConfig.Builder().setWorkflow(WORKFLOW).setTargetResource(DATABASE)
+            .setTargetPartitionStates(Sets.newHashSet(MasterSlaveSMD.States.MASTER.name()))
+            .setNumConcurrentTasksPerInstance(100).setRebalanceRunningTask(true)
+            .setCommand(MockTask.TASK_COMMAND)
+            .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "99999999")); // task stuck
 
     Workflow.Builder workflowBuilder = new Workflow.Builder(WORKFLOW).addJob(JOB, jobBuilder);
 
@@ -300,12 +284,14 @@ public final class TestRebalanceRunningTask extends TaskSynchronizedTestBase {
 
     // All tasks stuck on the same instance
     Assert.assertTrue(checkTasksOnSameInstances());
+
     // Add a new instance, partition is rebalanced
     startParticipant(_initialNumNodes);
-    HelixClusterVerifier clusterVerifier =
+    ZkHelixClusterVerifier clusterVerifier =
         new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkClient(_gZkClient)
             .setResources(Sets.newHashSet(DATABASE)).build();
-    Assert.assertTrue(clusterVerifier.verify(10*1000));
+    Assert.assertTrue(clusterVerifier.verify(10 * 1000));
+
     // Running tasks are also rebalanced
     Assert.assertTrue(checkTasksOnDifferentInstances());
   }

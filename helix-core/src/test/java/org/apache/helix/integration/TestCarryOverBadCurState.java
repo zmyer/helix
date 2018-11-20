@@ -20,11 +20,10 @@ package org.apache.helix.integration;
  */
 
 import java.util.Date;
-
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.tools.ClusterStateVerifier;
@@ -33,7 +32,7 @@ import org.apache.helix.tools.ClusterStateVerifier.MasterNbInExtViewVerifier;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class TestCarryOverBadCurState extends ZkIntegrationTestBase {
+public class TestCarryOverBadCurState extends ZkTestBase {
   @Test
   public void testCarryOverBadCurState() throws Exception {
     System.out.println("START testCarryOverBadCurState at " + new Date(System.currentTimeMillis()));
@@ -83,7 +82,7 @@ public class TestCarryOverBadCurState extends ZkIntegrationTestBase {
     for (int i = 0; i < 5; i++) {
       participants[i].syncStop();
     }
+    deleteCluster(clusterName);
     System.out.println("END testCarryOverBadCurState at " + new Date(System.currentTimeMillis()));
-
   }
 }

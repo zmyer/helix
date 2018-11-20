@@ -18,7 +18,6 @@ package org.apache.helix.spectator;
  * specific language governing permissions and limitations
  * under the License.
  */
-
 import org.apache.helix.HelixConstants;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
@@ -34,6 +33,7 @@ import org.apache.helix.api.listeners.LiveInstanceChangeListener;
 import org.apache.helix.api.listeners.PreFetch;
 import org.apache.helix.api.listeners.RoutingTableChangeListener;
 import org.apache.helix.common.ClusterEventProcessor;
+import org.apache.helix.common.caches.CurrentStateSnapshot;
 import org.apache.helix.controller.stages.AttributeName;
 import org.apache.helix.controller.stages.ClusterEvent;
 import org.apache.helix.controller.stages.ClusterEventType;
@@ -41,69 +41,88 @@ import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.LiveInstance;
+import org.apache.helix.monitoring.mbeans.RoutingTableProviderMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.management.JMException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-// TODO: 2018/7/25 by zmyer
 public class RoutingTableProvider
-        implements ExternalViewChangeListener, InstanceConfigChangeListener, ConfigChangeListener,
-        LiveInstanceChangeListener, CurrentStateChangeListener {
-    private static final Logger logger = LoggerFactory.getLogger(RoutingTableProvider.class);
-    private static final long DEFAULT_PERIODIC_REFRESH_INTERVAL = 300000; // 5 minutes
-    private final AtomicReference<RoutingTable> _routingTableRef;
-    private final HelixManager _helixManager;
-    private final RouterUpdater _routerUpdater;
-    private final PropertyType _sourceDataType;
-    private final Map<RoutingTableChangeListener, ListenerContext> _routingTableChangeListenerMap;
+    implements ExternalViewChangeListener, InstanceConfigChangeListener, ConfigChangeListener,
+               LiveInstanceChangeListener, CurrentStateChangeListener {
+  private static final Logger logger = LoggerFactory.getLogger(RoutingTableProvider.class);
+  private static final long DEFAULT_PERIODIC_REFRESH_INTERVAL = 300000L; // 5 minutes
+  private final AtomicReference<RoutingTable> _routingTableRef;
+  private final HelixManager _helixManager;
+  private final RouterUpdater _routerUpdater;
+  private final PropertyType _sourceDataType;
+  private final Map<RoutingTableChangeListener, ListenerContext> _routingTableChangeListenerMap;
+  private final RoutingTableProviderMonitor _monitor;
 
-    // For periodic refresh
-    private long _lastRefreshTimestamp;
-    private boolean _isPeriodicRefreshEnabled = true; // Default is enabled
-    private long _periodRefreshInterval;
-    private ScheduledThreadPoolExecutor _periodicRefreshExecutor;
+  // For periodic refresh
+  private long _lastRefreshTimestamp;
+  private boolean _isPeriodicRefreshEnabled = true; // Default is enabled
+  private long _periodRefreshInterval;
+  private ScheduledThreadPoolExecutor _periodicRefreshExecutor;
+  // For computing intensive reporting logic
+  private ExecutorService _reportExecutor;
+  private Future _reportingTask = null;
+
 
     public RoutingTableProvider() {
         this(null);
     }
 
-    public RoutingTableProvider(HelixManager helixManager) throws HelixException {
-        this(helixManager, PropertyType.EXTERNALVIEW, true, DEFAULT_PERIODIC_REFRESH_INTERVAL);
-    }
+  public RoutingTableProvider(HelixManager helixManager) throws HelixException {
+    this(helixManager, PropertyType.EXTERNALVIEW, true, DEFAULT_PERIODIC_REFRESH_INTERVAL);
+  }
 
     public RoutingTableProvider(HelixManager helixManager, PropertyType sourceDataType)
             throws HelixException {
         this(helixManager, sourceDataType, true, DEFAULT_PERIODIC_REFRESH_INTERVAL);
     }
 
-    /**
-     * Initialize an instance of RoutingTableProvider
-     *
-     * @param helixManager
-     * @param sourceDataType
-     * @param isPeriodicRefreshEnabled true if periodic refresh is enabled, false otherwise
-     * @param periodRefreshInterval only effective if isPeriodRefreshEnabled is true
-     * @throws HelixException
-     */
-    public RoutingTableProvider(HelixManager helixManager, PropertyType sourceDataType,
-            boolean isPeriodicRefreshEnabled, long periodRefreshInterval) throws HelixException {
-        _routingTableRef = new AtomicReference<>(new RoutingTable());
-        _helixManager = helixManager;
-        _sourceDataType = sourceDataType;
-        _routingTableChangeListenerMap = new ConcurrentHashMap<>();
-        String clusterName = _helixManager != null ? _helixManager.getClusterName() : null;
-        _routerUpdater = new RouterUpdater(clusterName, _sourceDataType);
-        _routerUpdater.start();
+  /**
+   * Initialize an instance of RoutingTableProvider
+   *
+   * @param helixManager
+   * @param sourceDataType
+   * @param isPeriodicRefreshEnabled true if periodic refresh is enabled, false otherwise
+   * @param periodRefreshInterval only effective if isPeriodRefreshEnabled is true
+   * @throws HelixException
+   */
+  public RoutingTableProvider(HelixManager helixManager, PropertyType sourceDataType,
+      boolean isPeriodicRefreshEnabled, long periodRefreshInterval) throws HelixException {
+    _routingTableRef = new AtomicReference<>(new RoutingTable());
+    _helixManager = helixManager;
+    _sourceDataType = sourceDataType;
+    _routingTableChangeListenerMap = new ConcurrentHashMap<>();
+    String clusterName = _helixManager != null ? _helixManager.getClusterName() : null;
+
+    _monitor = new RoutingTableProviderMonitor(_sourceDataType, clusterName);
+    try {
+      _monitor.register();
+    } catch (JMException e) {
+      logger.error("Failed to register RoutingTableProvider monitor MBean.", e);
+    }
+    _reportExecutor = Executors.newSingleThreadExecutor();
+
+    _routerUpdater = new RouterUpdater(clusterName, _sourceDataType);
+    _routerUpdater.start();
 
         if (_helixManager != null) {
             switch (_sourceDataType) {
@@ -156,59 +175,62 @@ public class RoutingTableProvider
             }
         }
 
-        // For periodic refresh
-        if (isPeriodicRefreshEnabled) {
-            _lastRefreshTimestamp = System.currentTimeMillis(); // Initialize timestamp with current time
-            _periodRefreshInterval = periodRefreshInterval;
-            // Construct a periodic refresh context
-            final NotificationContext periodicRefreshContext = new NotificationContext(_helixManager);
-            periodicRefreshContext.setType(NotificationContext.Type.PERIODIC_REFRESH);
-            // Create a thread that runs at specified interval
-            _periodicRefreshExecutor = new ScheduledThreadPoolExecutor(1);
-            _periodicRefreshExecutor.scheduleAtFixedRate(new Runnable() {
-                @Override
-                public void run() {
-                    // If enough time has elapsed since last refresh, queue a refresh event
-                    if (_lastRefreshTimestamp + _periodRefreshInterval < System.currentTimeMillis()) {
-                        // changeType is irrelevant for NotificationContext.Type.PERIODIC_REFRESH
-                        _routerUpdater.queueEvent(periodicRefreshContext, ClusterEventType.PeriodicalRebalance,
-                                null);
-                    }
-                }
-            }, _periodRefreshInterval, _periodRefreshInterval, TimeUnit.MILLISECONDS);
-        } else {
-            _isPeriodicRefreshEnabled = false;
+    // For periodic refresh
+    if (isPeriodicRefreshEnabled && _helixManager != null) {
+      _lastRefreshTimestamp = System.currentTimeMillis(); // Initialize timestamp with current time
+      _periodRefreshInterval = periodRefreshInterval;
+      // Construct a periodic refresh context
+      final NotificationContext periodicRefreshContext = new NotificationContext(_helixManager);
+      periodicRefreshContext.setType(NotificationContext.Type.PERIODIC_REFRESH);
+      // Create a thread that runs at specified interval
+      _periodicRefreshExecutor = new ScheduledThreadPoolExecutor(1);
+      _periodicRefreshExecutor.scheduleAtFixedRate(new Runnable() {
+        @Override
+        public void run() {
+          // If enough time has elapsed since last refresh, queue a refresh event
+          if (_lastRefreshTimestamp + _periodRefreshInterval < System.currentTimeMillis()) {
+            // changeType is irrelevant for NotificationContext.Type.PERIODIC_REFRESH
+            _routerUpdater.queueEvent(periodicRefreshContext, ClusterEventType.PeriodicalRebalance,
+                null);
+          }
         }
+      }, _periodRefreshInterval, _periodRefreshInterval, TimeUnit.MILLISECONDS);
+    } else {
+      _isPeriodicRefreshEnabled = false;
     }
+  }
 
-    /**
-     * Shutdown current RoutingTableProvider. Once it is shutdown, it should never be reused.
-     */
-    public void shutdown() {
-        if (_periodicRefreshExecutor != null) {
-            _periodicRefreshExecutor.purge();
-            _periodicRefreshExecutor.shutdown();
-        }
-        _routerUpdater.shutdown();
-        if (_helixManager != null) {
-            PropertyKey.Builder keyBuilder = _helixManager.getHelixDataAccessor().keyBuilder();
-            switch (_sourceDataType) {
-            case EXTERNALVIEW:
-                _helixManager.removeListener(keyBuilder.externalViews(), this);
-                break;
-            case TARGETEXTERNALVIEW:
-                _helixManager.removeListener(keyBuilder.targetExternalViews(), this);
-                break;
-            case CURRENTSTATES:
-                NotificationContext context = new NotificationContext(_helixManager);
-                context.setType(NotificationContext.Type.FINALIZE);
-                updateCurrentStatesListeners(Collections.<LiveInstance>emptyList(), context);
-                break;
-            default:
-                break;
-            }
-        }
+  /**
+   * Shutdown current RoutingTableProvider. Once it is shutdown, it should never be reused.
+   */
+  public void shutdown() {
+    if (_periodicRefreshExecutor != null) {
+      _periodicRefreshExecutor.purge();
+      _periodicRefreshExecutor.shutdown();
     }
+    _routerUpdater.shutdown();
+
+    _monitor.unregister();
+
+    if (_helixManager != null) {
+      PropertyKey.Builder keyBuilder = _helixManager.getHelixDataAccessor().keyBuilder();
+      switch (_sourceDataType) {
+        case EXTERNALVIEW:
+          _helixManager.removeListener(keyBuilder.externalViews(), this);
+          break;
+        case TARGETEXTERNALVIEW:
+          _helixManager.removeListener(keyBuilder.targetExternalViews(), this);
+          break;
+        case CURRENTSTATES:
+          NotificationContext context = new NotificationContext(_helixManager);
+          context.setType(NotificationContext.Type.FINALIZE);
+          updateCurrentStatesListeners(Collections.<LiveInstance> emptyList(), context);
+          break;
+        default:
+          break;
+      }
+    }
+  }
 
     /**
      * Get an snapshot of current RoutingTable information. The snapshot is immutable, it reflects the
@@ -476,22 +498,21 @@ public class RoutingTableProvider
                 lastSessions = Collections.emptyMap();
             }
 
-            // add listeners to new live instances
-            for (String session : curSessions.keySet()) {
-                if (!lastSessions.containsKey(session)) {
-                    String instanceName = curSessions.get(session).getInstanceName();
-                    try {
-                        // add current-state listeners for new sessions
-                        manager.addCurrentStateChangeListener(this, instanceName, session);
-                        logger.info(
-                                "{} added current-state listener for instance: {}, session: {}, listener: {}",
-                                manager.getInstanceName(), instanceName, session, this);
-                    } catch (Exception e) {
-                        logger.error("Fail to add current state listener for instance: {} with session: {}",
-                                instanceName, session, e);
-                    }
-                }
-            }
+      // add listeners to new live instances
+      for (String session : curSessions.keySet()) {
+        if (!lastSessions.containsKey(session)) {
+          String instanceName = curSessions.get(session).getInstanceName();
+          try {
+            // add current-state listeners for new sessions
+            manager.addCurrentStateChangeListener(this, instanceName, session);
+            logger.info("{} added current-state listener for instance: {}, session: {}, listener: {}",
+                manager.getInstanceName(), instanceName, session, this);
+          } catch (Exception e) {
+            logger.error("Fail to add current state listener for instance: {} with session: {}", instanceName, session,
+                e);
+          }
+        }
+      }
 
             // remove current-state listener for expired session
             for (String session : lastSessions.keySet()) {
@@ -514,21 +535,21 @@ public class RoutingTableProvider
         _routingTableRef.set(newRoutingTable);
     }
 
-    public void refresh(List<ExternalView> externalViewList, NotificationContext changeContext) {
-        HelixDataAccessor accessor = changeContext.getManager().getHelixDataAccessor();
-        PropertyKey.Builder keyBuilder = accessor.keyBuilder();
+  protected void refresh(List<ExternalView> externalViewList, NotificationContext changeContext) {
+    HelixDataAccessor accessor = changeContext.getManager().getHelixDataAccessor();
+    PropertyKey.Builder keyBuilder = accessor.keyBuilder();
 
         List<InstanceConfig> configList = accessor.getChildValues(keyBuilder.instanceConfigs());
         List<LiveInstance> liveInstances = accessor.getChildValues(keyBuilder.liveInstances());
         refresh(externalViewList, configList, liveInstances);
     }
 
-    public void refresh(Collection<ExternalView> externalViews,
-            Collection<InstanceConfig> instanceConfigs, Collection<LiveInstance> liveInstances) {
-        long startTime = System.currentTimeMillis();
-        RoutingTable newRoutingTable = new RoutingTable(externalViews, instanceConfigs, liveInstances);
-        resetRoutingTableAndNotify(startTime, newRoutingTable);
-    }
+  protected void refresh(Collection<ExternalView> externalViews,
+      Collection<InstanceConfig> instanceConfigs, Collection<LiveInstance> liveInstances) {
+    long startTime = System.currentTimeMillis();
+    RoutingTable newRoutingTable = new RoutingTable(externalViews, instanceConfigs, liveInstances);
+    resetRoutingTableAndNotify(startTime, newRoutingTable);
+  }
 
     // TODO: 2018/7/27 by zmyer
     protected void refresh(Map<String, Map<String, Map<String, CurrentState>>> currentStateMap,
@@ -564,45 +585,91 @@ public class RoutingTableProvider
     private class RouterUpdater extends ClusterEventProcessor {
         private final RoutingDataCache _dataCache;
 
-        public RouterUpdater(String clusterName, PropertyType sourceDataType) {
-            super("Helix-RouterUpdater-event_process");
-            _dataCache = new RoutingDataCache(clusterName, sourceDataType);
+    public RouterUpdater(String clusterName, PropertyType sourceDataType) {
+      super(clusterName, "Helix-RouterUpdater-event_process");
+      _dataCache = new RoutingDataCache(clusterName, sourceDataType);
+    }
+
+    @Override
+    protected void handleEvent(ClusterEvent event) {
+      NotificationContext changeContext = event.getAttribute(AttributeName.changeContext.name());
+      // session has expired clean up the routing table
+      if (changeContext.getType() == NotificationContext.Type.FINALIZE) {
+        reset();
+      } else {
+        // refresh routing table.
+        HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
+        if (manager == null) {
+          logger.error(String.format("HelixManager is null for router update event: %s", event));
+          throw new HelixException("HelixManager is null for router update event.");
+        }
+        if (!manager.isConnected()) {
+          logger.error(String.format("HelixManager is not connected for router update event: %s", event));
+          throw new HelixException("HelixManager is not connected for router update event.");
         }
 
-        // TODO: 2018/7/25 by zmyer
-        @Override
-        protected void handleEvent(ClusterEvent event) {
-            NotificationContext changeContext = event.getAttribute(AttributeName.changeContext.name());
-            // session has expired clean up the routing table
-            if (changeContext.getType() == NotificationContext.Type.FINALIZE) {
-                reset();
-            } else {
-                // refresh routing table.
-                HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
-                if (manager == null) {
-                    logger.error(String.format("HelixManager is null for router update event: %s", event));
-                    throw new HelixException("HelixManager is null for router update event.");
-                }
-                _dataCache.refresh(manager.getHelixDataAccessor());
-                switch (_sourceDataType) {
-                case EXTERNALVIEW:
-                    refresh(_dataCache.getExternalViews().values(),
-                            _dataCache.getInstanceConfigMap().values(), _dataCache.getLiveInstances().values());
-                    break;
-                case TARGETEXTERNALVIEW:
-                    refresh(_dataCache.getTargetExternalViews().values(),
-                            _dataCache.getInstanceConfigMap().values(), _dataCache.getLiveInstances().values());
-                    break;
-                case CURRENTSTATES:
-                    refresh(_dataCache.getCurrentStatesMap(), _dataCache.getInstanceConfigMap().values(),
-                            _dataCache.getLiveInstances().values());
-                    break;
-                default:
-                    logger.warn("Unsupported source data type: {}, stop refreshing the routing table!",
-                            _sourceDataType);
-                }
-            }
+        long startTime = System.currentTimeMillis();
+
+        _dataCache.refresh(manager.getHelixDataAccessor());
+        switch (_sourceDataType) {
+        case EXTERNALVIEW:
+          refresh(_dataCache.getExternalViews().values(),
+              _dataCache.getInstanceConfigMap().values(), _dataCache.getLiveInstances().values());
+          break;
+        case TARGETEXTERNALVIEW:
+          refresh(_dataCache.getTargetExternalViews().values(),
+              _dataCache.getInstanceConfigMap().values(), _dataCache.getLiveInstances().values());
+          break;
+        case CURRENTSTATES:
+          refresh(_dataCache.getCurrentStatesMap(), _dataCache.getInstanceConfigMap().values(),
+              _dataCache.getLiveInstances().values());
+
+          recordPropagationLatency(System.currentTimeMillis(), _dataCache.getCurrentStateSnapshot());
+          break;
+        default:
+          logger.warn("Unsupported source data type: {}, stop refreshing the routing table!",
+              _sourceDataType);
         }
+
+        _monitor.increaseDataRefreshCounters(startTime);
+      }
+    }
+
+    /**
+     * Report current state to routing table propagation latency
+     * This method is not threadsafe. Take care of _reportingTask atomicity if use in multi-threads.
+     */
+    private void recordPropagationLatency(final long currentTime, final CurrentStateSnapshot currentStateSnapshot) {
+      // Note that due to the extra mem footprint introduced by currentStateSnapshot ref, we restrict running report task count to be 1.
+      // Any parallel tasks will be skipped. So the reporting metric data is sampled.
+      if (_reportingTask == null || _reportingTask.isDone()) {
+        _reportingTask = _reportExecutor.submit(new Callable<Object>() {
+          @Override public Object call() {
+            // getNewCurrentStateEndTimes() needs to iterate all current states. Make it async to avoid performance impact.
+            Map<PropertyKey, Map<String, Long>> currentStateEndTimeMap =
+                currentStateSnapshot.getNewCurrentStateEndTimes();
+            for (PropertyKey key : currentStateEndTimeMap.keySet()) {
+              Map<String, Long> partitionStateEndTimes = currentStateEndTimeMap.get(key);
+              for (String partition : partitionStateEndTimes.keySet()) {
+                long endTime = partitionStateEndTimes.get(partition);
+                if (currentTime >= endTime) {
+                  _monitor.recordStatePropagationLatency(currentTime - endTime);
+                  logger.debug(
+                      "CurrentState updated in the routing table. Node Key {}, Partition {}, end time {}, Propagation latency {}",
+                      key.toString(), partition, endTime, currentTime - endTime);
+                } else {
+                  // Verbose log in case currentTime < endTime. This could be the case that Router clock is slower than the participant clock.
+                  logger.trace(
+                      "CurrentState updated in the routing table. Node Key {}, Partition {}, end time {}, Propagation latency {}",
+                      key.toString(), partition, endTime, currentTime - endTime);
+                }
+              }
+            }
+            return null;
+          }
+        });
+      }
+    }
 
         // TODO: 2018/7/25 by zmyer
         public void queueEvent(NotificationContext context, ClusterEventType eventType,
@@ -615,12 +682,14 @@ public class RoutingTableProvider
                 _dataCache.notifyDataChange(changeType, context.getPathChanged());
             }
 
-            // Null check for manager in the following line is done in handleEvent()
-            event.addAttribute(AttributeName.helixmanager.name(), context.getManager());
-            event.addAttribute(AttributeName.changeContext.name(), context);
-            queueEvent(event);
-        }
+      // Null check for manager in the following line is done in handleEvent()
+      event.addAttribute(AttributeName.helixmanager.name(), context.getManager());
+      event.addAttribute(AttributeName.changeContext.name(), context);
+      queueEvent(event);
+
+      _monitor.increaseCallbackCounters(_eventQueue.size());
     }
+  }
 
     private class ListenerContext {
         private Object _context;

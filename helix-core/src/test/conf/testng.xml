@@ -18,25 +18,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 <!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
-<suite name="Suite" parallel="none">
+<suite name="Suite" parallel="none" time-out="300000">
   <test name="Test" preserve-order="true">
     <packages>
-    	<package name="org.apache.helix.*"/>
-    <!--
-      <package name="org.apache.helix.messaging.handling"/>
-      <package name="org.apache.helix.agent.file"/>
-      <package name="org.apache.helix.monitoring"/>
-      <package name="org.apache.helix.store.zk"/>
-      <package name="org.apache.helix.messaging"/>
-      <package name="org.apache.helix.controller.stages"/>
-      <package name="org.apache.helix.store.file"/>
-      <package name="org.apache.helix.store"/>
-      <package name="org.apache.helix.monitoring.mbeans"/>
-      <package name="org.apache.helix.participant"/>
-      <package name="org.apache.helix"/>
-      <package name="org.apache.helix.agent.zk"/>
-      <package name="org.apache.helix.integration"/>
-      -->
+        <package name="org.apache.helix.*"/>
     </packages>
   </test>
-</suite>	
+</suite>

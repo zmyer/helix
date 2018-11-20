@@ -416,10 +416,8 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
             // Check to see if dedicate thread pool for handling state transition messages is configured or provided.
             updateStateTransitionMessageThreadPool(message, manager);
 
-            LOG.info("Scheduling message: " + taskId);
-            // System.out.println("sched msg: " + message.getPartitionName() + "-"
-            // + message.getTgtName() + "-" + message.getFromState() + "-"
-            // + message.getToState());
+      LOG.info("Scheduling message {}: {}:{}, {}->{}", taskId, message.getResourceName(),
+          message.getPartitionName(), message.getFromState(), message.getToState());
 
             _statusUpdateUtil.logInfo(message, HelixTaskExecutor.class,
                     "Message handling task scheduled", manager);
@@ -490,27 +488,26 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
                 _statusUpdateUtil.logInfo(message, HelixTaskExecutor.class, "Canceling task: " + taskId,
                         notificationContext.getManager());
 
-                // If the thread is still running it will be interrupted if cancel(true)
-                // is called. So state transition callbacks should implement logic to
-                // return if it is interrupted.
-                if (future.cancel(true)) {
-                    _statusUpdateUtil.logInfo(message, HelixTaskExecutor.class, "Canceled task: " + taskId,
-                            notificationContext.getManager());
-                    _taskMap.remove(taskId);
-                    return true;
-                } else {
-                    _statusUpdateUtil.logInfo(message, HelixTaskExecutor.class,
-                            "fail to cancel task: " + taskId,
-                            notificationContext.getManager());
-                }
-            } else {
-                _statusUpdateUtil.logWarning(message, HelixTaskExecutor.class,
-                        "fail to cancel task: " + taskId + ", future not found",
-                        notificationContext.getManager());
-            }
+        // If the thread is still running it will be interrupted if cancel(true)
+        // is called. So state transition callbacks should implement logic to
+        // return if it is interrupted.
+        if (future.cancel(true)) {
+          _statusUpdateUtil.logInfo(message, HelixTaskExecutor.class, "Canceled task: " + taskId,
+              notificationContext.getManager());
+          _taskMap.remove(taskId);
+          return true;
+        } else {
+          _statusUpdateUtil.logInfo(message, HelixTaskExecutor.class,
+              "fail to cancel task: " + taskId, notificationContext.getManager());
         }
-        return false;
+      } else {
+        _statusUpdateUtil.logWarning(message, HelixTaskExecutor.class,
+            "fail to cancel task: " + taskId + ", future not found",
+            notificationContext.getManager());
+      }
     }
+    return false;
+  }
 
     @Override
     public void finishTask(MessageTask task) {
@@ -802,25 +799,16 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
                 continue;
             }
 
-            if (message.isExpired()) {
-                LOG.info(
-                        "Dropping expired message. mid: " + message.getId() + ", from: " + message.getMsgSrc() +
-                                " relayed from: "
-                                + message.getRelaySrcHost());
-                reportAndRemoveMessage(message, accessor, instanceName, ProcessedMessageState.DISCARDED);
-                continue;
-            }
-
-            String tgtSessionId = message.getTgtSessionId();
-            // sessionId mismatch normally means message comes from expired session, just remove it
-            if (!sessionId.equals(tgtSessionId) && !tgtSessionId.equals("*")) {
-                String warningMessage =
-                        "SessionId does NOT match. expected sessionId: " + sessionId
-                                + ", tgtSessionId in message: " + tgtSessionId + ", messageId: "
-                                + message.getMsgId();
-                LOG.warn(warningMessage);
-                reportAndRemoveMessage(message, accessor, instanceName, ProcessedMessageState.DISCARDED);
-                _statusUpdateUtil.logWarning(message, HelixStateMachineEngine.class, warningMessage, manager);
+      String tgtSessionId = message.getTgtSessionId();
+      // sessionId mismatch normally means message comes from expired session, just remove it
+      if (!sessionId.equals(tgtSessionId) && !tgtSessionId.equals("*")) {
+        String warningMessage =
+            "SessionId does NOT match. expected sessionId: " + sessionId
+                + ", tgtSessionId in message: " + tgtSessionId + ", messageId: "
+                + message.getMsgId();
+        LOG.warn(warningMessage);
+        reportAndRemoveMessage(message, accessor, instanceName, ProcessedMessageState.DISCARDED);
+        _statusUpdateUtil.logWarning(message, HelixStateMachineEngine.class, warningMessage, manager);
 
                 // Proactively send a session sync message from participant to controller
                 // upon session mismatch after a new session is established
@@ -857,49 +845,72 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
                 continue;
             }
 
-            // State Transition Cancellation
-            if (message.getMsgType().equals(MessageType.STATE_TRANSITION_CANCELLATION.name())) {
-                boolean success = cancelNotStartedStateTransition(message, stateTransitionHandlers, accessor,
-                        instanceName);
-                if (success) {
-                    continue;
-                }
-            }
+      if (message.isExpired()) {
+        LOG.info(
+            "Dropping expired message. mid: " + message.getId() + ", from: " + message.getMsgSrc()
+                + " relayed from: " + message.getRelaySrcHost());
+        reportAndRemoveMessage(message, accessor, instanceName, ProcessedMessageState.DISCARDED);
+        continue;
+      }
+
+      // State Transition Cancellation
+      if (message.getMsgType().equals(MessageType.STATE_TRANSITION_CANCELLATION.name())) {
+        boolean success = cancelNotStartedStateTransition(message, stateTransitionHandlers, accessor, instanceName);
+        if (success) {
+          continue;
+        }
+      }
 
             _monitor.reportReceivedMessage(message);
 
-            // create message handlers, if handlers not found, leave its state as NEW
-            NotificationContext msgWorkingContext = changeContext.clone();
-            try {
-                MessageHandler createHandler = createMessageHandler(message, msgWorkingContext);
-                if (createHandler == null) {
-                    continue;
-                }
-                if (message.getMsgType().equals(MessageType.STATE_TRANSITION.name()) || message.getMsgType()
-                        .equals(MessageType.STATE_TRANSITION_CANCELLATION.name())) {
-                    String messageTarget =
-                            getMessageTarget(message.getResourceName(), message.getPartitionName());
-                    if (stateTransitionHandlers.containsKey(messageTarget)) {
-                        Message duplicatedMessage = stateTransitionHandlers.get(messageTarget)._message;
-                        throw new HelixException(String.format(
-                                "Duplicated state transition message: %s. Existing: %s -> %s; New (Discarded): %s -> %s",
-                                message.getMsgId(), duplicatedMessage.getFromState(),
-                                duplicatedMessage.getToState(), message.getFromState(), message.getToState()));
-                    }
-                    stateTransitionHandlers
-                            .put(getMessageTarget(message.getResourceName(), message.getPartitionName()),
-                                    createHandler);
-                    stateTransitionContexts
-                            .put(getMessageTarget(message.getResourceName(), message.getPartitionName()),
-                                    msgWorkingContext);
-                } else {
-                    nonStateTransitionHandlers.add(createHandler);
-                    nonStateTransitionContexts.add(msgWorkingContext);
-                }
-            } catch (Exception e) {
-                LOG.error("Failed to create message handler for " + message.getMsgId(), e);
-                String error =
-                        "Failed to create message handler for " + message.getMsgId() + ", exception: " + e;
+      // create message handlers, if handlers not found, leave its state as NEW
+      NotificationContext msgWorkingContext = changeContext.clone();
+      try {
+        MessageHandler createHandler = createMessageHandler(message, msgWorkingContext);
+        if (createHandler == null) {
+          continue;
+        }
+        if (message.getMsgType().equals(MessageType.STATE_TRANSITION.name()) || message.getMsgType()
+            .equals(MessageType.STATE_TRANSITION_CANCELLATION.name())) {
+          String messageTarget =
+              getMessageTarget(message.getResourceName(), message.getPartitionName());
+          if (stateTransitionHandlers.containsKey(messageTarget)) {
+            // If there are 2 messages in same batch about same partition's state transition,
+            // the later one is discarded
+            Message duplicatedMessage = stateTransitionHandlers.get(messageTarget)._message;
+            throw new HelixException(String.format(
+                "Duplicated state transition message: %s. Existing: %s->%s; New (Discarded): %s->%s",
+                message.getMsgId(), duplicatedMessage.getFromState(),
+                duplicatedMessage.getToState(), message.getFromState(), message.getToState()));
+          } else if (message.getMsgType().equals(MessageType.STATE_TRANSITION.name())
+              && isStateTransitionInProgress(messageTarget)) {
+
+            String taskId = _messageTaskMap.get(messageTarget);
+            Message msg = _taskMap.get(taskId).getTask().getMessage();
+
+            // If there is another state transition for same partition is going on,
+            // discard the message. Controller will resend if this is a valid message
+            throw new HelixException(String.format(
+                "Another state transition for %s:%s is in progress with msg: %s, p2p: %s, read: %d, current:%d. Discarding %s->%s message",
+                message.getResourceName(), message.getPartitionName(), msg.getMsgId(), String.valueOf(msg.isRelayMessage()),
+                msg.getReadTimeStamp(), System.currentTimeMillis(), message.getFromState(),
+                message.getToState()));
+          }
+
+          stateTransitionHandlers
+              .put(getMessageTarget(message.getResourceName(), message.getPartitionName()),
+                  createHandler);
+          stateTransitionContexts
+              .put(getMessageTarget(message.getResourceName(), message.getPartitionName()),
+                  msgWorkingContext);
+        } else {
+          nonStateTransitionHandlers.add(createHandler);
+          nonStateTransitionContexts.add(msgWorkingContext);
+        }
+      } catch (Exception e) {
+        LOG.error("Failed to create message handler for " + message.getMsgId(), e);
+        String error =
+            "Failed to create message handler for " + message.getMsgId() + ", exception: " + e;
 
                 _statusUpdateUtil.logError(message, HelixStateMachineEngine.class, e, error, manager);
 
@@ -952,25 +963,45 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
         if (readMsgs.size() > 0) {
             updateMessageState(readMsgs, accessor, instanceName);
 
-            for (Map.Entry<String, MessageHandler> handlerEntry : stateTransitionHandlers.entrySet()) {
-                MessageHandler handler = handlerEntry.getValue();
-                NotificationContext context = stateTransitionContexts.get(handlerEntry.getKey());
-                Message msg = handler._message;
-                scheduleTask(
-                        new HelixTask(msg, context, handler, this)
-                );
-            }
-
-            for (int i = 0; i < nonStateTransitionHandlers.size(); i++) {
-                MessageHandler handler = nonStateTransitionHandlers.get(i);
-                NotificationContext context = nonStateTransitionContexts.get(i);
-                Message msg = handler._message;
-                scheduleTask(
-                        new HelixTask(msg, context, handler, this)
-                );
-            }
+      // Remove message if schedule tasks are failed.
+      for (Map.Entry<String, MessageHandler> handlerEntry : stateTransitionHandlers.entrySet()) {
+        MessageHandler handler = handlerEntry.getValue();
+        NotificationContext context = stateTransitionContexts.get(handlerEntry.getKey());
+        Message msg = handler._message;
+        if (!scheduleTask(new HelixTask(msg, context, handler, this))) {
+          removeMessageFromTaskAndFutureMap(msg);
+          removeMessageFromZK(accessor, msg, instanceName);
         }
+      }
+
+      for (int i = 0; i < nonStateTransitionHandlers.size(); i++) {
+        MessageHandler handler = nonStateTransitionHandlers.get(i);
+        NotificationContext context = nonStateTransitionContexts.get(i);
+        Message msg = handler._message;
+        if (!scheduleTask(new HelixTask(msg, context, handler, this))) {
+          removeMessageFromTaskAndFutureMap(msg);
+          removeMessageFromZK(accessor, msg, instanceName);
+        }
+      }
     }
+  }
+
+  /**
+   * Check if a state transition of the given message target is in progress. This function
+   * assumes the given message target corresponds to a state transition task
+   *
+   * @param messageTarget message target generated by getMessageTarget()
+   * @return true if there is a task going on with same message target else false
+   */
+  private boolean isStateTransitionInProgress(String messageTarget) {
+    synchronized (_lock) {
+      if (_messageTaskMap.containsKey(messageTarget)) {
+        String taskId = _messageTaskMap.get(messageTarget);
+        return !_taskMap.get(taskId).getFuture().isDone();
+      }
+      return false;
+    }
+  }
 
     // Try to cancel this state transition that has not been started yet.
     // Three Types of Cancellation: 1. Message arrived with previous state transition
@@ -1084,9 +1115,9 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
                 && stateTranstionMessage.getToState().equalsIgnoreCase(cancellationMessage.getToState());
     }
 
-    private String getMessageTarget(String resourceName, String partitionName) {
-        return String.format("%s_%s", resourceName, partitionName);
-    }
+  String getMessageTarget(String resourceName, String partitionName) {
+    return String.format("%s_%s", resourceName, partitionName);
+  }
 
     private String getStateTransitionType(String prefix, String fromState, String toState) {
         if (prefix == null || fromState == null || toState == null) {

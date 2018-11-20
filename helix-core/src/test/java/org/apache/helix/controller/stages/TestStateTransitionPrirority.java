@@ -29,7 +29,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import org.apache.helix.api.config.StateTransitionThrottleConfig;
 import org.apache.helix.controller.common.PartitionStateMap;
 import org.apache.helix.model.ClusterConfig;
@@ -149,7 +148,7 @@ public class TestStateTransitionPrirority extends BaseStageTest {
     // Add load rebalance throttle config
     ClusterConfig clusterConfig = accessor.getProperty(accessor.keyBuilder().clusterConfig());
     StateTransitionThrottleConfig throttleConfigForLoadRebalance =
-        new StateTransitionThrottleConfig(StateTransitionThrottleConfig.RebalanceType.LOAD_BALANCE,
+        new StateTransitionThrottleConfig(StateTransitionThrottleConfig.RebalanceType.ANY,
             StateTransitionThrottleConfig.ThrottleScope.CLUSTER, 1);
     List<StateTransitionThrottleConfig> currentThrottleConfig =
         clusterConfig.getStateTransitionThrottleConfigs();
@@ -177,7 +176,8 @@ public class TestStateTransitionPrirority extends BaseStageTest {
 
     event.addAttribute(AttributeName.RESOURCES.name(),
         Collections.singletonMap(resourceName, resource));
-    event.addAttribute(AttributeName.RESOURCES_TO_REBALANCE.name(), resource);
+    event.addAttribute(AttributeName.RESOURCES_TO_REBALANCE.name(),
+        Collections.singletonMap(resourceName, resource));
     event.addAttribute(AttributeName.BEST_POSSIBLE_STATE.name(), bestPossibleStateOutput);
     event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
     runStage(event, new ReadClusterDataStage());

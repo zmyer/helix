@@ -19,12 +19,16 @@ package org.apache.helix.spectator;
  * under the License.
  */
 
+import java.util.Map;
+import java.util.Set;
+
 import org.apache.helix.HelixConstants;
 import org.apache.helix.HelixDataAccessor;
-import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyType;
 import org.apache.helix.common.caches.BasicClusterDataCache;
 import org.apache.helix.common.caches.CurrentStateCache;
+import org.apache.helix.common.caches.CurrentStateSnapshot;
+import org.apache.helix.common.caches.TargetExternalViewCache;
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.LiveInstance;
@@ -41,17 +45,17 @@ import java.util.Map;
 class RoutingDataCache extends BasicClusterDataCache {
     private static Logger LOG = LoggerFactory.getLogger(RoutingDataCache.class.getName());
 
-    private final PropertyType _sourceDataType;
-    private CurrentStateCache _currentStateCache;
-    private Map<String, ExternalView> _targetExternalViewMap;
+  private final PropertyType _sourceDataType;
+  private CurrentStateCache _currentStateCache;
+  private TargetExternalViewCache _targetExternalViewCache;
 
-    public RoutingDataCache(String clusterName, PropertyType sourceDataType) {
-        super(clusterName);
-        _sourceDataType = sourceDataType;
-        _currentStateCache = new CurrentStateCache(clusterName);
-        _targetExternalViewMap = Collections.emptyMap();
-        requireFullRefresh();
-    }
+  public RoutingDataCache(String clusterName, PropertyType sourceDataType) {
+    super(clusterName);
+    _sourceDataType = sourceDataType;
+    _currentStateCache = new CurrentStateCache(clusterName);
+    _targetExternalViewCache = new TargetExternalViewCache(clusterName);
+    requireFullRefresh();
+  }
 
     /**
      * This refreshes the cluster data by re-fetching the data from zookeeper in an efficient way
@@ -67,53 +71,55 @@ class RoutingDataCache extends BasicClusterDataCache {
 
         super.refresh(accessor);
 
-        if (_sourceDataType.equals(PropertyType.TARGETEXTERNALVIEW) && _propertyDataChangedMap
-                .get(HelixConstants.ChangeType.TARGET_EXTERNAL_VIEW)) {
-            long start = System.currentTimeMillis();
-            PropertyKey.Builder keyBuilder = accessor.keyBuilder();
-            _propertyDataChangedMap
-                    .put(HelixConstants.ChangeType.TARGET_EXTERNAL_VIEW, Boolean.valueOf(false));
-            _targetExternalViewMap = accessor.getChildValuesMap(keyBuilder.targetExternalViews());
-            LOG.info("Reload TargetExternalViews: " + _targetExternalViewMap.keySet() + ". Takes " + (
-                    System.currentTimeMillis() - start) + " ms");
-        }
+    if (_sourceDataType.equals(PropertyType.TARGETEXTERNALVIEW) && _propertyDataChangedMap
+        .get(HelixConstants.ChangeType.TARGET_EXTERNAL_VIEW)) {
+      long start = System.currentTimeMillis();
+      _propertyDataChangedMap
+          .put(HelixConstants.ChangeType.TARGET_EXTERNAL_VIEW, Boolean.valueOf(false));
+      _targetExternalViewCache.refresh(accessor);
+      LOG.info("Reload " + _targetExternalViewCache.getExternalViewMap().keySet().size()
+          + " TargetExternalViews. Takes " + (System.currentTimeMillis() - start) + " ms");
+    }
 
-        if (_sourceDataType.equals(PropertyType.CURRENTSTATES) && _propertyDataChangedMap
-                .get(HelixConstants.ChangeType.CURRENT_STATE)) {
-            long start = System.currentTimeMillis();
-            Map<String, LiveInstance> liveInstanceMap = getLiveInstances();
-            _currentStateCache.refresh(accessor, liveInstanceMap);
-            LOG.info("Reload CurrentStates: " + _targetExternalViewMap.keySet() + ". Takes " + (
-                    System.currentTimeMillis() - start) + " ms");
-        }
+    if (_sourceDataType.equals(PropertyType.CURRENTSTATES) && _propertyDataChangedMap
+        .get(HelixConstants.ChangeType.CURRENT_STATE)) {
+      long start = System.currentTimeMillis();
+      Map<String, LiveInstance> liveInstanceMap = getLiveInstances();
+      _currentStateCache.refresh(accessor, liveInstanceMap);
+      LOG.info("Reload CurrentStates. Takes " + (System.currentTimeMillis() - start) + " ms");
+    }
 
         long endTime = System.currentTimeMillis();
         LOG.info("END: RoutingDataCache.refresh() for cluster " + _clusterName + ", took " + (endTime
                 - startTime) + " ms");
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("CurrentStates: " + _currentStateCache);
-            LOG.debug("TargetExternalViews: " + _targetExternalViewMap);
-        }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("CurrentStates: " + _currentStateCache);
+      LOG.debug("TargetExternalViews: " + _targetExternalViewCache.getExternalViewMap());
     }
+  }
 
-    /**
-     * Retrieves the TargetExternalView for all resources
-     *
-     * @return
-     */
-    public Map<String, ExternalView> getTargetExternalViews() {
-        return Collections.unmodifiableMap(_targetExternalViewMap);
-    }
+  /**
+   * Retrieves the TargetExternalView for all resources
+   *
+   * @return
+   */
+  public Map<String, ExternalView> getTargetExternalViews() {
+    return _targetExternalViewCache.getExternalViewMap();
+  }
 
-    /**
-     * Get map of current states in cluster. {InstanceName -> {SessionId -> {ResourceName ->
-     * CurrentState}}}
-     *
-     * @return
-     */
-    public Map<String, Map<String, Map<String, CurrentState>>> getCurrentStatesMap() {
-        return _currentStateCache.getCurrentStatesMap();
-    }
+  /**
+   * Get map of current states in cluster. {InstanceName -> {SessionId -> {ResourceName ->
+   * CurrentState}}}
+   *
+   * @return
+   */
+  public Map<String, Map<String, Map<String, CurrentState>>> getCurrentStatesMap() {
+    return _currentStateCache.getCurrentStatesMap();
+  }
+
+  public CurrentStateSnapshot getCurrentStateSnapshot() {
+    return _currentStateCache.getSnapshot();
+  }
 }
 

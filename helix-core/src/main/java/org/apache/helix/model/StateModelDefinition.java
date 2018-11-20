@@ -71,7 +71,7 @@ public class StateModelDefinition extends HelixProperty {
 
     private final List<String> _stateTransitionPriorityList;
 
-    Map<String, Integer> _statesPriorityMap = new HashMap<String, Integer>();
+  private Map<String, Integer> _statesPriorityMap = new HashMap<>();
 
     /**
      * StateTransition which is used to find the nextState given StartState and
@@ -114,12 +114,20 @@ public class StateModelDefinition extends HelixProperty {
             }
         }
 
-        // add transitions for helix-defined states
-        for (HelixDefinedState state : HelixDefinedState.values()) {
-            if (!_statesPriorityList.contains(state.toString())) {
-                _statesCountMap.put(state.toString(), "-1");
-            }
-        }
+    // add HelixDefinedStates to statesPriorityMap in case it hasn't been added already
+    for (HelixDefinedState state : HelixDefinedState.values()) {
+      if (!_statesPriorityMap.containsKey(state.name())) {
+        // Make it the lowest priority
+        _statesPriorityMap.put(state.name(), Integer.MAX_VALUE);
+      }
+    }
+
+    // add transitions for helix-defined states
+    for (HelixDefinedState state : HelixDefinedState.values()) {
+      if (_statesPriorityList == null || !_statesPriorityList.contains(state.toString())) {
+        _statesCountMap.put(state.toString(), "-1");
+      }
+    }
 
         addDefaultTransition(HelixDefinedState.ERROR.toString(), HelixDefinedState.DROPPED.toString(),
                 HelixDefinedState.DROPPED.toString());

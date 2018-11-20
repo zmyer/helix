@@ -23,24 +23,31 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import org.I0Itec.zkclient.IZkChildListener;
 import org.I0Itec.zkclient.IZkDataListener;
-import org.apache.helix.*;
+import org.apache.helix.CurrentStateChangeListener;
+import org.apache.helix.NotificationContext;
+import org.apache.helix.PropertyKey;
+import org.apache.helix.TestHelper;
+import org.apache.helix.ZkTestHelper;
+import org.apache.helix.ZkUnitTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.integration.manager.ZkTestManager;
 import org.apache.helix.manager.zk.CallbackHandler;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.CurrentState;
-import org.apache.helix.monitoring.mbeans.ThreadPoolExecutorMonitor;
 import org.apache.helix.tools.ClusterStateVerifier;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
+
+  private static Logger LOG = LoggerFactory.getLogger(TestZkCallbackHandlerLeak.class);
 
   @Test
   public void testCbHandlerLeakOnParticipantSessionExpiry() throws Exception {
@@ -75,8 +82,8 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
       participants[i].syncStart();
     }
 
-    HelixClusterVerifier verifier = new BestPossibleExternalViewVerifier.Builder(clusterName).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(verifier.verify());
+    ZkHelixClusterVerifier verifier = new BestPossibleExternalViewVerifier.Builder(clusterName).setZkAddr(ZK_ADDR).build();
+    Assert.assertTrue(verifier.verifyByPolling());
     final MockParticipantManager participantManagerToExpire = participants[1];
 
     // check controller zk-watchers
@@ -126,8 +133,9 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
 
     ZkTestHelper.expireSession(participantManagerToExpire.getZkClient());
     String newSessionId = participantManagerToExpire.getSessionId();
-    System.out.println("Expried participant session. oldSessionId: " + oldSessionId
-        + ", newSessionId: " + newSessionId);
+    System.out.println(
+        "Expried participant session. oldSessionId: " + oldSessionId + ", newSessionId: "
+            + newSessionId);
 
     result =
         ClusterStateVerifier.verifyByPolling(new ClusterStateVerifier.BestPossAndExtViewZkVerifier(
@@ -179,6 +187,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
     for (int i = 0; i < n; i++) {
       participants[i].syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -216,9 +225,9 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
       participants[i].syncStart();
     }
 
-    HelixClusterVerifier verifier =
+    ZkHelixClusterVerifier verifier =
         new BestPossibleExternalViewVerifier.Builder(clusterName).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(verifier.verify());
+    Assert.assertTrue(verifier.verifyByPolling());
     final MockParticipantManager participantManager = participants[0];
 
     // wait until we get all the listeners registered
@@ -237,7 +246,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
 
     int controllerHandlerNb = controller.getHandlers().size();
     int particHandlerNb = participantManager.getHandlers().size();
-    Assert.assertEquals(controllerHandlerNb, 11,
+    Assert.assertEquals(controllerHandlerNb, 7 + 2 * n,
         "HelixController should have 10 (6+2n) callback handlers for 2 participant, but was "
             + controllerHandlerNb + ", " + printHandlers(controller));
     Assert.assertEquals(particHandlerNb, 1,
@@ -254,7 +263,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
         "Expired controller session. oldSessionId: " + oldSessionId + ", newSessionId: "
             + newSessionId);
 
-    Assert.assertTrue(verifier.verify());
+    Assert.assertTrue(verifier.verifyByPolling());
 
     // check controller zk-watchers
     boolean result = TestHelper.verify(new TestHelper.Verifier() {
@@ -303,6 +312,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
     for (int i = 0; i < n; i++) {
       participants[i].syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -405,9 +415,9 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
     String newSessionId = participantToExpire.getSessionId();
     System.out.println(participantToExpire.getInstanceName() + " oldSessionId: " + oldSessionId
         + ", newSessionId: " + newSessionId);
-    HelixClusterVerifier verifier =
+    ZkHelixClusterVerifier verifier =
         new BestPossibleExternalViewVerifier.Builder(clusterName).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(verifier.verify());
+    Assert.assertTrue(verifier.verifyByPolling());
 
     // check manager#hanlders
     Assert
@@ -455,7 +465,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
             + participantToExpire.getSessionId());
     ZkTestHelper.expireSession(participantToExpire.getZkClient());
 
-    Assert.assertTrue(verifier.verify());
+    Assert.assertTrue(verifier.verifyByPolling());
 
     // check zookeeper#watches on client side
     watchPaths = ZkTestHelper.getZkWatch(participantToExpire.getZkClient());
@@ -477,6 +487,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
     for (int i = 0; i < n; i++) {
       participants[i].syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -501,7 +512,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
     return sb.toString();
   }
 
-  void printZkListeners(ZkClient client) throws Exception {
+  void printZkListeners(HelixZkClient client) throws Exception {
     Map<String, Set<IZkDataListener>> datalisteners = ZkTestHelper.getZkDataListener(client);
     Map<String, Set<IZkChildListener>> childListeners = ZkTestHelper.getZkChildListener(client);
 

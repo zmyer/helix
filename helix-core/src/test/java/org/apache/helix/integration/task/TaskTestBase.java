@@ -21,14 +21,10 @@ package org.apache.helix.integration.task;
 
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.task.TaskSynchronizedTestBase;
-import org.apache.helix.tools.ClusterSetup;
-import org.apache.helix.tools.ClusterStateVerifier;
 import org.testng.Assert;
-import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 
 public class TaskTestBase extends TaskSynchronizedTestBase {
-  protected ClusterControllerManager _controller;
 
   @BeforeClass
   public void beforeClass() throws Exception {
@@ -39,14 +35,6 @@ public class TaskTestBase extends TaskSynchronizedTestBase {
     _controller = new ClusterControllerManager(ZK_ADDR, CLUSTER_NAME, controllerName);
     _controller.syncStart();
 
-    boolean result = ClusterStateVerifier.verifyByZkCallback(
-        new ClusterStateVerifier.BestPossAndExtViewZkVerifier(ZK_ADDR, CLUSTER_NAME));
-    Assert.assertTrue(result);
-  }
-
-  @AfterClass
-  public void afterClass() throws Exception {
-    super.afterClass();
-    _controller.syncStop();
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
   }
 }

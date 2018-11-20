@@ -20,7 +20,6 @@ package org.apache.helix.task;
  */
 
 import java.util.Map;
-
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.integration.manager.ClusterControllerManager;
@@ -32,7 +31,6 @@ import org.apache.helix.mock.participant.MockDelayMSStateModelFactory;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.participant.StateMachineEngine;
-import org.apache.helix.tools.ClusterSetup;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -45,24 +43,18 @@ public class TestSemiAutoStateTransition extends TaskTestBase {
   @BeforeClass
   public void beforeClass() throws Exception {
     _participants =  new MockParticipantManager[_numNodes];
-    _numParitions = 1;
+    _numPartitions = 1;
 
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     _accessor = new ZKHelixDataAccessor(CLUSTER_NAME, _baseAccessor);
     _keyBuilder = _accessor.keyBuilder();
     setupParticipants();
 
     for (int i = 0; i < _numDbs; i++) {
       String db = WorkflowGenerator.DEFAULT_TGT_DB + i;
-      _setupTool.addResourceToCluster(CLUSTER_NAME, db, _numParitions, MASTER_SLAVE_STATE_MODEL,
+      _gSetupTool.addResourceToCluster(CLUSTER_NAME, db, _numPartitions, MASTER_SLAVE_STATE_MODEL,
           IdealState.RebalanceMode.SEMI_AUTO.toString());
-      _setupTool.rebalanceStorageCluster(CLUSTER_NAME, db, _numReplicas);
+      _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, db, _numReplicas);
       _testDbs.add(db);
     }
 

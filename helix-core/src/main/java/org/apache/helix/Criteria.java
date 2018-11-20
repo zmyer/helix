@@ -31,42 +31,46 @@ public class Criteria {
         INSTANCES
     }
 
-    /**
-     * This can be CONTROLLER, PARTICIPANT, ROUTER Cannot be null
-     */
-    InstanceType recipientInstanceType;
-    /**
-     * If true this will only be process by the instance that was running when the
-     * message was sent. If the instance process dies and comes back up it will be
-     * ignored.
-     */
-    boolean sessionSpecific;
-    /**
-     * applicable only in case PARTICIPANT use % to broadcast to all instances
-     */
-    String instanceName = "";
-    /**
-     * Name of the resource. Use % to send message to all resources
-     * owned by an instance.
-     */
-    String resourceName = "";
-    /**
-     * Resource partition. Use % to send message to all partitions of a given
-     * resource
-     */
-    String partitionName = "";
-    /**
-     * State of the resource
-     */
-    String partitionState = "";
-    /**
-     * Exclude sending message to your self. True by default
-     */
-    boolean selfExcluded = true;
-    /**
-     * Determine if use external view or ideal state as source of truth
-     */
-    DataSource _dataSource = DataSource.EXTERNALVIEW;
+  /**
+   * This can be CONTROLLER, PARTICIPANT, ROUTER Cannot be null
+   */
+  InstanceType recipientInstanceType;
+  /**
+   * If true this will only be process by the instance that was running when the
+   * message was sent. If the instance process dies and comes back up it will be
+   * ignored.
+   */
+  boolean sessionSpecific;
+  /**
+   * applicable only in case PARTICIPANT use % to broadcast to all instances
+   */
+  String instanceName = "";
+  /**
+   * Name of the resource. Use % to send message to all resources
+   * owned by an instance.
+   */
+  String resourceName = "";
+  /**
+   * Resource partition. Use % to send message to all partitions of a given
+   * resource
+   */
+  String partitionName = "";
+  /**
+   * State of the resource
+   */
+  String partitionState = "";
+  /**
+   * Exclude sending message to your self. True by default
+   */
+  boolean selfExcluded = true;
+  /**
+   * Determine if use external view or ideal state as source of truth
+   */
+  DataSource _dataSource = DataSource.EXTERNALVIEW;
+  /**
+   * The name of target cluster. If null, means sending to the local cluster
+   */
+  String _clusterName = null;
 
     /**
      * Get the current source of truth
@@ -197,14 +201,32 @@ public class Criteria {
         this.partitionState = partitionState;
     }
 
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("instanceName").append("=").append(instanceName);
-        sb.append("resourceName").append("=").append(resourceName);
-        sb.append("partitionName").append("=").append(partitionName);
-        sb.append("partitionState").append("=").append(partitionState);
-        return sb.toString();
-    }
+  /**
+   * Get the target cluster name
+   * @return the target cluster name if set or null if not set
+   */
+  public String getClusterName() {
+    return _clusterName;
+  }
 
+  /**
+   * Set the target cluster name
+   * @param clusterName target cluster name to send message
+   */
+  public void setClusterName(String clusterName) {
+    _clusterName = clusterName;
+  }
+
+  @Override
+  public String toString() {
+    StringBuilder sb = new StringBuilder();
+    sb.append("instanceName").append("=").append(instanceName);
+    sb.append("resourceName").append("=").append(resourceName);
+    sb.append("partitionName").append("=").append(partitionName);
+    sb.append("partitionState").append("=").append(partitionState);
+    if (_clusterName != null) {
+      sb.append("clusterName").append("=").append(_clusterName);
+    }
+    return sb.toString();
+  }
 }

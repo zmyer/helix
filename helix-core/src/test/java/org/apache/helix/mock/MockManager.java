@@ -20,17 +20,6 @@ package org.apache.helix.mock;
  */
 
 import java.util.UUID;
-import org.apache.helix.api.listeners.ClusterConfigChangeListener;
-import org.apache.helix.api.listeners.ConfigChangeListener;
-import org.apache.helix.api.listeners.ControllerChangeListener;
-import org.apache.helix.api.listeners.CurrentStateChangeListener;
-import org.apache.helix.api.listeners.ExternalViewChangeListener;
-import org.apache.helix.api.listeners.IdealStateChangeListener;
-import org.apache.helix.api.listeners.InstanceConfigChangeListener;
-import org.apache.helix.api.listeners.LiveInstanceChangeListener;
-import org.apache.helix.api.listeners.ResourceConfigChangeListener;
-import org.apache.helix.api.listeners.ScopedConfigChangeListener;
-import org.apache.helix.api.listeners.MessageListener;
 import org.apache.helix.ClusterMessagingService;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixAdmin;
@@ -43,6 +32,17 @@ import org.apache.helix.MockAccessor;
 import org.apache.helix.PreConnectCallback;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.ZNRecord;
+import org.apache.helix.api.listeners.ClusterConfigChangeListener;
+import org.apache.helix.api.listeners.ConfigChangeListener;
+import org.apache.helix.api.listeners.ControllerChangeListener;
+import org.apache.helix.api.listeners.CurrentStateChangeListener;
+import org.apache.helix.api.listeners.ExternalViewChangeListener;
+import org.apache.helix.api.listeners.IdealStateChangeListener;
+import org.apache.helix.api.listeners.InstanceConfigChangeListener;
+import org.apache.helix.api.listeners.LiveInstanceChangeListener;
+import org.apache.helix.api.listeners.MessageListener;
+import org.apache.helix.api.listeners.ResourceConfigChangeListener;
+import org.apache.helix.api.listeners.ScopedConfigChangeListener;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollector;
 import org.apache.helix.model.HelixConfigScope;
 import org.apache.helix.participant.HelixStateMachineEngine;
@@ -161,6 +161,11 @@ public class MockManager implements HelixManager {
   @Override
   public String getClusterName() {
     return _clusterName;
+  }
+
+  @Override
+  public String getMetadataStoreConnectionString() {
+    return null;
   }
 
   @Override

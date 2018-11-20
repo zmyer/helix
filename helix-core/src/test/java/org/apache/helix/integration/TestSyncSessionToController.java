@@ -2,14 +2,13 @@ package org.apache.helix.integration;
 
 import java.util.Date;
 import java.util.List;
-
 import org.apache.helix.InstanceType;
 import org.apache.helix.MessageListener;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZKHelixManager;
@@ -20,7 +19,7 @@ import org.testng.Assert;
 import org.testng.annotations.Test;
 
 
-public class TestSyncSessionToController extends ZkIntegrationTestBase {
+public class TestSyncSessionToController extends ZkTestBase {
   @Test
   public void testSyncSessionToController() throws Exception {
     System.out.println("START testSyncSessionToController at " + new Date(System.currentTimeMillis()));

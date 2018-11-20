@@ -21,11 +21,10 @@ package org.apache.helix.integration;
 
 import java.util.Date;
 import java.util.List;
-
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZkTestHelper;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.ClusterDistributedController;
 import org.apache.helix.integration.manager.MockParticipantManager;
@@ -36,7 +35,7 @@ import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class TestAddNodeAfterControllerStart extends ZkIntegrationTestBase {
+public class TestAddNodeAfterControllerStart extends ZkTestBase {
   private static Logger LOG = LoggerFactory.getLogger(TestAddNodeAfterControllerStart.class);
   final String className = getShortClassName();
 
@@ -88,6 +87,7 @@ public class TestAddNodeAfterControllerStart extends ZkIntegrationTestBase {
     for (int i = 0; i < nodeNr; i++) {
       participants[i].syncStop();
     }
+    deleteCluster(clusterName);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -164,6 +164,7 @@ public class TestAddNodeAfterControllerStart extends ZkIntegrationTestBase {
     for (int i = 0; i < nodeNr; i++) {
       participants[i].syncStop();
     }
+    deleteCluster(clusterName);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }

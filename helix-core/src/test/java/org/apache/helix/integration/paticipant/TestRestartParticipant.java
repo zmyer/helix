@@ -21,10 +21,9 @@ package org.apache.helix.integration.paticipant;
 
 import java.util.Date;
 import java.util.concurrent.atomic.AtomicReference;
-
 import org.apache.helix.NotificationContext;
 import org.apache.helix.TestHelper;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.mock.participant.MockTransition;
@@ -34,7 +33,7 @@ import org.apache.helix.tools.ClusterStateVerifier.BestPossAndExtViewZkVerifier;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class TestRestartParticipant extends ZkIntegrationTestBase {
+public class TestRestartParticipant extends ZkTestBase {
   public class KillOtherTransition extends MockTransition {
     final AtomicReference<MockParticipantManager> _other;
 
@@ -111,6 +110,7 @@ public class TestRestartParticipant extends ZkIntegrationTestBase {
       participants[i].syncStop();
     }
     participant.syncStop();
+    deleteCluster(clusterName);
 
     System.out.println("START testRestartParticipant at " + new Date(System.currentTimeMillis()));
 

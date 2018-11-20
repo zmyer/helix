@@ -23,11 +23,9 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
 import java.util.Random;
 import java.util.TreeMap;
 import javax.management.JMException;
-import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
@@ -44,12 +42,13 @@ public class TestResourceMonitor {
   int _replicas = 3;
   int _partitions = 50;
 
-  @Test() public void testReportData() throws JMException {
+  @Test()
+  public void testReportData() throws JMException {
     final int n = 5;
     ResourceMonitor monitor = new ResourceMonitor(_clusterName, _dbName, new ObjectName("testDomain:key=value"));
     monitor.register();
 
-    List<String> instances = new ArrayList<String>();
+    List<String> instances = new ArrayList<>();
     for (int i = 0; i < n; i++) {
       String instance = "localhost_" + (12918 + i);
       instances.add(instance);
@@ -63,7 +62,7 @@ public class TestResourceMonitor {
     StateModelDefinition stateModelDef =
         BuiltInStateModelDefinitions.MasterSlave.getStateModelDefinition();
 
-    monitor.updateResource(externalView, idealState, stateModelDef);
+    monitor.updateResourceState(externalView, idealState, stateModelDef);
 
     Assert.assertEquals(monitor.getDifferenceWithIdealStateGauge(), 0);
     Assert.assertEquals(monitor.getErrorPartitionGauge(), 0);
@@ -89,7 +88,7 @@ public class TestResourceMonitor {
       externalView.setStateMap(partition, map);
     }
 
-    monitor.updateResource(externalView, idealState, stateModelDef);
+    monitor.updateResourceState(externalView, idealState, stateModelDef);
 
     Assert.assertEquals(monitor.getDifferenceWithIdealStateGauge(), errorCount);
     Assert.assertEquals(monitor.getErrorPartitionGauge(), errorCount);
@@ -120,7 +119,7 @@ public class TestResourceMonitor {
       externalView.setStateMap(partition, map);
     }
 
-    monitor.updateResource(externalView, idealState, stateModelDef);
+    monitor.updateResourceState(externalView, idealState, stateModelDef);
 
     Assert.assertEquals(monitor.getDifferenceWithIdealStateGauge(), lessMinActiveReplica);
     Assert.assertEquals(monitor.getErrorPartitionGauge(), 0);
@@ -152,7 +151,7 @@ public class TestResourceMonitor {
       externalView.setStateMap(partition, map);
     }
 
-    monitor.updateResource(externalView, idealState, stateModelDef);
+    monitor.updateResourceState(externalView, idealState, stateModelDef);
 
     Assert.assertEquals(monitor.getDifferenceWithIdealStateGauge(), lessReplica);
     Assert.assertEquals(monitor.getErrorPartitionGauge(), 0);
@@ -182,7 +181,7 @@ public class TestResourceMonitor {
       externalView.setStateMap(partition, map);
     }
 
-    monitor.updateResource(externalView, idealState, stateModelDef);
+    monitor.updateResourceState(externalView, idealState, stateModelDef);
 
     Assert.assertEquals(monitor.getDifferenceWithIdealStateGauge(), missTopState);
     Assert.assertEquals(monitor.getErrorPartitionGauge(), 0);
@@ -191,6 +190,23 @@ public class TestResourceMonitor {
     Assert.assertEquals(monitor.getMissingMinActiveReplicaPartitionGauge(), 0);
     Assert.assertEquals(monitor.getMissingReplicaPartitionGauge(), missTopState);
     Assert.assertEquals(monitor.getMissingTopStatePartitionGauge(), missTopState);
+
+    Assert.assertEquals(monitor.getNumPendingStateTransitionGauge(), 0);
+    // test pending state transition message report and read
+    int messageCount = new Random().nextInt(_partitions) + 1;
+    monitor.updatePendingStateTransitionMessages(messageCount);
+    Assert.assertEquals(monitor.getNumPendingStateTransitionGauge(), messageCount);
+
+    Assert
+        .assertEquals(monitor.getRebalanceState(), ResourceMonitor.RebalanceStatus.UNKNOWN.name());
+    monitor.setRebalanceState(ResourceMonitor.RebalanceStatus.NORMAL);
+    Assert.assertEquals(monitor.getRebalanceState(), ResourceMonitor.RebalanceStatus.NORMAL.name());
+    monitor.setRebalanceState(ResourceMonitor.RebalanceStatus.BEST_POSSIBLE_STATE_CAL_FAILED);
+    Assert.assertEquals(monitor.getRebalanceState(),
+        ResourceMonitor.RebalanceStatus.BEST_POSSIBLE_STATE_CAL_FAILED.name());
+    monitor.setRebalanceState(ResourceMonitor.RebalanceStatus.INTERMEDIATE_STATE_CAL_FAILED);
+    Assert.assertEquals(monitor.getRebalanceState(),
+        ResourceMonitor.RebalanceStatus.INTERMEDIATE_STATE_CAL_FAILED.name());
   }
 
   /**
@@ -198,17 +214,17 @@ public class TestResourceMonitor {
    *
    * @return
    */
-  public ZNRecord deepCopyZNRecord(ZNRecord record) {
+  public static ZNRecord deepCopyZNRecord(ZNRecord record) {
     ZNRecord copy = new ZNRecord(record.getId());
 
     copy.getSimpleFields().putAll(record.getSimpleFields());
     for (String mapKey : record.getMapFields().keySet()) {
       Map<String, String> mapField = record.getMapFields().get(mapKey);
-      copy.getMapFields().put(mapKey, new TreeMap<String, String>(mapField));
+      copy.getMapFields().put(mapKey, new TreeMap<>(mapField));
     }
 
     for (String listKey : record.getListFields().keySet()) {
-      copy.getListFields().put(listKey, new ArrayList<String>(record.getListFields().get(listKey)));
+      copy.getListFields().put(listKey, new ArrayList<>(record.getListFields().get(listKey)));
     }
     if (record.getRawPayload() != null) {
       byte[] rawPayload = new byte[record.getRawPayload().length];

@@ -19,9 +19,12 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 import java.util.Map;
 import java.util.Set;
-
 import org.apache.helix.AccessOption;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
@@ -40,11 +43,6 @@ import org.apache.helix.task.WorkflowConfig;
 import org.apache.helix.task.WorkflowContext;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Sets;
 
 public class TestTaskRebalancer extends TaskTestBase {
   @Test
@@ -66,8 +64,8 @@ public class TestTaskRebalancer extends TaskTestBase {
     jobBuilder.setJobCommandConfigMap(commandConfig);
 
     Workflow flow = WorkflowGenerator
-            .generateSingleJobWorkflowBuilder(jobName, jobBuilder)
-            .setExpiry(expiry).build();
+        .generateSingleJobWorkflowBuilder(jobName, jobBuilder)
+        .setExpiry(expiry).build();
 
     _driver.start(flow);
     _driver.pollForWorkflowState(jobName, TaskState.IN_PROGRESS);
@@ -116,7 +114,7 @@ public class TestTaskRebalancer extends TaskTestBase {
 
     // Ensure all partitions are completed individually
     JobContext ctx = _driver.getJobContext(TaskUtil.getNamespacedJobName(jobResource));
-    for (int i = 0; i < _numParitions; i++) {
+    for (int i = 0; i < _numPartitions; i++) {
       Assert.assertEquals(ctx.getPartitionState(i), TaskPartitionState.COMPLETED);
       Assert.assertEquals(ctx.getPartitionNumAttempts(i), 1);
     }
@@ -177,7 +175,7 @@ public class TestTaskRebalancer extends TaskTestBase {
 
     JobConfig.Builder jobBuilder = JobConfig.Builder.fromMap(WorkflowGenerator.DEFAULT_JOB_CONFIG);
     jobBuilder.setJobCommandConfigMap(WorkflowGenerator.DEFAULT_COMMAND_CONFIG)
-        .setMaxAttemptsPerTask(2).setTimeoutPerTask(100);
+        .setMaxAttemptsPerTask(2).setTimeoutPerTask(1); // This timeout needs to be very short
 
     Workflow flow =
         WorkflowGenerator.generateSingleJobWorkflowBuilder(jobResource, jobBuilder).build();
@@ -190,7 +188,7 @@ public class TestTaskRebalancer extends TaskTestBase {
     JobContext ctx = _driver.getJobContext(TaskUtil.getNamespacedJobName(jobResource));
     int maxAttempts = 0;
     boolean sawTimedoutTask = false;
-    for (int i = 0; i < _numParitions; i++) {
+    for (int i = 0; i < _numPartitions; i++) {
       TaskPartitionState state = ctx.getPartitionState(i);
       if (state != null) {
         if (state == TaskPartitionState.TIMED_OUT) {
@@ -202,6 +200,7 @@ public class TestTaskRebalancer extends TaskTestBase {
         maxAttempts = Math.max(maxAttempts, ctx.getPartitionNumAttempts(i));
       }
     }
+
     Assert.assertTrue(sawTimedoutTask);
     Assert.assertEquals(maxAttempts, 2);
   }

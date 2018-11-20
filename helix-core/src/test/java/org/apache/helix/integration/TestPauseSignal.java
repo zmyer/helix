@@ -20,17 +20,15 @@ package org.apache.helix.integration;
  */
 
 import java.util.Date;
-
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.ZkClient;
 import org.apache.helix.model.PauseSignal;
 import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterStateVerifier;
@@ -38,7 +36,7 @@ import org.apache.helix.tools.ClusterStateVerifier.BestPossAndExtViewZkVerifier;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class TestPauseSignal extends ZkIntegrationTestBase {
+public class TestPauseSignal extends ZkTestBase {
   @Test()
   public void testPauseSignal() throws Exception {
     // Logger.getRootLogger().setLevel(Level.INFO);
@@ -78,16 +76,13 @@ public class TestPauseSignal extends ZkIntegrationTestBase {
     Assert.assertTrue(result);
 
     // pause the cluster and make sure pause is persistent
-    ZkClient zkClient = new ZkClient(ZK_ADDR);
-    zkClient.setZkSerializer(new ZNRecordSerializer());
     final HelixDataAccessor tmpAccessor =
-        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<ZNRecord>(zkClient));
+        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<ZNRecord>(_gZkClient));
 
     String cmd = "-zkSvr " + ZK_ADDR + " -enableCluster " + clusterName + " false";
     ClusterSetup.processCommandLineArgs(cmd.split(" "));
 
     tmpAccessor.setProperty(tmpAccessor.keyBuilder().pause(), new PauseSignal("pause"));
-    zkClient.close();
 
     // wait for controller to be signaled by pause
     Thread.sleep(1000);

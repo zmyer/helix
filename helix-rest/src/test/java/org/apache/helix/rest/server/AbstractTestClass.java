@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +38,7 @@ import org.I0Itec.zkclient.ZkServer;
 import org.apache.helix.AccessOption;
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.ConfigAccessor;
+import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.PropertyType;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
@@ -45,19 +47,23 @@ import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.integration.task.TaskTestUtil;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.DedicatedZkClientFactory;
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.rest.common.ContextPropertyKeys;
 import org.apache.helix.rest.common.HelixRestNamespace;
 import org.apache.helix.rest.server.auditlog.AuditLog;
 import org.apache.helix.rest.server.auditlog.AuditLogger;
 import org.apache.helix.rest.server.filters.AuditLogFilter;
 import org.apache.helix.rest.server.resources.AbstractResource;
+import org.apache.helix.store.HelixPropertyStore;
+import org.apache.helix.store.zk.ZkHelixPropertyStore;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.JobContext;
 import org.apache.helix.task.TaskConstants;
 import org.apache.helix.task.TaskDriver;
 import org.apache.helix.task.TaskPartitionState;
 import org.apache.helix.task.TaskState;
+import org.apache.helix.task.TaskUtil;
 import org.apache.helix.task.Workflow;
 import org.apache.helix.task.WorkflowContext;
 import org.apache.helix.tools.ClusterSetup;
@@ -74,6 +80,8 @@ import org.testng.Assert;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeSuite;
 
+import com.google.common.base.Joiner;
+
 public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
   protected static final String ZK_ADDR = "localhost:2123";
   protected static final String WORKFLOW_PREFIX = "Workflow_";
@@ -81,7 +89,7 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
   protected static int NUM_PARTITIONS = 10;
   protected static int NUM_REPLICA = 3;
   protected static ZkServer _zkServer;
-  protected static ZkClient _gZkClient;
+  protected static HelixZkClient _gZkClient;
   protected static ClusterSetup _gSetupTool;
   protected static ConfigAccessor _configAccessor;
   protected static BaseDataAccessor<ZNRecord> _baseAccessor;
@@ -92,7 +100,7 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
   protected static ZkServer _zkServerTestNS;
   protected static final String _zkAddrTestNS = "localhost:2124";
   protected static final String TEST_NAMESPACE = "test-namespace";
-  protected static ZkClient _gZkClientTestNS;
+  protected static HelixZkClient _gZkClientTestNS;
   protected static BaseDataAccessor<ZNRecord> _baseAccessorTestNS;
 
   protected static Set<String> _clusters;
@@ -201,10 +209,16 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
       java.util.logging.Logger topJavaLogger = java.util.logging.Logger.getLogger("");
       topJavaLogger.setLevel(Level.WARNING);
 
-      _gZkClient = new ZkClient(ZK_ADDR, ZkClient.DEFAULT_CONNECTION_TIMEOUT,
-          ZkClient.DEFAULT_SESSION_TIMEOUT, new ZNRecordSerializer());
-      _gZkClientTestNS = new ZkClient(_zkAddrTestNS, ZkClient.DEFAULT_CONNECTION_TIMEOUT, ZkClient.DEFAULT_SESSION_TIMEOUT,
-          new ZNRecordSerializer());
+      HelixZkClient.ZkClientConfig clientConfig = new HelixZkClient.ZkClientConfig();
+
+      clientConfig.setZkSerializer(new ZNRecordSerializer());
+      _gZkClient = DedicatedZkClientFactory
+          .getInstance().buildZkClient(new HelixZkClient.ZkConnectionConfig(ZK_ADDR), clientConfig);
+
+      clientConfig.setZkSerializer(new ZNRecordSerializer());
+      _gZkClientTestNS = DedicatedZkClientFactory
+          .getInstance().buildZkClient(new HelixZkClient.ZkConnectionConfig(_zkAddrTestNS), clientConfig);
+
       _gSetupTool = new ClusterSetup(_gZkClient);
       _configAccessor = new ConfigAccessor(_gZkClient);
       _baseAccessor = new ZkBaseDataAccessor<>(_gZkClient);
@@ -329,6 +343,9 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
 
   protected Map<String, Workflow> createWorkflows(String cluster, int numWorkflows) {
     Map<String, Workflow> workflows = new HashMap<>();
+    HelixPropertyStore<ZNRecord> propertyStore = new ZkHelixPropertyStore<>((ZkBaseDataAccessor<ZNRecord>) _baseAccessor,
+        PropertyPathBuilder.propertyStore(cluster), null);
+
     for (int i = 0; i < numWorkflows; i++) {
       Workflow.Builder workflow = new Workflow.Builder(WORKFLOW_PREFIX + i);
       int j = 0;
@@ -344,11 +361,20 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
           TaskConstants.REBALANCER_CONTEXT_ROOT, WORKFLOW_PREFIX + i, TaskConstants.CONTEXT_NODE),
           workflowContext.getRecord(), AccessOption.PERSISTENT);
       _configAccessor.setResourceConfig(cluster, WORKFLOW_PREFIX + i, workflow.getWorkflowConfig());
+
+      // Add workflow user content
+      propertyStore.create(Joiner.on("/")
+              .join(TaskConstants.REBALANCER_CONTEXT_ROOT, WORKFLOW_PREFIX + i,
+                  TaskUtil.USER_CONTENT_NODE), new ZNRecord(TaskUtil.USER_CONTENT_NODE),
+          AccessOption.PERSISTENT);
     }
     return workflows;
   }
 
   protected Set<JobConfig.Builder> createJobs(String cluster, String workflowName, int numJobs) {
+    HelixPropertyStore<ZNRecord> propertyStore =
+        new ZkHelixPropertyStore<>((ZkBaseDataAccessor<ZNRecord>) _baseAccessor,
+            PropertyPathBuilder.propertyStore(cluster), null);
     Set<JobConfig.Builder> jobCfgs = new HashSet<>();
     for (int i = 0; i < numJobs; i++) {
       JobConfig.Builder job =
@@ -362,6 +388,15 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
           TaskConstants.REBALANCER_CONTEXT_ROOT, workflowName + "_" + JOB_PREFIX + i,
           TaskConstants.CONTEXT_NODE), jobContext.getRecord(), AccessOption.PERSISTENT);
       _configAccessor.setResourceConfig(cluster, workflowName + "_" + JOB_PREFIX + i, job.build());
+
+      // add job content stores
+      ZNRecord contentStore = new ZNRecord(TaskUtil.USER_CONTENT_NODE);
+      contentStore.setMapField(TaskUtil
+              .getNamespacedTaskName(TaskUtil.getNamespacedJobName(workflowName, JOB_PREFIX + i), "0"),
+          Collections.<String, String>emptyMap());
+      propertyStore.create(Joiner.on("/")
+          .join(TaskConstants.REBALANCER_CONTEXT_ROOT, workflowName + "_" + JOB_PREFIX + i,
+              TaskUtil.USER_CONTENT_NODE), contentStore, AccessOption.PERSISTENT);
     }
     return jobCfgs;
   }

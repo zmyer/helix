@@ -61,10 +61,10 @@ public interface ClusterStatusMonitorMBean extends SensorNameProvider {
      */
     long getInstanceMessageQueueBacklog();
 
-    /**
-     * @return 1 if cluster is enabled, otherwise 0
-     */
-    long getEnabled();
+  /**
+   * @return 1 if cluster is enabled, otherwise 0
+   */
+  long getEnabled();
 
     /**
      * @return 1 if cluster is in maintenance mode, otherwise 0
@@ -82,23 +82,48 @@ public interface ClusterStatusMonitorMBean extends SensorNameProvider {
      */
     long getRebalanceFailureCounter();
 
-    /**
-     * @return number of all partitions in this cluster
-     */
-    long getTotalPartitionCount();
+  /**
+   * @return number of all resources in this cluster
+   */
+  long getTotalResourceGauge();
 
-    /**
-     * @return number of all partitions in this cluster that have errors
-     */
-    long getTotalErrorPartitionCount();
+  /**
+   * @return number of all partitions in this cluster
+   */
+  long getTotalPartitionGauge();
 
-    /**
-     * @return number of all partitions in this cluster without any top-state replicas
-     */
-    long getTotalPartitionsWithoutTopStateCount();
+  /**
+   * @return number of all partitions in this cluster that have errors
+   */
+  long getErrorPartitionGauge();
 
-    /**
-     * @return number of all partitions in this cluster whose ExternalView and IdealState have discrepancies
-     */
-    long getTotalExternalViewIdealStateMismatchPartitionCount();
+  /**
+   * @return number of all partitions in this cluster without any top-state replicas
+   */
+  long getMissingTopStatePartitionGauge();
+
+  /**
+   * @return number of all partitions in this cluster without enough active replica
+   */
+  long getMissingMinActiveReplicaPartitionGauge();
+
+  /**
+   * @return number of all partitions in this cluster withouth enough expected replica
+   */
+  long getMissingReplicaPartitionGauge();
+
+  /**
+   * @return number of all partitions in this cluster whose ExternalView and IdealState have discrepancies
+   */
+  long getDifferenceWithIdealStateGauge();
+
+  /**
+   * @return number of sent state transition messages in this cluster
+   */
+  long getStateTransitionCounter();
+
+  /**
+   * @return number of pending state transitions in this cluster
+   */
+  long getPendingStateTransitionGuage();
 }

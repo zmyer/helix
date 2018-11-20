@@ -19,22 +19,18 @@ package org.apache.helix.integration.controller;
  * under the License.
  */
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.HelixConstants;
-import org.apache.helix.HelixProperty;
-import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyType;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.integration.common.ZkStandAloneCMTestBase;
-import org.apache.helix.manager.zk.ZKHelixDataAccessor;
+import org.apache.helix.integration.task.WorkflowGenerator;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
+import org.apache.helix.mock.MockZkHelixDataAccessor;
+import org.apache.helix.task.JobConfig;
+import org.apache.helix.task.TaskDriver;
+import org.apache.helix.task.Workflow;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -106,13 +102,11 @@ public class TestClusterDataCacheSelectiveUpdate extends ZkStandAloneCMTestBase 
     Assert.assertEquals(accessor.getReadCount(PropertyType.CONFIGS), 1);
 
     // add a new resource
-    _setupTool.addResourceToCluster(CLUSTER_NAME, "TestDB_1", _PARTITIONS, STATE_MODEL);
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, "TestDB_1", _replica);
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, "TestDB_1", _PARTITIONS, STATE_MODEL);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, "TestDB_1", _replica);
 
     Thread.sleep(100);
-    HelixClusterVerifier _clusterVerifier =
-        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     accessor.clearReadCounters();
 
@@ -125,86 +119,28 @@ public class TestClusterDataCacheSelectiveUpdate extends ZkStandAloneCMTestBase 
     // Add more resources
     accessor.clearReadCounters();
 
-    _setupTool.addResourceToCluster(CLUSTER_NAME, "TestDB_2", _PARTITIONS, STATE_MODEL);
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, "TestDB_2", _replica);
-    _setupTool.addResourceToCluster(CLUSTER_NAME, "TestDB_3", _PARTITIONS, STATE_MODEL);
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, "TestDB_3", _replica);
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, "TestDB_2", _PARTITIONS, STATE_MODEL);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, "TestDB_2", _replica);
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, "TestDB_3", _PARTITIONS, STATE_MODEL);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, "TestDB_3", _replica);
 
     // Totally four resources. Two of them are newly added.
     cache.notifyDataChange(HelixConstants.ChangeType.IDEAL_STATE);
     cache.refresh(accessor);
     Assert.assertEquals(accessor.getReadCount(PropertyType.IDEALSTATES), 2);
+
+    // Test WorkflowConfig/JobConfigs
+    TaskDriver driver = new TaskDriver(_manager);
+    Workflow.Builder workflow = WorkflowGenerator.generateSingleJobWorkflowBuilder("Job",
+        new JobConfig.Builder().setCommand("ReIndex").setTargetResource("TestDB_2"));
+    driver.start(workflow.build());
+
+    Thread.sleep(100);
+    accessor.clearReadCounters();
+
+    cache.notifyDataChange(HelixConstants.ChangeType.RESOURCE_CONFIG);
+    cache.refresh(accessor);
+    // 1 Cluster Config change + 2 Resource Config Changes
+    Assert.assertEquals(accessor.getReadCount(PropertyType.CONFIGS), 3);
   }
-
-
-  public class MockZkHelixDataAccessor extends ZKHelixDataAccessor {
-    Map<PropertyType, Integer> _readPathCounters = new HashMap<>();
-
-    public MockZkHelixDataAccessor(String clusterName, BaseDataAccessor<ZNRecord> baseDataAccessor) {
-      super(clusterName, null, baseDataAccessor);
-    }
-
-
-    @Override
-    public <T extends HelixProperty> List<T> getProperty(List<PropertyKey> keys) {
-      for (PropertyKey key : keys) {
-        addCount(key);
-      }
-      return super.getProperty(keys);
-    }
-
-    @Override
-    public <T extends HelixProperty> List<T> getProperty(List<PropertyKey> keys, boolean throwException) {
-      for (PropertyKey key : keys) {
-        addCount(key);
-      }
-      return super.getProperty(keys, throwException);
-    }
-
-    @Override
-    public <T extends HelixProperty> T getProperty(PropertyKey key) {
-      addCount(key);
-      return super.getProperty(key);
-    }
-
-    @Override
-    public <T extends HelixProperty> Map<String, T> getChildValuesMap(PropertyKey key) {
-      Map<String, T> map = super.getChildValuesMap(key);
-      addCount(key, map.keySet().size());
-      return map;
-    }
-
-    @Override
-    public <T extends HelixProperty> Map<String, T> getChildValuesMap(PropertyKey key, boolean throwException) {
-      Map<String, T> map = super.getChildValuesMap(key, throwException);
-      addCount(key, map.keySet().size());
-      return map;
-    }
-
-    private void addCount(PropertyKey key) {
-      addCount(key, 1);
-    }
-
-    private void addCount(PropertyKey key, int count) {
-      PropertyType type = key.getType();
-      if (!_readPathCounters.containsKey(type)) {
-        _readPathCounters.put(type, 0);
-      }
-      _readPathCounters.put(type, _readPathCounters.get(type) + count);
-    }
-
-    public int getReadCount(PropertyType type) {
-      if (_readPathCounters.containsKey(type)) {
-        return _readPathCounters.get(type);
-      }
-
-      return 0;
-    }
-
-    public void clearReadCounters() {
-      _readPathCounters.clear();
-    }
-  }
-
-
 }

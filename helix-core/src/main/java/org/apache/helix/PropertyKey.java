@@ -37,6 +37,9 @@ import org.apache.helix.model.PauseSignal;
 import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.model.StatusUpdate;
+import org.apache.helix.task.JobConfig;
+import org.apache.helix.task.JobContext;
+import org.apache.helix.task.WorkflowConfig;
 import org.apache.helix.task.WorkflowContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,16 +79,16 @@ public class PropertyKey {
     // if type is CONFIGS, set configScope; otherwise null
     ConfigScopeProperty _configScope;
 
-    /**
-     * Instantiate with a type, associated class, and parameters
-     * @param type
-     * @param typeClazz
-     * @param params parameters associated with the key, the first of which is the cluster name
-     */
-    // TODO: 2018/6/4 by zmyer
-    public PropertyKey(PropertyType type, Class<? extends HelixProperty> typeClazz, String... params) {
-        this(type, null, typeClazz, params);
-    }
+  /**
+   * Instantiate with a type, associated class, and parameters
+   * @param type
+   * @param typeClazz
+   * @param params parameters associated with the key, the first of which is the cluster name
+   */
+  public PropertyKey(PropertyType type, Class<? extends HelixProperty> typeClazz,
+      String... params) {
+    this(type, null, typeClazz, params);
+  }
 
     /**
      * Instantiate with a type, scope, associated class, and parameters
@@ -251,24 +254,24 @@ public class PropertyKey {
                     _clusterName, ConfigScopeProperty.PARTICIPANT.toString(), instanceName);
         }
 
-        /**
-         * Get a property key associated with resource configurations
-         * @return {@link PropertyKey}
-         */
-        public PropertyKey resourceConfigs() {
-            return new PropertyKey(CONFIGS, ConfigScopeProperty.RESOURCE, ResourceConfig.class,
-                    _clusterName, ConfigScopeProperty.RESOURCE.toString());
-        }
+    /**
+     * Get a property key associated with resource configurations.
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey resourceConfigs() {
+      return new PropertyKey(CONFIGS, ConfigScopeProperty.RESOURCE, ResourceConfig.class,
+          _clusterName, ConfigScopeProperty.RESOURCE.toString());
+    }
 
-        /**
-         * Get a property key associated with a specific resource configuration
-         * @param resourceName
-         * @return {@link PropertyKey}
-         */
-        public PropertyKey resourceConfig(String resourceName) {
-            return new PropertyKey(CONFIGS, ConfigScopeProperty.RESOURCE, ResourceConfig.class,
-                    _clusterName, ConfigScopeProperty.RESOURCE.toString(), resourceName);
-        }
+    /**
+     * Get a property key associated with a specific resource configuration.
+     * @param resourceName
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey resourceConfig(String resourceName) {
+      return new PropertyKey(CONFIGS, ConfigScopeProperty.RESOURCE, ResourceConfig.class,
+          _clusterName, ConfigScopeProperty.RESOURCE.toString(), resourceName);
+    }
 
         /**
          * Get a property key associated with a partition
@@ -377,19 +380,18 @@ public class PropertyKey {
             return new PropertyKey(ERRORS, Error.class, _clusterName, instanceName, sessionId);
         }
 
-
-        /**
-         * Get a property key associated with {@link Error} for an instance under a session of
-         * specified resource
-         * @param instanceName
-         * @param sessionId
-         * @param resourceName
-         * @return {@link PropertyKey}
-         */
-        public PropertyKey errors(String instanceName, String sessionId, String resourceName) {
-            return new PropertyKey(ERRORS, Error.class, _clusterName, instanceName, sessionId,
-                    resourceName);
-        }
+    /**
+     * Get a property key associated with {@link Error} for an instance under a session of
+     * specified resource
+     * @param instanceName
+     * @param sessionId
+     * @param resourceName
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey errors(String instanceName, String sessionId, String resourceName) {
+      return new PropertyKey(ERRORS, Error.class, _clusterName, instanceName, sessionId,
+          resourceName);
+    }
 
         // TODO: 2018/7/27 by zmyer
         public PropertyKey participantHistory(String instanceName) {
@@ -565,17 +567,18 @@ public class PropertyKey {
             return new PropertyKey(ERRORS, Error.class, _clusterName, instanceName);
         }
 
-        /**
-         * Used to get status update for a NON STATE TRANSITION type
-         * @param instanceName
-         * @param sessionId
-         * @param msgType
-         * @param msgId
-         * @return {@link PropertyKey}
-         */
-        public PropertyKey taskError(String instanceName, String sessionId, String msgType, String msgId) {
-            return new PropertyKey(ERRORS, null, _clusterName, instanceName, sessionId, msgType, msgId);
-        }
+    /**
+     * Used to get status update for a NON STATE TRANSITION type
+     * @param instanceName
+     * @param sessionId
+     * @param msgType
+     * @param msgId
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey taskError(String instanceName, String sessionId, String msgType,
+        String msgId) {
+      return new PropertyKey(ERRORS, null, _clusterName, instanceName, sessionId, msgType, msgId);
+    }
 
         /**
          * Get a property key associated with all {@link ExternalView}
@@ -716,35 +719,97 @@ public class PropertyKey {
             return new PropertyKey(MAINTENANCE, MaintenanceSignal.class, _clusterName);
         }
 
-        /**
-         * Get a property key associated with a {@link HealthStat} for an instance
-         * @param instanceName
-         * @param id identifies the statistics
-         * @return {@link PropertyKey}
-         */
-        public PropertyKey healthReport(String instanceName, String id) {
-            return new PropertyKey(PropertyType.HEALTHREPORT, HealthStat.class, _clusterName, instanceName, id);
-        }
-
-        /**
-         * Get a property key associated with {@link HealthStat}s for an instance
-         * @param instanceName
-         * @return {@link PropertyKey}
-         */
-        public PropertyKey healthReports(String instanceName) {
-            return new PropertyKey(PropertyType.HEALTHREPORT, HealthStat.class, _clusterName, instanceName);
-        }
-
-        /**
-         * Get a property key associated with {@link WorkflowContext}
-         * TODO: Below must handle the case for future versions of Task Framework with a different path structure
-         * @param workflowName
-         * @return {@link PropertyKey}
-         */
-        public PropertyKey workflowContext(String workflowName) {
-            return new PropertyKey(PropertyType.WORKFLOWCONTEXT, WorkflowContext.class, _clusterName, workflowName);
-        }
+    /**
+     * Get a property key associated with a {@link HealthStat} for an instance
+     * @param instanceName
+     * @param id identifies the statistics
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey healthReport(String instanceName, String id) {
+      return new PropertyKey(PropertyType.HEALTHREPORT, HealthStat.class, _clusterName,
+          instanceName, id);
     }
+
+    /**
+     * Get a property key associated with {@link HealthStat}s for an instance
+     * @param instanceName
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey healthReports(String instanceName) {
+      return new PropertyKey(PropertyType.HEALTHREPORT, HealthStat.class, _clusterName,
+          instanceName);
+    }
+
+    /**
+     * Get a PropertyKey associated with root path for Task Framework-related resources' configs.
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey workflowConfigZNodes() {
+      return new PropertyKey(PropertyType.TASK_CONFIG_ROOT, null, _clusterName);
+    }
+
+    /**
+     * Get a PropertyKey associated with root path for Task Framework-related resources' contexts.
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey workflowContextZNodes() {
+      return new PropertyKey(PropertyType.TASK_CONTEXT_ROOT, null, _clusterName);
+    }
+
+    /**
+     * Get a PropertyKey associated with {@link WorkflowConfig} for easier path generation.
+     * @param workflowName
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey workflowConfigZNode(String workflowName) {
+      return new PropertyKey(PropertyType.WORKFLOW_CONFIG, WorkflowConfig.class, _clusterName,
+          workflowName, workflowName);
+    }
+
+    /**
+     * Get a PropertyKey associated with {@link WorkflowConfig} for easier path generation.
+     * @param workflowName
+     * @return {@link PropertyKey}
+     */
+    public PropertyKey workflowContextZNode(String workflowName) {
+      return new PropertyKey(PropertyType.WORKFLOW_CONTEXT, WorkflowConfig.class, _clusterName,
+          workflowName);
+    }
+
+    /**
+     * Get a PropertyKey associated with {@link JobConfig} for easier path generation.
+     * @param workflowName
+     * @param jobName
+     * @return
+     */
+    public PropertyKey jobConfigZNode(String workflowName, String jobName) {
+      return new PropertyKey(PropertyType.JOB_CONFIG, JobConfig.class, _clusterName, workflowName,
+          jobName, jobName);
+    }
+
+    /**
+     * Get a PropertyKey associated with {@link JobContext} for easier path generation.
+     * @param workflowName
+     * @param jobName
+     * @return
+     */
+    public PropertyKey jobContextZNode(String workflowName, String jobName) {
+      return new PropertyKey(PropertyType.JOB_CONTEXT, JobContext.class, _clusterName, workflowName,
+          jobName);
+    }
+
+    /**
+     * Get a property key associated with {@link WorkflowContext} for easier path generation.
+     * TODO: Below returns the old path for WorkflowContexts
+     * @param workflowName
+     * @return {@link PropertyKey}
+     */
+    @Deprecated
+    public PropertyKey workflowContext(String workflowName) {
+      return new PropertyKey(PropertyType.WORKFLOWCONTEXT, WorkflowContext.class, _clusterName,
+          workflowName);
+    }
+  }
 
     /**
      * Get the associated property type

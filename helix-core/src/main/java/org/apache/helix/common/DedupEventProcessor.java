@@ -34,33 +34,36 @@ public abstract class DedupEventProcessor<T, E> extends Thread {
         this(new String(), "Default-DedupEventProcessor");
     }
 
-    @Override
-    public void run() {
-        logger.info("START " + _processorName + " thread for cluster " + _clusterName);
-        while (!isInterrupted()) {
-            try {
-                E event = _eventQueue.take();
-                handleEvent(event);
-            } catch (InterruptedException e) {
-                logger.warn(_processorName + " thread interrupted", e);
-                interrupt();
-            } catch (ZkInterruptedException e) {
-                logger.warn(_processorName + " thread caught a ZK connection interrupt", e);
-                interrupt();
-            } catch (ThreadDeath death) {
-                throw death;
-            } catch (Throwable t) {
-                logger.error(_processorName + " thread failed while running the controller pipeline", t);
-            }
-        }
-        logger.info("END " + _processorName + " thread for cluster " + _clusterName);
+  @Override
+  public void run() {
+    logger.info("START " + _processorName + " thread for cluster " + _clusterName);
+    while (!isInterrupted()) {
+      try {
+        E event = _eventQueue.take();
+        handleEvent(event);
+      } catch (InterruptedException e) {
+        logger.warn(_processorName + " thread interrupted", e);
+        interrupt();
+      } catch (ZkInterruptedException e) {
+        logger.warn(_processorName + " thread caught a ZK connection interrupt", e);
+        interrupt();
+      } catch (ThreadDeath death) {
+        throw death;
+      } catch (Throwable t) {
+        logger.error(_processorName + " thread failed while running " + _processorName, t);
+      }
     }
+    logger.info("END " + _processorName + " thread for cluster " + _clusterName);
+  }
 
     protected abstract void handleEvent(E event);
 
-    public void queueEvent(T eventType, E event) {
-        _eventQueue.put(eventType, event);
+  public void queueEvent(T eventType, E event) {
+    if (isInterrupted()) {
+      return;
     }
+    _eventQueue.put(eventType, event);
+  }
 
     public void shutdown() {
         this.interrupt();

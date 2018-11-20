@@ -20,8 +20,8 @@ package org.apache.helix;
  */
 
 import org.apache.helix.mock.participant.DummyProcess.DummyLeaderStandbyStateModelFactory;
+import org.apache.helix.mock.participant.DummyProcess.DummyMasterSlaveStateModelFactory;
 import org.apache.helix.mock.participant.DummyProcess.DummyOnlineOfflineStateModelFactory;
-import org.apache.helix.mock.participant.DummyProcess.DummyStateModelFactory;
 import org.apache.helix.participant.StateMachineEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +39,7 @@ public class DummyProcessThread implements Runnable {
   @Override
   public void run() {
     try {
-      DummyStateModelFactory stateModelFactory = new DummyStateModelFactory(0);
+      DummyMasterSlaveStateModelFactory stateModelFactory = new DummyMasterSlaveStateModelFactory(0);
       StateMachineEngine stateMach = _manager.getStateMachineEngine();
       stateMach.registerStateModelFactory("MasterSlave", stateModelFactory);
 

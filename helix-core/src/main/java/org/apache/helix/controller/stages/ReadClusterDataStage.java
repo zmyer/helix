@@ -23,6 +23,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
+import org.apache.helix.controller.LogUtil;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
 import org.apache.helix.model.ClusterConfig;
@@ -43,13 +44,13 @@ public class ReadClusterDataStage extends AbstractBaseStage {
 
     private ClusterDataCache _cache = null;
 
-    // TODO: 2018/7/26 by zmyer
-    @Override
-    public void process(ClusterEvent event) throws Exception {
-        final HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
-        if (manager == null) {
-            throw new StageException("HelixManager attribute value is null");
-        }
+  @Override
+  public void process(ClusterEvent event) throws Exception {
+    _eventId = event.getEventId();
+    HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
+    if (manager == null) {
+      throw new StageException("HelixManager attribute value is null");
+    }
 
         ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
         if (cache == null && _cache == null) {
@@ -57,19 +58,17 @@ public class ReadClusterDataStage extends AbstractBaseStage {
         }
         _cache = cache;
 
-        final HelixDataAccessor dataAccessor = manager.getHelixDataAccessor();
-        _cache.refresh(dataAccessor);
-        final ClusterConfig clusterConfig = cache.getClusterConfig();
-        if (!_cache.isTaskCache()) {
-            final ClusterStatusMonitor clusterStatusMonitor =
-                    event.getAttribute(AttributeName.clusterStatusMonitor.name());
-
-            asyncExecute(_cache.getAsyncTasksThreadPool(), new Callable<Object>() {
-                @Override
-                public Object call() {
-                    // Update the cluster status gauges
-                    if (clusterStatusMonitor != null) {
-                        logger.debug("Update cluster status monitors");
+    HelixDataAccessor dataAccessor = manager.getHelixDataAccessor();
+    _cache.refresh(dataAccessor);
+    final ClusterConfig clusterConfig = cache.getClusterConfig();
+    if (!_cache.isTaskCache()) {
+      final ClusterStatusMonitor clusterStatusMonitor =
+          event.getAttribute(AttributeName.clusterStatusMonitor.name());
+      asyncExecute(_cache.getAsyncTasksThreadPool(), new Callable<Object>() {
+        @Override public Object call() {
+          // Update the cluster status gauges
+          if (clusterStatusMonitor != null) {
+            LogUtil.logDebug(logger, _eventId, "Update cluster status monitors");
 
                         Set<String> instanceSet = Sets.newHashSet();
                         Set<String> liveInstanceSet = Sets.newHashSet();
@@ -94,18 +93,18 @@ public class ReadClusterDataStage extends AbstractBaseStage {
                             oldDisabledPartitions.put(instanceName, config.getDisabledPartitions());
                             disabledPartitions.put(instanceName, config.getDisabledPartitionsMap());
 
-                            Set<String> instanceTags = Sets.newHashSet(config.getTags());
-                            tags.put(instanceName, instanceTags);
-                        }
-                        clusterStatusMonitor
-                                .setClusterInstanceStatus(liveInstanceSet, instanceSet, disabledInstanceSet,
-                                        disabledPartitions, oldDisabledPartitions, tags);
-                        logger.debug("Complete cluster status monitors update.");
-                    }
-                    return null;
-                }
-            });
+              Set<String> instanceTags = Sets.newHashSet(config.getTags());
+              tags.put(instanceName, instanceTags);
+            }
+            clusterStatusMonitor
+                .setClusterInstanceStatus(liveInstanceSet, instanceSet, disabledInstanceSet,
+                    disabledPartitions, oldDisabledPartitions, tags);
+            LogUtil.logDebug(logger, _eventId, "Complete cluster status monitors update.");
+          }
+          return null;
         }
-        event.addAttribute(AttributeName.ClusterDataCache.name(), _cache);
+      });
     }
+    event.addAttribute(AttributeName.ClusterDataCache.name(), _cache);
+  }
 }

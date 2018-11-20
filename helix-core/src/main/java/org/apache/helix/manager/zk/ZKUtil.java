@@ -24,6 +24,9 @@ import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.InstanceType;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.ZNRecord;
+import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -41,12 +44,11 @@ public final class ZKUtil {
     private ZKUtil() {
     }
 
-    // TODO: 2018/6/4 by zmyer
-    public static boolean isClusterSetup(String clusterName, ZkClient zkClient) {
-        if (clusterName == null) {
-            logger.info("Fail to check cluster setup : cluster name is null!");
-            return false;
-        }
+  public static boolean isClusterSetup(String clusterName, HelixZkClient zkClient) {
+    if (clusterName == null) {
+      logger.info("Fail to check cluster setup : cluster name is null!");
+      return false;
+    }
 
         if (zkClient == null) {
             logger.info("Fail to check cluster setup : zookeeper client is null!");
@@ -87,24 +89,23 @@ public final class ZKUtil {
         return isValid;
     }
 
-    // TODO: 2018/7/27 by zmyer
-    public static boolean isInstanceSetup(ZkClient zkclient, String clusterName, String instanceName,
-            InstanceType type) {
-        if (type == InstanceType.PARTICIPANT || type == InstanceType.CONTROLLER_PARTICIPANT) {
-            ArrayList<String> requiredPaths = new ArrayList<String>();
-            requiredPaths.add(PropertyPathBuilder.instanceConfig(clusterName, instanceName));
-            requiredPaths.add(PropertyPathBuilder.instanceMessage(clusterName, instanceName));
-            requiredPaths.add(PropertyPathBuilder.instanceCurrentState(clusterName, instanceName));
-            requiredPaths.add(PropertyPathBuilder.instanceStatusUpdate(clusterName, instanceName));
-            requiredPaths.add(PropertyPathBuilder.instanceError(clusterName, instanceName));
-            boolean isValid = true;
+  public static boolean isInstanceSetup(HelixZkClient zkclient, String clusterName, String instanceName,
+      InstanceType type) {
+    if (type == InstanceType.PARTICIPANT || type == InstanceType.CONTROLLER_PARTICIPANT) {
+      ArrayList<String> requiredPaths = new ArrayList<>();
+      requiredPaths.add(PropertyPathBuilder.instanceConfig(clusterName, instanceName));
+      requiredPaths.add(PropertyPathBuilder.instanceMessage(clusterName, instanceName));
+      requiredPaths.add(PropertyPathBuilder.instanceCurrentState(clusterName, instanceName));
+      requiredPaths.add(PropertyPathBuilder.instanceStatusUpdate(clusterName, instanceName));
+      requiredPaths.add(PropertyPathBuilder.instanceError(clusterName, instanceName));
+      boolean isValid = true;
 
-            for (String path : requiredPaths) {
-                if (!zkclient.exists(path)) {
-                    isValid = false;
-                    System.err.println("Invalid instance setup, missing znode path: " + path);
-                }
-            }
+      for (String path : requiredPaths) {
+        if (!zkclient.exists(path)) {
+          isValid = false;
+          logger.error("Invalid instance setup, missing znode path: {}", path);
+        }
+      }
 
             if (isValid) {
                 // Create the instance history node if it does not exist.
@@ -121,46 +122,45 @@ public final class ZKUtil {
         return true;
     }
 
-    public static void createChildren(ZkClient client, String parentPath, List<ZNRecord> list) {
-        client.createPersistent(parentPath, true);
-        if (list != null) {
-            for (ZNRecord record : list) {
-                createChildren(client, parentPath, record);
-            }
-        }
+  public static void createChildren(HelixZkClient client, String parentPath, List<ZNRecord> list) {
+    client.createPersistent(parentPath, true);
+    if (list != null) {
+      for (ZNRecord record : list) {
+        createChildren(client, parentPath, record);
+      }
     }
+  }
 
-    // TODO: 2018/6/4 by zmyer
-    public static void createChildren(ZkClient client, String parentPath, ZNRecord nodeRecord) {
-        client.createPersistent(parentPath, true);
+  public static void createChildren(HelixZkClient client, String parentPath, ZNRecord nodeRecord) {
+    client.createPersistent(parentPath, true);
 
         String id = nodeRecord.getId();
         String temp = parentPath + "/" + id;
         client.createPersistent(temp, nodeRecord);
     }
 
-    public static void dropChildren(ZkClient client, String parentPath, List<ZNRecord> list) {
-        // TODO: check if parentPath exists
-        if (list != null) {
-            for (ZNRecord record : list) {
-                dropChildren(client, parentPath, record);
-            }
-        }
+  public static void dropChildren(HelixZkClient client, String parentPath, List<ZNRecord> list) {
+    // TODO: check if parentPath exists
+    if (list != null) {
+      for (ZNRecord record : list) {
+        dropChildren(client, parentPath, record);
+      }
     }
+  }
 
-    public static void dropChildren(ZkClient client, String parentPath, ZNRecord nodeRecord) {
-        // TODO: check if parentPath exists
-        String id = nodeRecord.getId();
-        String temp = parentPath + "/" + id;
-        client.deleteRecursively(temp);
+  public static void dropChildren(HelixZkClient client, String parentPath, ZNRecord nodeRecord) {
+    // TODO: check if parentPath exists
+    String id = nodeRecord.getId();
+    String temp = parentPath + "/" + id;
+    client.deleteRecursively(temp);
+  }
+
+  public static List<ZNRecord> getChildren(HelixZkClient client, String path) {
+    // parent watch will be set by zkClient
+    List<String> children = client.getChildren(path);
+    if (children == null || children.size() == 0) {
+      return Collections.emptyList();
     }
-
-    public static List<ZNRecord> getChildren(ZkClient client, String path) {
-        // parent watch will be set by zkClient
-        List<String> children = client.getChildren(path);
-        if (children == null || children.size() == 0) {
-            return Collections.emptyList();
-        }
 
         List<ZNRecord> childRecords = new ArrayList<ZNRecord>();
         for (String child : children) {
@@ -177,106 +177,105 @@ public final class ZKUtil {
         return childRecords;
     }
 
-    public static void updateIfExists(ZkClient client, String path, final ZNRecord record,
-            boolean mergeOnUpdate) {
+  public static void updateIfExists(HelixZkClient client, String path, final ZNRecord record,
+      boolean mergeOnUpdate) {
+    if (client.exists(path)) {
+      DataUpdater<Object> updater = new DataUpdater<Object>() {
+        @Override
+        public Object update(Object currentData) {
+          return record;
+        }
+      };
+      client.updateDataSerialized(path, updater);
+    }
+  }
+
+  public static void createOrMerge(HelixZkClient client, String path, final ZNRecord record,
+      final boolean persistent, final boolean mergeOnUpdate) {
+    int retryCount = 0;
+    while (retryCount < RETRYLIMIT) {
+      try {
         if (client.exists(path)) {
-            DataUpdater<Object> updater = new DataUpdater<Object>() {
-                @Override
-                public Object update(Object currentData) {
-                    return record;
-                }
-            };
-            client.updateDataSerialized(path, updater);
-        }
-    }
-
-    public static void createOrMerge(ZkClient client, String path, final ZNRecord record,
-            final boolean persistent, final boolean mergeOnUpdate) {
-        int retryCount = 0;
-        while (retryCount < RETRYLIMIT) {
-            try {
-                if (client.exists(path)) {
-                    DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
-                        @Override
-                        public ZNRecord update(ZNRecord currentData) {
-                            if (currentData != null && mergeOnUpdate) {
-                                currentData.merge(record);
-                                return currentData;
-                            }
-                            return record;
-                        }
-                    };
-                    client.updateDataSerialized(path, updater);
-                } else {
-                    CreateMode mode = (persistent) ? CreateMode.PERSISTENT : CreateMode.EPHEMERAL;
-                    if (record.getDeltaList().size() > 0) {
-                        ZNRecord value = new ZNRecord(record.getId());
-                        value.merge(record);
-                        client.create(path, value, mode);
-                    } else {
-                        client.create(path, record, mode);
-                    }
-                }
-                break;
-            } catch (Exception e) {
-                retryCount = retryCount + 1;
-                logger.warn("Exception trying to update " + path + " Exception:" + e.getMessage()
-                        + ". Will retry.");
+          DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
+            @Override
+            public ZNRecord update(ZNRecord currentData) {
+              if (currentData != null && mergeOnUpdate) {
+                currentData.merge(record);
+                return currentData;
+              }
+              return record;
             }
+          };
+          client.updateDataSerialized(path, updater);
+        } else {
+          CreateMode mode = (persistent) ? CreateMode.PERSISTENT : CreateMode.EPHEMERAL;
+          if (record.getDeltaList().size() > 0) {
+            ZNRecord value = new ZNRecord(record.getId());
+            value.merge(record);
+            client.create(path, value, mode);
+          } else {
+            client.create(path, record, mode);
+          }
         }
+        break;
+      } catch (Exception e) {
+        retryCount = retryCount + 1;
+        logger.warn("Exception trying to update " + path + " Exception:" + e.getMessage()
+            + ". Will retry.");
+      }
     }
+  }
 
-    public static void createOrUpdate(ZkClient client, String path, final ZNRecord record,
-            final boolean persistent, final boolean mergeOnUpdate) {
-        int retryCount = 0;
-        while (retryCount < RETRYLIMIT) {
-            try {
-                if (client.exists(path)) {
-                    DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
-                        @Override
-                        public ZNRecord update(ZNRecord currentData) {
-                            if (currentData != null && mergeOnUpdate) {
-                                currentData.update(record);
-                                return currentData;
-                            }
-                            return record;
-                        }
-                    };
-                    client.updateDataSerialized(path, updater);
-                } else {
-                    CreateMode mode = (persistent) ? CreateMode.PERSISTENT : CreateMode.EPHEMERAL;
-                    client.create(path, record, mode);
-                }
-                break;
-            } catch (Exception e) {
-                retryCount = retryCount + 1;
-                logger.warn("Exception trying to update " + path + " Exception:" + e.getMessage()
-                        + ". Will retry.");
+  public static void createOrUpdate(HelixZkClient client, String path, final ZNRecord record,
+      final boolean persistent, final boolean mergeOnUpdate) {
+    int retryCount = 0;
+    while (retryCount < RETRYLIMIT) {
+      try {
+        if (client.exists(path)) {
+          DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
+            @Override public ZNRecord update(ZNRecord currentData) {
+              if (currentData != null && mergeOnUpdate) {
+                currentData.update(record);
+                return currentData;
+              }
+              return record;
             }
+          };
+          client.updateDataSerialized(path, updater);
+        } else {
+          CreateMode mode = (persistent) ? CreateMode.PERSISTENT : CreateMode.EPHEMERAL;
+          client.create(path, record, mode);
         }
+        break;
+      } catch (Exception e) {
+        retryCount = retryCount + 1;
+        logger.warn("Exception trying to update " + path + " Exception:" + e.getMessage()
+            + ". Will retry.");
+      }
     }
+  }
 
-    public static void asyncCreateOrMerge(ZkClient client, String path, final ZNRecord record,
-            final boolean persistent, final boolean mergeOnUpdate) {
-        try {
-            if (client.exists(path)) {
-                if (mergeOnUpdate) {
-                    ZNRecord curRecord = client.readData(path);
-                    if (curRecord != null) {
-                        curRecord.merge(record);
-                        client.asyncSetData(path, curRecord, -1, null);
-                    } else {
-                        client.asyncSetData(path, record, -1, null);
-                    }
-                } else {
-                    client.asyncSetData(path, record, -1, null);
-                }
-            } else {
-                CreateMode mode = (persistent) ? CreateMode.PERSISTENT : CreateMode.EPHEMERAL;
-                if (record.getDeltaList().size() > 0) {
-                    ZNRecord newRecord = new ZNRecord(record.getId());
-                    newRecord.merge(record);
-                    client.create(path, null, mode);
+  public static void asyncCreateOrMerge(HelixZkClient client, String path, final ZNRecord record,
+      final boolean persistent, final boolean mergeOnUpdate) {
+    try {
+      if (client.exists(path)) {
+        if (mergeOnUpdate) {
+          ZNRecord curRecord = client.readData(path);
+          if (curRecord != null) {
+            curRecord.merge(record);
+            client.asyncSetData(path, curRecord, -1, null);
+          } else {
+            client.asyncSetData(path, record, -1, null);
+          }
+        } else {
+          client.asyncSetData(path, record, -1, null);
+        }
+      } else {
+        CreateMode mode = (persistent) ? CreateMode.PERSISTENT : CreateMode.EPHEMERAL;
+        if (record.getDeltaList().size() > 0) {
+          ZNRecord newRecord = new ZNRecord(record.getId());
+          newRecord.merge(record);
+          client.create(path, null, mode);
 
                     client.asyncSetData(path, newRecord, -1, null);
                 } else {
@@ -291,52 +290,52 @@ public final class ZKUtil {
         }
     }
 
-    public static void createOrReplace(ZkClient client, String path, final ZNRecord record,
-            final boolean persistent) {
-        int retryCount = 0;
-        while (retryCount < RETRYLIMIT) {
-            try {
-                if (client.exists(path)) {
-                    DataUpdater<Object> updater = new DataUpdater<Object>() {
-                        @Override
-                        public Object update(Object currentData) {
-                            return record;
-                        }
-                    };
-                    client.updateDataSerialized(path, updater);
-                } else {
-                    CreateMode mode = (persistent) ? CreateMode.PERSISTENT : CreateMode.EPHEMERAL;
-                    client.create(path, record, mode);
-                }
-                break;
-            } catch (Exception e) {
-                retryCount = retryCount + 1;
-                logger.warn("Exception trying to createOrReplace " + path + " Exception:" + e.getMessage()
-                        + ". Will retry.");
+  public static void createOrReplace(HelixZkClient client, String path, final ZNRecord record,
+      final boolean persistent) {
+    int retryCount = 0;
+    while (retryCount < RETRYLIMIT) {
+      try {
+        if (client.exists(path)) {
+          DataUpdater<Object> updater = new DataUpdater<Object>() {
+            @Override
+            public Object update(Object currentData) {
+              return record;
             }
+          };
+          client.updateDataSerialized(path, updater);
+        } else {
+          CreateMode mode = (persistent) ? CreateMode.PERSISTENT : CreateMode.EPHEMERAL;
+          client.create(path, record, mode);
         }
+        break;
+      } catch (Exception e) {
+        retryCount = retryCount + 1;
+        logger.warn("Exception trying to createOrReplace " + path + " Exception:" + e.getMessage()
+            + ". Will retry.");
+      }
     }
+  }
 
-    public static void subtract(ZkClient client, String path, final ZNRecord recordTosubtract) {
-        int retryCount = 0;
-        while (retryCount < RETRYLIMIT) {
-            try {
-                if (client.exists(path)) {
-                    DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
-                        @Override
-                        public ZNRecord update(ZNRecord currentData) {
-                            currentData.subtract(recordTosubtract);
-                            return currentData;
-                        }
-                    };
-                    client.updateDataSerialized(path, updater);
-                    break;
-                }
-            } catch (Exception e) {
-                retryCount = retryCount + 1;
-                logger.warn("Exception trying to createOrReplace " + path + ". Will retry.", e);
+  public static void subtract(HelixZkClient client, String path, final ZNRecord recordTosubtract) {
+    int retryCount = 0;
+    while (retryCount < RETRYLIMIT) {
+      try {
+        if (client.exists(path)) {
+          DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
+            @Override
+            public ZNRecord update(ZNRecord currentData) {
+              currentData.subtract(recordTosubtract);
+              return currentData;
             }
+          };
+          client.updateDataSerialized(path, updater);
+          break;
         }
+      } catch (Exception e) {
+        retryCount = retryCount + 1;
+        logger.warn("Exception trying to createOrReplace " + path + ". Will retry.", e);
+      }
+    }
 
     }
 }

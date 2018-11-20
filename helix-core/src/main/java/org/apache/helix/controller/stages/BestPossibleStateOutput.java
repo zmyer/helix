@@ -99,11 +99,15 @@ public class BestPossibleStateOutput extends ResourcesStateMap {
         _preferenceLists.get(resource).put(partition, list);
     }
 
-    public void setPreferenceLists(String resource,
-            Map<String, List<String>> resourcePreferenceLists) {
-        if (_preferenceLists == null) {
-            _preferenceLists = new HashMap<>();
-        }
-        _preferenceLists.put(resource, resourcePreferenceLists);
+  public void setPreferenceLists(String resource,
+      Map<String, List<String>> resourcePreferenceLists) {
+    if (_preferenceLists == null) {
+      _preferenceLists = new HashMap<>();
     }
+    _preferenceLists.put(resource, resourcePreferenceLists);
+  }
+
+  protected boolean containsResource(String resource) {
+    return _preferenceLists != null && _preferenceLists.containsKey(resource);
+  }
 }

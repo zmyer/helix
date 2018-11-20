@@ -19,19 +19,16 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.helix.TestHelper;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.JobContext;
-import org.apache.helix.task.Task;
 import org.apache.helix.task.TaskPartitionState;
-import org.apache.helix.task.TaskResult;
 import org.apache.helix.task.TaskState;
 import org.apache.helix.task.TaskUtil;
 import org.apache.helix.task.Workflow;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableMap;
 
 /**
  * Test task will be retried up to MaxAttemptsPerTask {@see HELIX-562}
@@ -56,7 +53,7 @@ public class TestTaskRebalancerRetryLimit extends TaskTestBase {
     _driver.pollForWorkflowState(jobResource, TaskState.COMPLETED);
 
     JobContext ctx = _driver.getJobContext(TaskUtil.getNamespacedJobName(jobResource));
-    for (int i = 0; i < _numParitions; i++) {
+    for (int i = 0; i < _numPartitions; i++) {
       TaskPartitionState state = ctx.getPartitionState(i);
       if (state != null) {
         Assert.assertEquals(state, TaskPartitionState.TASK_ERROR);

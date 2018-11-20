@@ -22,12 +22,10 @@ package org.apache.helix.manager.zk;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-
 import org.I0Itec.zkclient.DataUpdater;
 import org.apache.helix.AccessOption;
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.PropertyPathBuilder;
-import org.apache.helix.PropertyType;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.ZNRecordUpdater;
@@ -36,9 +34,26 @@ import org.apache.helix.manager.zk.ZkBaseDataAccessor.AccessResult;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor.RetCode;
 import org.apache.zookeeper.data.Stat;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
 public class TestZkBaseDataAccessor extends ZkUnitTestBase {
+  String _rootPath = TestHelper.getTestClassName();
+
+
+  @AfterMethod
+  public void afterMethod() {
+    String path = "/" + _rootPath;
+    if (_gZkClient.exists(path)) {
+      _gZkClient.deleteRecursively(path);
+    }
+  }
+
+  @AfterClass
+  public void after() {
+    int a =1;
+  }
 
   @Test
   public void testSyncSet() {
@@ -48,7 +63,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s", testName, "msg_0");
+    String path = String.format("/%s/%s", _rootPath, "msg_0");
     ZNRecord record = new ZNRecord("msg_0");
     BaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
 
@@ -59,7 +74,6 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     Assert.assertEquals(getRecord.getId(), "msg_0");
 
     System.out.println("END " + testName + " at " + new Date(System.currentTimeMillis()));
-
   }
 
   @Test
@@ -70,7 +84,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s", testName, "msg_0");
+    String path = String.format("/%s/%s", _rootPath, "msg_0");
     ZNRecord record = new ZNRecord("msg_0");
     BaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
 
@@ -91,7 +105,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     Assert.assertEquals(getRecord.getId(), "msg_0");
 
     // set ephemeral
-    path = String.format("/%s/%s", testName, "msg_1");
+    path = String.format("/%s/%s", _rootPath, "msg_1");
     record = new ZNRecord("msg_1");
     success = accessor.set(path, record, 0, AccessOption.EPHEMERAL);
     Assert.assertFalse(success);
@@ -128,19 +142,17 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s/%s", testName, "msg_0", "submsg_0");
+    String path = String.format("/%s/%s/%s", _rootPath, "msg_0", "submsg_0");
     ZNRecord record = new ZNRecord("submsg_0");
     ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
 
     AccessResult result = accessor.doSet(path, record, -1, AccessOption.PERSISTENT);
     Assert.assertEquals(result._retCode, RetCode.OK);
     Assert.assertEquals(result._pathCreated.size(), 3);
-    Assert.assertTrue(result._pathCreated.contains(String.format("/%s", testName)));
-    Assert.assertTrue(result._pathCreated.contains(String.format("/%s/%s", testName, "msg_0")));
+    Assert.assertTrue(result._pathCreated.contains(String.format("/%s/%s", _rootPath, "msg_0")));
     Assert.assertTrue(result._pathCreated.contains(path));
 
-    Assert.assertTrue(_gZkClient.exists(String.format("/%s", testName)));
-    Assert.assertTrue(_gZkClient.exists(String.format("/%s/%s", testName, "msg_0")));
+    Assert.assertTrue(_gZkClient.exists(String.format("/%s/%s", _rootPath, "msg_0")));
     ZNRecord getRecord = _gZkClient.readData(path);
     Assert.assertNotNull(getRecord);
     Assert.assertEquals(getRecord.getId(), "submsg_0");
@@ -156,9 +168,9 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s", testName, "msg_0");
+    String path = String.format("/%s/%s", _rootPath, "msg_0");
     ZNRecord record = new ZNRecord("msg_0");
-    ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
+    ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<>(_gZkClient);
 
     boolean success = accessor.create(path, record, AccessOption.PERSISTENT);
     Assert.assertTrue(success);
@@ -184,7 +196,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s", testName, "msg_0");
+    String path = String.format("/%s/%s", _rootPath, "msg_0");
     ZNRecord record = new ZNRecord("msg_0");
     ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
 
@@ -227,12 +239,13 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s", testName, "msg_0");
+    String path = String.format("/%s/%s", _rootPath, "msg_0");
     ZNRecord record = new ZNRecord("msg_0");
     ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
 
+    // Base data accessor shall not fail when remove a non-exist path
     boolean success = accessor.remove(path, 0);
-    Assert.assertFalse(success);
+    Assert.assertTrue(success);
 
     success = accessor.create(path, record, AccessOption.PERSISTENT);
     Assert.assertTrue(success);
@@ -255,7 +268,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s", testName, "msg_0");
+    String path = String.format("/%s/%s", _rootPath, "msg_0");
     ZNRecord record = new ZNRecord("msg_0");
     ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
 
@@ -314,7 +327,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s", testName, "msg_0");
+    String path = String.format("/%s/%s", _rootPath, "msg_0");
     ZNRecord record = new ZNRecord("msg_0");
     ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
 
@@ -339,7 +352,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
     System.out.println("START " + testName + " at " + new Date(System.currentTimeMillis()));
 
-    String path = String.format("/%s/%s", testName, "msg_0");
+    String path = String.format("/%s/%s", _rootPath, "msg_0");
     ZNRecord record = new ZNRecord("msg_0");
     ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
 
@@ -360,20 +373,17 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
 
   @Test
   public void testAsyncZkBaseDataAccessor() {
-    System.out.println("START TestZkBaseDataAccessor.async at "
-        + new Date(System.currentTimeMillis()));
+    System.out.println(
+        "START TestZkBaseDataAccessor.async at " + new Date(System.currentTimeMillis()));
 
-    String root = "TestZkBaseDataAccessor_asyn";
-    ZkClient zkClient = new ZkClient(ZK_ADDR);
-    zkClient.setZkSerializer(new ZNRecordSerializer());
-    zkClient.deleteRecursively("/" + root);
+    String root = _rootPath;
+    _gZkClient.deleteRecursively("/" + root);
 
-    ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<ZNRecord>(zkClient);
+    ZkBaseDataAccessor<ZNRecord> accessor = new ZkBaseDataAccessor<>(_gZkClient);
 
     // test async createChildren
-    String parentPath = PropertyPathBuilder.instanceMessage(root, "host_1");
-    List<ZNRecord> records = new ArrayList<ZNRecord>();
-    List<String> paths = new ArrayList<String>();
+    List<ZNRecord> records = new ArrayList<>();
+    List<String> paths = new ArrayList<>();
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       paths.add(PropertyPathBuilder.instanceMessage(root, "host_1", msgId));
@@ -389,14 +399,13 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       String path = PropertyPathBuilder.instanceMessage(root, "host_1", msgId);
-      ZNRecord record = zkClient.readData(path);
+      ZNRecord record = _gZkClient.readData(path);
       Assert.assertEquals(record.getId(), msgId, "Should get what we created");
     }
 
     // test async setChildren
-    parentPath = PropertyPathBuilder.instanceMessage(root, "host_1");
-    records = new ArrayList<ZNRecord>();
-    paths = new ArrayList<String>();
+    records = new ArrayList<>();
+    paths = new ArrayList<>();
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       paths.add(PropertyPathBuilder.instanceMessage(root, "host_1", msgId));
@@ -414,16 +423,15 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       String path = PropertyPathBuilder.instanceMessage(root, "host_1", msgId);
-      ZNRecord record = zkClient.readData(path);
+      ZNRecord record = _gZkClient.readData(path);
       Assert.assertEquals(record.getSimpleFields().size(), 1, "Should have 1 simple field set");
       Assert.assertEquals(record.getSimpleField("key1"), "value1", "Should have value1 set");
     }
 
     // test async updateChildren
-    parentPath = PropertyPathBuilder.instanceMessage(root, "host_1");
     // records = new ArrayList<ZNRecord>();
     List<DataUpdater<ZNRecord>> znrecordUpdaters = new ArrayList<DataUpdater<ZNRecord>>();
-    paths = new ArrayList<String>();
+    paths = new ArrayList<>();
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       paths.add(PropertyPathBuilder.instanceMessage(root, "host_1", msgId));
@@ -442,13 +450,13 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       String path = PropertyPathBuilder.instanceMessage(root, "host_1", msgId);
-      ZNRecord record = zkClient.readData(path);
+      ZNRecord record = _gZkClient.readData(path);
       Assert.assertEquals(record.getSimpleFields().size(), 2, "Should have 2 simple fields set");
       Assert.assertEquals(record.getSimpleField("key2"), "value2", "Should have value2 set");
     }
 
     // test async getChildren
-    parentPath = PropertyPathBuilder.instanceMessage(root, "host_1");
+    String parentPath = PropertyPathBuilder.instanceMessage(root, "host_1");
     records = accessor.getChildren(parentPath, null, 0);
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
@@ -459,8 +467,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     }
 
     // test async exists
-    parentPath = PropertyPathBuilder.instanceMessage(root, "host_1");
-    paths = new ArrayList<String>();
+    paths = new ArrayList<>();
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       paths.add(PropertyPathBuilder.instanceMessage(root, "host_1", msgId));
@@ -472,8 +479,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     }
 
     // test async getStats
-    parentPath = PropertyPathBuilder.instanceMessage(root, "host_1");
-    paths = new ArrayList<String>();
+    paths = new ArrayList<>();
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       paths.add(PropertyPathBuilder.instanceMessage(root, "host_1", msgId));
@@ -487,8 +493,7 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     }
 
     // test async remove
-    parentPath = PropertyPathBuilder.instanceMessage(root, "host_1");
-    paths = new ArrayList<String>();
+    paths = new ArrayList<>();
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       paths.add(PropertyPathBuilder.instanceMessage(root, "host_1", msgId));
@@ -503,11 +508,10 @@ public class TestZkBaseDataAccessor extends ZkUnitTestBase {
     for (int i = 0; i < 10; i++) {
       String msgId = "msg_" + i;
       String path = PropertyPathBuilder.instanceMessage(root, "host_1", msgId);
-      boolean pathExists = zkClient.exists(path);
+      boolean pathExists = _gZkClient.exists(path);
       Assert.assertFalse(pathExists, "Should be removed " + msgId);
     }
 
-    zkClient.close();
     System.out.println("END TestZkBaseDataAccessor.async at "
         + new Date(System.currentTimeMillis()));
   }

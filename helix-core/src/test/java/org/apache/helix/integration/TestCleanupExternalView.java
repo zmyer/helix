@@ -19,7 +19,12 @@ package org.apache.helix.integration;
  * under the License.
  */
 
-import org.apache.helix.*;
+import java.util.Date;
+import org.apache.helix.PropertyKey;
+import org.apache.helix.TestHelper;
+import org.apache.helix.ZNRecord;
+import org.apache.helix.ZkTestHelper;
+import org.apache.helix.ZkUnitTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZKHelixAdmin;
@@ -30,8 +35,6 @@ import org.apache.helix.model.LiveInstance;
 import org.apache.helix.tools.ClusterStateVerifier;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import java.util.Date;
 
 /**
  * Test clean external-view - if current-state is remove externally, controller should remove the
@@ -98,8 +101,8 @@ public class TestCleanupExternalView extends ZkUnitTestBase {
     accessor.removeProperty(keyBuilder.currentState("localhost_12918", liveInstance.getSessionId(),
         "TestDB0"));
     liveInstance = accessor.getProperty(keyBuilder.liveInstance("localhost_12919"));
-    accessor.removeProperty(keyBuilder.currentState("localhost_12919", liveInstance.getSessionId(),
-        "TestDB0"));
+    accessor.removeProperty(
+        keyBuilder.currentState("localhost_12919", liveInstance.getSessionId(), "TestDB0"));
 
     // re-enable controller shall remove orphan external-view
     // System.out.println("re-enabling controller");
@@ -123,6 +126,7 @@ public class TestCleanupExternalView extends ZkUnitTestBase {
     for (int i = 0; i < n; i++) {
       participants[i].syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }

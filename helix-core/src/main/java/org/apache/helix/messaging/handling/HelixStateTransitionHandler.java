@@ -19,6 +19,15 @@ package org.apache.helix.messaging.handling;
  * under the License.
  */
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixDefinedState;
@@ -62,14 +71,23 @@ public class HelixStateTransitionHandler extends MessageHandler {
         }
     }
 
-    private static final Logger logger = LoggerFactory.getLogger(HelixStateTransitionHandler.class);
-    private final StateModel _stateModel;
-    StatusUpdateUtil _statusUpdateUtil;
-    private final StateModelParser _transitionMethodFinder;
-    private final CurrentState _currentStateDelta;
-    private final HelixManager _manager;
-    private final StateModelFactory<? extends StateModel> _stateModelFactory;
-    volatile boolean _isTimeout = false;
+  /**
+   * If current state == toState in message, this is considered as Duplicated state transition
+   */
+  public static class HelixDuplicatedStateTransitionException extends Exception {
+    public HelixDuplicatedStateTransitionException(String info) {
+      super(info);
+    }
+  }
+
+  private static final Logger logger = LoggerFactory.getLogger(HelixStateTransitionHandler.class);
+  private final StateModel _stateModel;
+  StatusUpdateUtil _statusUpdateUtil;
+  private final StateModelParser _transitionMethodFinder;
+  private final CurrentState _currentStateDelta;
+  private final HelixManager _manager;
+  private final StateModelFactory<? extends StateModel> _stateModelFactory;
+  volatile boolean _isTimeout = false;
 
     // TODO: 2018/7/27 by zmyer
     public HelixStateTransitionHandler(StateModelFactory<? extends StateModel> stateModelFactory,
@@ -105,27 +123,42 @@ public class HelixStateTransitionHandler extends MessageHandler {
 
         HelixDataAccessor accessor = _manager.getHelixDataAccessor();
 
-        String partitionName = _message.getPartitionName();
-        String fromState = _message.getFromState();
+    String partitionName = _message.getPartitionName();
+    String fromState = _message.getFromState();
+    String toState = _message.getToState();
 
-        // Verify the fromState and current state of the stateModel
-        String state = _currentStateDelta.getState(partitionName);
+    // Verify the fromState and current state of the stateModel
+    // getting current state from state model will provide most up-to-date
+    // current state. In case current state is null, partition is in initial
+    // state and we are setting it in current state
+    String state = _stateModel.getCurrentState() != null
+        ? _stateModel.getCurrentState()
+        : _currentStateDelta.getState(partitionName);
 
         // Set start time right before invoke client logic
         _currentStateDelta.setStartTime(_message.getPartitionName(), System.currentTimeMillis());
 
-        if (fromState != null && !fromState.equals("*") && !fromState.equalsIgnoreCase(state)) {
-            String errorMessage =
-                    "Current state of stateModel does not match the fromState in Message"
-                            + ", Current State:" + state + ", message expected:" + fromState + ", partition: "
-                            + partitionName + ", from: " + _message.getMsgSrc() + ", to: "
-                            + _message.getTgtName();
+    Exception err = null;
+    if (toState.equalsIgnoreCase(state)) {
+      // To state equals current state, we can just ignore the message
+      err = new HelixDuplicatedStateTransitionException(
+          String.format("Partition %s current state is same as toState (%s->%s) from message.",
+              partitionName, fromState, toState)
+      );
+    } else if (fromState != null && !fromState.equals("*") && !fromState.equalsIgnoreCase(state)) {
+      // If current state is neither toState nor fromState in message, there is a problem
+      err = new HelixStateMismatchException(
+          String.format(
+              "Current state of stateModel does not match the fromState in Message, CurrentState: %s, Message: %s->%s, Partition: %s, from: %s, to: %s",
+              state, fromState, toState, partitionName, _message.getMsgSrc(), _message.getTgtName())
+      );
+    }
 
-            _statusUpdateUtil.logError(_message, HelixStateTransitionHandler.class, errorMessage,
-                    _manager);
-            logger.error(errorMessage);
-            throw new HelixStateMismatchException(errorMessage);
-        }
+    if (err != null) {
+      _statusUpdateUtil.logError(_message, HelixStateTransitionHandler.class, err.getMessage(), _manager);
+      logger.error(err.getMessage());
+      throw err;
+    }
 
         // Reset the REQUESTED_STATE property if it exists.
         try {
@@ -199,12 +232,12 @@ public class HelixStateTransitionHandler extends MessageHandler {
         _currentStateDelta.setEndTime(partitionKey, taskResult.getCompleteTime());
         _currentStateDelta.setPreviousState(partitionKey, _message.getFromState());
 
-        // add host name this state transition is triggered by.
-        if (Message.MessageType.RELAYED_MESSAGE.name().equals(_message.getMsgSubType())) {
-            _currentStateDelta.setTriggerHost(partitionKey, _message.getRelaySrcHost());
-        } else {
-            _currentStateDelta.setTriggerHost(partitionKey, _message.getMsgSrc());
-        }
+    // add host name this state transition is triggered by.
+    if (Message.MessageType.RELAYED_MESSAGE.name().equals(_message.getMsgSubType())) {
+      _currentStateDelta.setTriggerHost(partitionKey, _message.getRelaySrcHost());
+    } else {
+      _currentStateDelta.setTriggerHost(partitionKey, _message.getMsgSrc());
+    }
 
         if (taskResult.isSuccess()) {
             // String fromState = message.getFromState();
@@ -319,22 +352,27 @@ public class HelixStateTransitionHandler extends MessageHandler {
                     "Message handling task begin execute", manager);
             message.setExecuteStartTimeStamp(new Date().getTime());
 
-            try {
-                preHandleMessage();
-                invoke(manager, context, taskResult, message);
-            } catch (HelixStateMismatchException e) {
-                // Simply log error and return from here if State mismatch.
-                // The current state of the state model is intact.
-                taskResult.setSuccess(false);
-                taskResult.setMessage(e.toString());
-                taskResult.setException(e);
-            } catch (Exception e) {
-                String errorMessage =
-                        "Exception while executing a state transition task " + message.getPartitionName();
-                logger.error(errorMessage, e);
-                if (e.getCause() != null && e.getCause() instanceof InterruptedException) {
-                    e = (InterruptedException) e.getCause();
-                }
+      try {
+        preHandleMessage();
+        invoke(manager, context, taskResult, message);
+      } catch (HelixDuplicatedStateTransitionException e) {
+        // Duplicated state transition problem is fine
+        taskResult.setSuccess(true);
+        taskResult.setMessage(e.toString());
+        taskResult.setInfo(e.getMessage());
+      } catch (HelixStateMismatchException e) {
+        // Simply log error and return from here if State mismatch.
+        // The current state of the state model is intact.
+        taskResult.setSuccess(false);
+        taskResult.setMessage(e.toString());
+        taskResult.setException(e);
+      } catch (Exception e) {
+        String errorMessage =
+            "Exception while executing a state transition task " + message.getPartitionName();
+        logger.error(errorMessage, e);
+        if (e.getCause() != null && e.getCause() instanceof InterruptedException) {
+          e = (InterruptedException) e.getCause();
+        }
 
                 if (e instanceof HelixRollbackException || (e.getCause() != null
                         && e.getCause() instanceof HelixRollbackException)) {
@@ -404,26 +442,26 @@ public class HelixStateTransitionHandler extends MessageHandler {
                         message.getToState(), message.getTgtSessionId()));
             }
 
-            Object result = methodToInvoke.invoke(_stateModel, new Object[]{ message, context });
-            taskResult.setSuccess(true);
-            String resultStr;
-            if (result == null || result instanceof Void) {
-                resultStr = "";
-            } else {
-                resultStr = result.toString();
-            }
-            taskResult.setInfo(resultStr);
-        } else {
-            String errorMessage =
-                    "Unable to find method for transition from " + fromState + " to " + toState + " in "
-                            + _stateModel.getClass();
-            logger.error(errorMessage);
-            taskResult.setSuccess(false);
-
-            _statusUpdateUtil
-                    .logError(message, HelixStateTransitionHandler.class, errorMessage, manager);
-        }
+      Object result = methodToInvoke.invoke(_stateModel, new Object[] { message, context });
+      taskResult.setSuccess(true);
+      String resultStr;
+      if (result == null || result instanceof Void) {
+        resultStr = "";
+      } else {
+        resultStr = result.toString();
+      }
+      taskResult.setInfo(resultStr);
+    } else {
+      String errorMessage =
+          "Unable to find method for transition from " + fromState + " to " + toState + " in "
+              + _stateModel.getClass();
+      logger.error(errorMessage);
+      taskResult.setSuccess(false);
+      taskResult.setInfo(errorMessage);
+      _statusUpdateUtil
+          .logError(message, HelixStateTransitionHandler.class, errorMessage, manager);
     }
+  }
 
     @Override
     public void onError(Exception e, ErrorCode code, ErrorType type) {

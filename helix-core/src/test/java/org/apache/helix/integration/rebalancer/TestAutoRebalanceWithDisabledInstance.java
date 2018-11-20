@@ -41,16 +41,11 @@ public class TestAutoRebalanceWithDisabledInstance extends ZkStandAloneCMTestBas
   @Override
   public void beforeClass() throws Exception {
     super.beforeClass();
-    _setupTool.addResourceToCluster(CLUSTER_NAME, TEST_DB_2, _PARTITIONS, STATE_MODEL,
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, TEST_DB_2, _PARTITIONS, STATE_MODEL,
         RebalanceMode.FULL_AUTO + "");
-    _setupTool.rebalanceResource(CLUSTER_NAME, TEST_DB_2, _replica);
+    _gSetupTool.rebalanceResource(CLUSTER_NAME, TEST_DB_2, _replica);
 
-    Thread.sleep(2000);
-
-    boolean result =
-        ClusterStateVerifier.verifyByZkCallback(new ClusterStateVerifier.BestPossAndExtViewZkVerifier(ZK_ADDR,
-            CLUSTER_NAME));
-    Assert.assertTrue(result);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
   }
 
   @Test()
@@ -70,8 +65,8 @@ public class TestAutoRebalanceWithDisabledInstance extends ZkStandAloneCMTestBas
     Assert.assertFalse(currentPartitions.isEmpty());
 
     // disable instance
-    _setupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, disabledInstance, false);
-    Thread.sleep(4000);
+    _gSetupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, disabledInstance, false);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // TODO: preference list is not persisted in IS for full-auto,
     // Need a way to find how helix assigns partitions to nodes.
@@ -84,8 +79,9 @@ public class TestAutoRebalanceWithDisabledInstance extends ZkStandAloneCMTestBas
     Assert.assertTrue(currentPartitions.isEmpty());
 
     //enable instance
-    _setupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, disabledInstance, true);
-    Thread.sleep(4000);
+    _gSetupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, disabledInstance, true);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
+
 
     // TODO: preference list is not persisted in IS for full-auto,
     // Need a way to find how helix assigns partitions to nodes.
@@ -102,14 +98,14 @@ public class TestAutoRebalanceWithDisabledInstance extends ZkStandAloneCMTestBas
   public void testAddDisabledInstanceAutoRebalance() throws Exception {
     // add disabled instance.
     String nodeName = PARTICIPANT_PREFIX + "_" + (START_PORT + NODE_NR);
-    _setupTool.addInstanceToCluster(CLUSTER_NAME, nodeName);
+    _gSetupTool.addInstanceToCluster(CLUSTER_NAME, nodeName);
     MockParticipantManager participant =
           new MockParticipantManager(ZK_ADDR, CLUSTER_NAME, nodeName);
-    _setupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, nodeName, false);
+    _gSetupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, nodeName, false);
 
     participant.syncStart();
 
-    Thread.sleep(2000);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
     // TODO: preference list is not persisted in IS for full-auto,
     // Need a way to find how helix assigns partitions to nodes.
     /*
@@ -121,8 +117,8 @@ public class TestAutoRebalanceWithDisabledInstance extends ZkStandAloneCMTestBas
     Assert.assertTrue(currentPartitions.isEmpty());
 
     //enable instance
-    _setupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, nodeName, true);
-    Thread.sleep(2000);
+    _gSetupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, nodeName, true);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
     // TODO: preference list is not persisted in IS for full-auto,
     // Need a way to find how helix assigns partitions to nodes.
     /*
@@ -135,7 +131,7 @@ public class TestAutoRebalanceWithDisabledInstance extends ZkStandAloneCMTestBas
   }
 
   private Set<String> getPartitionsAssignedtoInstance(String cluster, String dbName, String instance) {
-    HelixAdmin admin = _setupTool.getClusterManagementTool();
+    HelixAdmin admin = _gSetupTool.getClusterManagementTool();
     Set<String> partitionSet = new HashSet<String>();
     IdealState is = admin.getResourceIdealState(cluster, dbName);
     for (String partition : is.getRecord().getListFields().keySet()) {
@@ -151,7 +147,7 @@ public class TestAutoRebalanceWithDisabledInstance extends ZkStandAloneCMTestBas
   }
 
   private Set<String> getCurrentPartitionsOnInstance(String cluster, String dbName, String instance) {
-    HelixAdmin admin = _setupTool.getClusterManagementTool();
+    HelixAdmin admin = _gSetupTool.getClusterManagementTool();
     Set<String> partitionSet = new HashSet<String>();
 
     ExternalView ev = admin.getResourceExternalView(cluster, dbName);

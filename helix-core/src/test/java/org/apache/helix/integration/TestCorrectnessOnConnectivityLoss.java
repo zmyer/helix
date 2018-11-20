@@ -19,8 +19,10 @@ package org.apache.helix.integration;
  * under the License.
  */
 
-import java.util.Map;
+import com.google.common.collect.Maps;
 
+import java.lang.reflect.Method;
+import java.util.Map;
 import org.I0Itec.zkclient.ZkServer;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixManagerFactory;
@@ -43,20 +45,18 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.Maps;
-
 public class TestCorrectnessOnConnectivityLoss {
-  private static final String ZK_ADDR = "localhost:2189";
+  private static final String ZK_ADDR = "localhost:21892";
   private ZkServer _zkServer;
   private String _clusterName;
   private ClusterControllerManager _controller;
 
   @BeforeMethod
-  public void beforeMethod() throws Exception {
-    _zkServer = TestHelper.startZkServer(ZK_ADDR);
+  public void beforeMethod(Method testMethod) throws Exception {
+    _zkServer = TestHelper.startZkServer(ZK_ADDR, null, false);
 
     String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
+    String methodName = testMethod.getName();
     _clusterName = className + "_" + methodName;
     TestHelper.setupCluster(_clusterName, ZK_ADDR, 12918, // participant start port
         "localhost", // participant host
@@ -71,6 +71,11 @@ public class TestCorrectnessOnConnectivityLoss {
 
     _controller = new ClusterControllerManager(ZK_ADDR, _clusterName, "controller0");
     _controller.connect();
+  }
+
+  @AfterMethod
+  public void afterMethod() {
+    TestHelper.stopZkServer(_zkServer);
   }
 
   @Test
@@ -118,26 +123,24 @@ public class TestCorrectnessOnConnectivityLoss {
     participant.connect();
 
     RoutingTableProvider routingTableProvider = new RoutingTableProvider();
-    HelixManager spectator =
-        HelixManagerFactory.getZKHelixManager(_clusterName, "spectator", InstanceType.SPECTATOR,
-            ZK_ADDR);
-    spectator.connect();
-    spectator.addConfigChangeListener(routingTableProvider);
-    spectator.addExternalViewChangeListener(routingTableProvider);
-    Thread.sleep(1000);
+    try {
+      HelixManager spectator = HelixManagerFactory
+          .getZKHelixManager(_clusterName, "spectator", InstanceType.SPECTATOR, ZK_ADDR);
+      spectator.connect();
+      spectator.addConfigChangeListener(routingTableProvider);
+      spectator.addExternalViewChangeListener(routingTableProvider);
+      Thread.sleep(1000);
 
-    // Now let's stop the ZK server; this should do nothing
-    TestHelper.stopZkServer(_zkServer);
-    Thread.sleep(1000);
+      // Now let's stop the ZK server; this should do nothing
+      TestHelper.stopZkServer(_zkServer);
+      Thread.sleep(1000);
 
-    // Verify routing table still works
-    Assert.assertEquals(routingTableProvider.getInstances("resource0", "ONLINE").size(), 1);
-    Assert.assertEquals(routingTableProvider.getInstances("resource0", "OFFLINE").size(), 0);
-  }
-
-  @AfterMethod
-  public void afterMethod() throws Exception {
-    TestHelper.stopZkServer(_zkServer);
+      // Verify routing table still works
+      Assert.assertEquals(routingTableProvider.getInstances("resource0", "ONLINE").size(), 1);
+      Assert.assertEquals(routingTableProvider.getInstances("resource0", "OFFLINE").size(), 0);
+    } finally {
+      routingTableProvider.shutdown();
+    }
   }
 
   @StateModelInfo(initialState = "OFFLINE", states = {

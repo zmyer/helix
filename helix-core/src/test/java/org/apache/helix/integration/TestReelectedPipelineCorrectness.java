@@ -20,7 +20,6 @@ package org.apache.helix.integration;
  */
 
 import java.util.Date;
-
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.TestHelper;
@@ -157,6 +156,7 @@ public class TestReelectedPipelineCorrectness extends ZkUnitTestBase {
     for (int i = 2; i < NUM_PARTICIPANTS; i++) {
       participants[i].syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
 
     System.out.println("STOP " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }

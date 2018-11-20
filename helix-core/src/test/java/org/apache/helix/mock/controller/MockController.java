@@ -28,17 +28,19 @@ import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
 
+import org.apache.helix.PropertyKey.Builder;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.ZNRecord;
-import org.apache.helix.PropertyKey.Builder;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.DedicatedZkClientFactory;
+import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.manager.zk.client.SharedZkClientFactory;
 import org.apache.helix.model.ExternalView;
-import org.apache.helix.model.Message;
 import org.apache.helix.model.IdealState.IdealStateProperty;
 import org.apache.helix.model.LiveInstance.LiveInstanceProperty;
+import org.apache.helix.model.Message;
 import org.apache.helix.model.Message.MessageState;
 import org.apache.helix.model.Message.MessageType;
 import org.codehaus.jackson.JsonGenerationException;
@@ -46,14 +48,15 @@ import org.codehaus.jackson.map.JsonMappingException;
 import org.codehaus.jackson.map.ObjectMapper;
 
 public class MockController {
-  private final ZkClient client;
+  private final HelixZkClient client;
   private final String srcName;
   private final String clusterName;
 
   public MockController(String src, String zkServer, String cluster) {
     srcName = src;
     clusterName = cluster;
-    client = new ZkClient(zkServer);
+    client = DedicatedZkClientFactory.getInstance()
+        .buildZkClient(new HelixZkClient.ZkConnectionConfig(zkServer));
     client.setZkSerializer(new ZNRecordSerializer());
   }
 

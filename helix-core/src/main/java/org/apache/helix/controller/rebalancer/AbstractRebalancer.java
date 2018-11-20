@@ -19,6 +19,15 @@ package org.apache.helix.controller.rebalancer;
  * under the License.
  */
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixManager;
@@ -28,6 +37,7 @@ import org.apache.helix.controller.rebalancer.strategy.AutoRebalanceStrategy;
 import org.apache.helix.controller.rebalancer.strategy.RebalanceStrategy;
 import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.controller.stages.CurrentStateOutput;
+import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.Partition;
 import org.apache.helix.model.Resource;
@@ -68,42 +78,40 @@ public abstract class AbstractRebalancer implements Rebalancer, MappingCalculato
     public abstract IdealState computeNewIdealState(String resourceName, IdealState currentIdealState,
             CurrentStateOutput currentStateOutput, ClusterDataCache clusterData);
 
-    /**
-     * Compute the best state for all partitions.
-     * This is the default implementation, subclasses should re-implement
-     * this method if its logic to generate bestpossible map for each partition is different from the default one here.
-     *
-     * @param cache
-     * @param idealState
-     * @param resource
-     * @param currentStateOutput
-     *          Provides the current state and pending state transitions for all partitions
-     * @return
-     */
-    @Override
-    public ResourceAssignment computeBestPossiblePartitionState(ClusterDataCache cache,
-            IdealState idealState, Resource resource, CurrentStateOutput currentStateOutput) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Processing resource:" + resource.getResourceName());
-        }
-        String stateModelDefName = idealState.getStateModelDefRef();
-        StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefName);
-        ResourceAssignment partitionMapping = new ResourceAssignment(resource.getResourceName());
-        for (Partition partition : resource.getPartitions()) {
-            Map<String, String> currentStateMap =
-                    currentStateOutput.getCurrentStateMap(resource.getResourceName(), partition);
-            Set<String> disabledInstancesForPartition =
-                    cache.getDisabledInstancesForPartition(resource.getResourceName(), partition.toString());
-            List<String> preferenceList = getPreferenceList(partition, idealState,
-                    Collections.unmodifiableSet(cache.getLiveInstances().keySet()));
-            Map<String, String> bestStateForPartition =
-                    computeBestPossibleStateForPartition(cache.getLiveInstances().keySet(), stateModelDef,
-                            preferenceList,
-                            currentStateMap, disabledInstancesForPartition, idealState);
-            partitionMapping.addReplicaMap(partition, bestStateForPartition);
-        }
-        return partitionMapping;
+  /**
+   * Compute the best state for all partitions.
+   * This is the default implementation, subclasses should re-implement
+   * this method if its logic to generate bestpossible map for each partition is different from the default one here.
+   *
+   * @param cache
+   * @param idealState
+   * @param resource
+   * @param currentStateOutput
+   *          Provides the current state and pending state transitions for all partitions
+   * @return
+   */
+  @Override
+  public ResourceAssignment computeBestPossiblePartitionState(ClusterDataCache cache,
+      IdealState idealState, Resource resource, CurrentStateOutput currentStateOutput) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Processing resource:" + resource.getResourceName());
     }
+    String stateModelDefName = idealState.getStateModelDefRef();
+    StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefName);
+    ResourceAssignment partitionMapping = new ResourceAssignment(resource.getResourceName());
+    for (Partition partition : resource.getPartitions()) {
+      Set<String> disabledInstancesForPartition =
+          cache.getDisabledInstancesForPartition(resource.getResourceName(), partition.toString());
+      List<String> preferenceList = getPreferenceList(partition, idealState,
+          Collections.unmodifiableSet(cache.getLiveInstances().keySet()));
+      Map<String, String> bestStateForPartition =
+          computeBestPossibleStateForPartition(cache.getLiveInstances().keySet(), stateModelDef,
+              preferenceList, currentStateOutput, disabledInstancesForPartition, idealState,
+              cache.getClusterConfig(), partition);
+      partitionMapping.addReplicaMap(partition, bestStateForPartition);
+    }
+    return partitionMapping;
+  }
 
     /**
      * Looking for cached ideal mapping for this resource, if it is already there, do not recompute it
@@ -176,10 +184,13 @@ public abstract class AbstractRebalancer implements Rebalancer, MappingCalculato
         return rebalanceStrategy;
     }
 
-    protected Map<String, String> computeBestPossibleStateForPartition(Set<String> liveInstances,
-            StateModelDefinition stateModelDef, List<String> preferenceList,
-            Map<String, String> currentStateMap, Set<String> disabledInstancesForPartition,
-            IdealState idealState) {
+  protected Map<String, String> computeBestPossibleStateForPartition(Set<String> liveInstances,
+      StateModelDefinition stateModelDef, List<String> preferenceList,
+      CurrentStateOutput currentStateOutput, Set<String> disabledInstancesForPartition,
+      IdealState idealState, ClusterConfig clusterConfig, Partition partition) {
+
+    Map<String, String> currentStateMap =
+        currentStateOutput.getCurrentStateMap(idealState.getResourceName(), partition);
 
         if (currentStateMap == null) {
             currentStateMap = Collections.emptyMap();
@@ -300,31 +311,32 @@ public abstract class AbstractRebalancer implements Rebalancer, MappingCalculato
         Set<String> liveAndEnabled = new HashSet<>(liveInstances);
         liveAndEnabled.removeAll(disabledInstancesForPartition);
 
-        for (String state : statesPriorityList) {
-            // Use the the specially ordered preferenceList for choosing instance for top state.
-            if (state.equals(statesPriorityList.get(0))) {
-                List<String> preferenceListForTopState = new ArrayList<String>(preferenceList);
-                Collections.sort(preferenceListForTopState,
-                        new TopStatePreferenceListComparator(currentStateMap, stateModelDef));
-                preferenceList = preferenceListForTopState;
-            }
+    for (String state : statesPriorityList) {
+      // Use the the specially ordered preferenceList for choosing instance for top state.
+      if (state.equals(statesPriorityList.get(0))) {
+        List<String> preferenceListForTopState = new ArrayList<>(preferenceList);
+        Collections.sort(preferenceListForTopState,
+            new TopStatePreferenceListComparator(currentStateMap, stateModelDef));
+        preferenceList = preferenceListForTopState;
+      }
 
-            int stateCount = getStateCount(state, stateModelDef, liveAndEnabled.size(), preferenceList.size());
-            for (String instance : preferenceList) {
-                if (stateCount <= 0) {
-                    break;
-                }
-                if (!assigned.contains(instance) && liveAndEnabled.contains(instance)) {
-                    if (HelixDefinedState.ERROR.toString().equals(currentStateMap.get(instance))) {
-                        bestPossibleStateMap.put(instance, HelixDefinedState.ERROR.toString());
-                    } else {
-                        bestPossibleStateMap.put(instance, state);
-                        stateCount--;
-                    }
-                    assigned.add(instance);
-                }
-            }
+      int stateCount =
+          getStateCount(state, stateModelDef, liveAndEnabled.size(), preferenceList.size());
+      for (String instance : preferenceList) {
+        if (stateCount <= 0) {
+          break;
         }
+        if (!assigned.contains(instance) && liveAndEnabled.contains(instance)) {
+          if (HelixDefinedState.ERROR.toString().equals(currentStateMap.get(instance))) {
+            bestPossibleStateMap.put(instance, HelixDefinedState.ERROR.toString());
+          } else {
+            bestPossibleStateMap.put(instance, state);
+            stateCount--;
+          }
+          assigned.add(instance);
+        }
+      }
+    }
 
         return bestPossibleStateMap;
     }
@@ -366,24 +378,38 @@ public abstract class AbstractRebalancer implements Rebalancer, MappingCalculato
         }
     }
 
-    /**
-     * Sorter for nodes that sorts according to the CurrentState of the partition, based on the state priority defined
-     * in the state model definition.
-     * If the CurrentState doesn't exist, treat it as having lowest priority(Integer.MAX_VALUE).
-     */
-    protected static class PreferenceListNodeComparator implements Comparator<String> {
-        protected final Map<String, String> _currentStateMap;
-        protected final StateModelDefinition _stateModelDef;
+  /**
+   * Sorter for nodes that sorts according to the CurrentState of the partition, based on the state priority defined
+   * in the state model definition.
+   * If the CurrentState doesn't exist, treat it as having lowest priority(Integer.MAX_VALUE).
+   */
+  protected static class PreferenceListNodeComparator implements Comparator<String> {
+    protected final Map<String, String> _currentStateMap;
+    protected final StateModelDefinition _stateModelDef;
+    protected final List<String> _preferenceList;
 
-        public PreferenceListNodeComparator(Map<String, String> currentStateMap, StateModelDefinition stateModelDef) {
-            _currentStateMap = currentStateMap;
-            _stateModelDef = stateModelDef;
-        }
+    public PreferenceListNodeComparator(Map<String, String> currentStateMap,
+        StateModelDefinition stateModelDef, List<String> preferenceList) {
+      _currentStateMap = currentStateMap;
+      _stateModelDef = stateModelDef;
+      _preferenceList = preferenceList;
+    }
 
-        @Override
-        public int compare(String ins1, String ins2) {
-            Integer p1 = Integer.MAX_VALUE;
-            Integer p2 = Integer.MAX_VALUE;
+    @Override
+    public int compare(String ins1, String ins2) {
+      // condition :
+      // 1. both in preference list, keep the order in preference list
+      // 2. one them in preference list, the one in preference list has higher priority
+      // 3. none of them in preference list, sort by state.
+      if (_preferenceList.contains(ins1) && _preferenceList.contains(ins2)) {
+        return _preferenceList.indexOf(ins1) - _preferenceList.indexOf(ins2);
+      } else if (_preferenceList.contains(ins1)) {
+        return -1;
+      } else if (_preferenceList.contains(ins2)) {
+        return 1;
+      }
+      Integer p1 = Integer.MAX_VALUE;
+      Integer p2 = Integer.MAX_VALUE;
 
             Map<String, Integer> statesPriorityMap = _stateModelDef.getStatePriorityMap();
             String state1 = _currentStateMap.get(ins1);

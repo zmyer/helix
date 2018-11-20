@@ -19,6 +19,15 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
+import java.io.StringReader;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
 import com.google.common.collect.ImmutableList;
 import org.apache.helix.Criteria;
 import org.apache.helix.HelixDataAccessor;
@@ -40,15 +49,6 @@ import org.apache.helix.util.StatusUpdateUtil;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.StringReader;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /*
  * The current implementation supports throttling on STATE-TRANSITION type of message, transition SCHEDULED-COMPLETED.
@@ -172,10 +172,17 @@ public class DefaultSchedulerMessageHandlerFactory implements MultiTypeMessageHa
             HelixDataAccessor accessor = _manager.getHelixDataAccessor();
             Builder keyBuilder = accessor.keyBuilder();
 
-            Map<String, String> sendSummary = new HashMap<String, String>();
-            sendSummary.put("MessageCount", "0");
-            Map<InstanceType, List<Message>> messages =
-                    _manager.getMessagingService().generateMessage(recipientCriteria, messageTemplate);
+      String clusterName = recipientCriteria.getClusterName();
+      if (clusterName != null && !clusterName.equals(_manager.getClusterName())) {
+        throw new HelixException(String.format(
+            "ScheduledTaskQueue cannot send message to another cluster. Local cluster name %s, remote cluster name %s.",
+            _manager.getClusterName(), clusterName));
+      }
+
+      Map<String, String> sendSummary = new HashMap<String, String>();
+      sendSummary.put("MessageCount", "0");
+      Map<InstanceType, List<Message>> messages =
+          _manager.getMessagingService().generateMessage(recipientCriteria, messageTemplate);
 
             // Calculate tasks, and put them into the idealState of the SCHEDULER_TASK_QUEUE resource.
             // List field are the destination node, while the Message parameters are stored in the

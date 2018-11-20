@@ -145,24 +145,27 @@ public class HelixStateMachineEngine implements StateMachineEngine {
         }
     }
 
-    @Override
-    public void reset() {
-        for (Map<String, StateModelFactory<? extends StateModel>> ftyMap : _stateModelFactoryMap
-                .values()) {
-            for (StateModelFactory<? extends StateModel> stateModelFactory : ftyMap.values()) {
-                for (String resourceName : stateModelFactory.getResourceSet()) {
-                    for (String partitionKey : stateModelFactory.getPartitionSet(resourceName)) {
-                        StateModel stateModel = stateModelFactory.getStateModel(resourceName, partitionKey);
-                        stateModel.reset();
-                        String initialState = _stateModelParser.getInitialState(stateModel.getClass());
-                        stateModel.updateState(initialState);
-                        // TODO probably should update the state on ZK. Shi confirm what needs
-                        // to be done here.
-                    }
-                }
-            }
+  @Override
+  public void reset() {
+    logger.info("Resetting HelixStateMachineEngine");
+    for (Map<String, StateModelFactory<? extends StateModel>> ftyMap : _stateModelFactoryMap
+        .values()) {
+      for (StateModelFactory<? extends StateModel> stateModelFactory : ftyMap.values()) {
+        for (String resourceName : stateModelFactory.getResourceSet()) {
+          for (String partitionKey : stateModelFactory.getPartitionSet(resourceName)) {
+            logger.info("Resetting {}::{}", resourceName, partitionKey);
+            StateModel stateModel = stateModelFactory.getStateModel(resourceName, partitionKey);
+            stateModel.reset();
+            String initialState = _stateModelParser.getInitialState(stateModel.getClass());
+            stateModel.updateState(initialState);
+            // TODO probably should update the state on ZK. Shi confirm what needs
+            // to be done here.
+          }
         }
+      }
     }
+    logger.info("Successfully reset HelixStateMachineEngine");
+  }
 
     // TODO: 2018/7/27 by zmyer
     @Override

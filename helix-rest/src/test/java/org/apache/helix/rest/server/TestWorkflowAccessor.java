@@ -2,19 +2,23 @@ package org.apache.helix.rest.server;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-
 import org.apache.helix.TestHelper;
 import org.apache.helix.rest.server.resources.helix.WorkflowAccessor;
 import org.apache.helix.task.JobQueue;
 import org.apache.helix.task.TargetState;
 import org.apache.helix.task.TaskDriver;
+import org.apache.helix.task.TaskExecutionInfo;
 import org.apache.helix.task.TaskState;
 import org.apache.helix.task.WorkflowConfig;
 import org.codehaus.jackson.JsonNode;
+import org.codehaus.jackson.type.TypeReference;
+import org.glassfish.jersey.server.spi.ResponseErrorMapper;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -51,12 +55,17 @@ public class TestWorkflowAccessor extends AbstractTestClass {
   @Test(dependsOnMethods = "testGetWorkflows")
   public void testGetWorkflow() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
-
     String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME,
         Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     Assert.assertNotNull(node.get(WorkflowAccessor.WorkflowProperties.WorkflowConfig.name()));
     Assert.assertNotNull(node.get(WorkflowAccessor.WorkflowProperties.WorkflowContext.name()));
+
+    TaskExecutionInfo lastScheduledTask = OBJECT_MAPPER
+        .treeToValue(node.get(WorkflowAccessor.WorkflowProperties.LastScheduledTask.name()),
+            TaskExecutionInfo.class);
+    Assert.assertTrue(lastScheduledTask
+        .equals(new TaskExecutionInfo(null, null, null, TaskExecutionInfo.TIMESTAMP_NOT_SET)));
     String workflowId =
         node.get(WorkflowAccessor.WorkflowProperties.WorkflowConfig.name()).get("WorkflowID")
             .getTextValue();
@@ -133,6 +142,57 @@ public class TestWorkflowAccessor extends AbstractTestClass {
   }
 
   @Test(dependsOnMethods = "testUpdateWorkflow")
+  public void testGetAndUpdateWorkflowContentStore() throws IOException, InterruptedException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String workflowName = "Workflow_0";
+    TaskDriver driver = getTaskDriver(CLUSTER_NAME);
+    // Wait for workflow to start processing
+    driver.pollForWorkflowState(workflowName, TaskState.IN_PROGRESS, TaskState.COMPLETED, TaskState.FAILED);
+    String uri = "clusters/" + CLUSTER_NAME + "/workflows/Workflow_0/userContent";
+
+    String body =
+        get(uri, Response.Status.OK.getStatusCode(), true);
+    Map<String, String> contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
+    Assert.assertTrue(contentStore.isEmpty());
+
+    Map<String, String> map1 = new HashMap<>();
+    map1.put("k1", "v1");
+    Entity entity = Entity.entity(OBJECT_MAPPER.writeValueAsString(map1), MediaType.APPLICATION_JSON_TYPE);
+    post(uri, ImmutableMap.of("command", "update"), entity, Response.Status.OK.getStatusCode());
+
+    // update (add items) workflow content store
+    body = get(uri, Response.Status.OK.getStatusCode(), true);
+    contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
+    Assert.assertEquals(contentStore, map1);
+
+    // modify map1 and verify
+    map1.put("k1", "v2");
+    map1.put("k2", "v2");
+    entity = Entity.entity(OBJECT_MAPPER.writeValueAsString(map1), MediaType.APPLICATION_JSON_TYPE);
+    post(uri, ImmutableMap.of("command", "update"), entity, Response.Status.OK.getStatusCode());
+    body = get(uri, Response.Status.OK.getStatusCode(), true);
+    contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
+    Assert.assertEquals(contentStore, map1);
+  }
+
+  @Test(dependsOnMethods = "testGetAndUpdateWorkflowContentStore")
+  public void testInvalidGetAndUpdateWorkflowContentStore() {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String validURI = "clusters/" + CLUSTER_NAME + "/workflows/Workflow_0/userContent";
+    String invalidURI = "clusters/" + CLUSTER_NAME + "/workflows/xxx/userContent"; // workflow not exist
+    Entity validEntity = Entity.entity("{\"k1\":\"v1\"}", MediaType.APPLICATION_JSON_TYPE);
+    Entity invalidEntity = Entity.entity("{\"k1\":{}}", MediaType.APPLICATION_JSON_TYPE); // not Map<String, String>
+    Map<String, String> validCmd = ImmutableMap.of("command", "update");
+    Map<String, String> invalidCmd = ImmutableMap.of("command", "delete"); // cmd not supported
+
+    get(invalidURI, Response.Status.NOT_FOUND.getStatusCode(), false);
+    post(invalidURI, validCmd, validEntity, Response.Status.NOT_FOUND.getStatusCode());
+
+    post(validURI, invalidCmd, validEntity, Response.Status.BAD_REQUEST.getStatusCode());
+    post(validURI, validCmd, invalidEntity, Response.Status.BAD_REQUEST.getStatusCode());
+  }
+
+  @Test(dependsOnMethods = "testInvalidGetAndUpdateWorkflowContentStore")
   public void testDeleteWorkflow() throws InterruptedException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
     TaskDriver driver = getTaskDriver(CLUSTER_NAME);

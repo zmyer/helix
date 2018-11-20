@@ -23,34 +23,36 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixManagerFactory;
 import org.apache.helix.InstanceType;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
+import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.integration.task.MockTask;
 import org.apache.helix.integration.task.WorkflowGenerator;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.tools.ClusterSetup;
+import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 
-public class TaskSynchronizedTestBase extends ZkIntegrationTestBase {
+public class TaskSynchronizedTestBase extends ZkTestBase {
   protected int _numNodes = 5;
   protected int _startPort = 12918;
-  protected int _numParitions = 20;
+  protected int _numPartitions = 20;
   protected int _numReplicas = 3;
   protected int _numDbs = 1;
 
   protected Boolean _partitionVary = true;
   protected Boolean _instanceGroupTag = false;
 
+  protected ClusterControllerManager _controller;
   protected HelixManager _manager;
   protected TaskDriver _driver;
-  protected ClusterSetup _setupTool;
 
   protected List<String> _testDbs = new ArrayList<String>();
 
@@ -58,79 +60,105 @@ public class TaskSynchronizedTestBase extends ZkIntegrationTestBase {
   protected final String CLUSTER_NAME = CLUSTER_PREFIX + "_" + getShortClassName();
   protected MockParticipantManager[] _participants;
 
+  protected ZkHelixClusterVerifier _clusterVerifier;
+
   @BeforeClass
   public void beforeClass() throws Exception {
     _participants =  new MockParticipantManager[_numNodes];
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     setupParticipants();
     setupDBs();
     startParticipants();
     createManagers();
+    _clusterVerifier =
+        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkClient(_gZkClient).build();
   }
 
 
   @AfterClass
   public void afterClass() throws Exception {
-    _manager.disconnect();
+    if (_controller != null && _controller.isConnected()) {
+      _controller.syncStop();
+    }
+    if (_manager != null && _manager.isConnected()) {
+      _manager.disconnect();
+    }
     stopParticipants();
+
+    deleteCluster(CLUSTER_NAME);
   }
 
   protected void setupDBs() {
+    setupDBs(_gSetupTool);
+  }
+
+  protected void setupDBs(ClusterSetup clusterSetup) {
     // Set up target db
     if (_numDbs > 1) {
       for (int i = 0; i < _numDbs; i++) {
         int varyNum = _partitionVary == true ? 10 * i : 0;
         String db = WorkflowGenerator.DEFAULT_TGT_DB + i;
-        _setupTool
-            .addResourceToCluster(CLUSTER_NAME, db, _numParitions + varyNum, MASTER_SLAVE_STATE_MODEL,
+        clusterSetup
+            .addResourceToCluster(CLUSTER_NAME, db, _numPartitions + varyNum, MASTER_SLAVE_STATE_MODEL,
                 IdealState.RebalanceMode.FULL_AUTO.toString());
-        _setupTool.rebalanceStorageCluster(CLUSTER_NAME, db, _numReplicas);
+        clusterSetup.rebalanceStorageCluster(CLUSTER_NAME, db, _numReplicas);
         _testDbs.add(db);
       }
     } else {
       if (_instanceGroupTag) {
-        _setupTool
-            .addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, _numParitions,
+        clusterSetup
+            .addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, _numPartitions,
                 "OnlineOffline", IdealState.RebalanceMode.FULL_AUTO.name());
-        IdealState idealState = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB);
+        IdealState idealState = clusterSetup.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB);
         idealState.setInstanceGroupTag("TESTTAG0");
-        _setupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, idealState);
+        clusterSetup.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, idealState);
       } else {
-        _setupTool.addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB,
-            _numParitions, MASTER_SLAVE_STATE_MODEL, IdealState.RebalanceMode.FULL_AUTO.name());
+        clusterSetup.addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, _numPartitions, MASTER_SLAVE_STATE_MODEL, IdealState.RebalanceMode.FULL_AUTO.name());
       }
-      _setupTool.rebalanceStorageCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, _numReplicas);
+      clusterSetup.rebalanceStorageCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, _numReplicas);
     }
   }
 
   protected void setupParticipants() {
+    setupParticipants(_gSetupTool);
+  }
+
+  protected void setupParticipants(ClusterSetup setupTool) {
     _participants = new MockParticipantManager[_numNodes];
     for (int i = 0; i < _numNodes; i++) {
       String storageNodeName = PARTICIPANT_PREFIX + "_" + (_startPort + i);
-      _setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
+      setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
       if (_instanceGroupTag) {
-        _setupTool.addInstanceTag(CLUSTER_NAME, storageNodeName, "TESTTAG" + i);
+        setupTool.addInstanceTag(CLUSTER_NAME, storageNodeName, "TESTTAG" + i);
       }
     }
   }
 
   protected void startParticipants() {
-    startParticipants(_numNodes);
+    startParticipants(ZK_ADDR, _numNodes);
+  }
+
+  protected void startParticipants(String zkAddr) {
+    startParticipants(zkAddr, _numNodes);
   }
 
   protected void startParticipants(int numNodes) {
     for (int i = 0; i < numNodes; i++) {
-      startParticipant(i);
+      startParticipant(ZK_ADDR, i);
+    }
+  }
+
+  protected void startParticipants(String zkAddr, int numNodes) {
+    for (int i = 0; i < numNodes; i++) {
+      startParticipant(zkAddr, i);
     }
   }
 
   protected void startParticipant(int i) {
+    startParticipant(ZK_ADDR, i);
+  }
+
+  protected void startParticipant(String zkAddr, int i) {
     Map<String, TaskFactory> taskFactoryReg = new HashMap<String, TaskFactory>();
     taskFactoryReg.put(MockTask.TASK_COMMAND, new TaskFactory() {
       @Override public Task createNewTask(TaskCallbackContext context) {
@@ -138,7 +166,7 @@ public class TaskSynchronizedTestBase extends ZkIntegrationTestBase {
       }
     });
     String instanceName = PARTICIPANT_PREFIX + "_" + (_startPort + i);
-    _participants[i] = new MockParticipantManager(ZK_ADDR, CLUSTER_NAME, instanceName);
+    _participants[i] = new MockParticipantManager(zkAddr, CLUSTER_NAME, instanceName);
 
     // Register a Task state model factory.
     StateMachineEngine stateMachine = _participants[i].getStateMachineEngine();
@@ -159,22 +187,27 @@ public class TaskSynchronizedTestBase extends ZkIntegrationTestBase {
           + "were set up.", i, _participants.length));
     }
     if (_participants[i] != null && _participants[i].isConnected()) {
-      _participants[i].reset();
+      _participants[i].syncStop();
     }
   }
 
 
   protected void createManagers() throws Exception {
+    createManagers(ZK_ADDR, CLUSTER_NAME);
+  }
+
+  protected void createManagers(String zkAddr, String clusterName) throws Exception {
     _manager = HelixManagerFactory
-        .getZKHelixManager(CLUSTER_NAME, "Admin", InstanceType.ADMINISTRATOR, ZK_ADDR);
+        .getZKHelixManager(clusterName, "Admin", InstanceType.ADMINISTRATOR, zkAddr);
     _manager.connect();
     _driver = new TaskDriver(_manager);
   }
 
+
   public void setSingleTestEnvironment() {
     _numDbs = 1;
     _numNodes = 1;
-    _numParitions = 1;
+    _numPartitions = 1;
     _numReplicas = 1;
   }
 }

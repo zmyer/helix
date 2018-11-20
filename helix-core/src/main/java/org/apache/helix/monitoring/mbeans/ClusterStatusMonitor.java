@@ -19,6 +19,23 @@ package org.apache.helix.monitoring.mbeans;
  * under the License.
  */
 
+import javax.management.JMException;
+import javax.management.MBeanServer;
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectName;
+import java.lang.management.ManagementFactory;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.helix.controller.stages.BestPossibleStateOutput;
@@ -37,37 +54,21 @@ import org.apache.helix.task.WorkflowContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.management.JMException;
-import javax.management.MBeanServer;
-import javax.management.MalformedObjectNameException;
-import javax.management.ObjectName;
-import java.lang.management.ManagementFactory;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
-
 // TODO: 2018/7/24 by zmyer
 public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
     private static final Logger LOG = LoggerFactory.getLogger(ClusterStatusMonitor.class);
 
-    static final String MESSAGE_QUEUE_STATUS_KEY = "MessageQueueStatus";
-    static final String RESOURCE_STATUS_KEY = "ResourceStatus";
-    public static final String PARTICIPANT_STATUS_KEY = "ParticipantStatus";
-    public static final String CLUSTER_DN_KEY = "cluster";
-    static final String RESOURCE_DN_KEY = "resourceName";
-    static final String INSTANCE_DN_KEY = "instanceName";
-    static final String MESSAGE_QUEUE_DN_KEY = "messageQueue";
-    static final String WORKFLOW_TYPE_DN_KEY = "workflowType";
-    static final String JOB_TYPE_DN_KEY = "jobType";
-    static final String DEFAULT_WORKFLOW_JOB_TYPE = "DEFAULT";
-    public static final String DEFAULT_TAG = "DEFAULT";
+  static final String MESSAGE_QUEUE_STATUS_KEY = "MessageQueueStatus";
+  static final String RESOURCE_STATUS_KEY = "ResourceStatus";
+  public static final String PARTICIPANT_STATUS_KEY = "ParticipantStatus";
+  public static final String CLUSTER_DN_KEY = "cluster";
+  public static final String RESOURCE_DN_KEY = "resourceName";
+  static final String INSTANCE_DN_KEY = "instanceName";
+  static final String MESSAGE_QUEUE_DN_KEY = "messageQueue";
+  static final String WORKFLOW_TYPE_DN_KEY = "workflowType";
+  static final String JOB_TYPE_DN_KEY = "jobType";
+  static final String DEFAULT_WORKFLOW_JOB_TYPE = "DEFAULT";
+  public static final String DEFAULT_TAG = "DEFAULT";
 
     private final String _clusterName;
     private final MBeanServer _beanServer;
@@ -85,14 +86,8 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
     private boolean _rebalanceFailure = false;
     private AtomicLong _rebalanceFailureCount = new AtomicLong(0L);
 
-    // Aggregate metrics from ResourceMonitors
-    private volatile long _totalPartitionCount = 0;
-    private volatile long _totalErrorPartitionCount = 0;
-    private volatile long _totalPartitionsWithoutTopStateCount = 0;
-    private volatile long _totalExternalViewIdealStateMismatchPartitionCount = 0;
-
-    private final ConcurrentHashMap<String, ResourceMonitor> _resourceMbeanMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, InstanceMonitor> _instanceMbeanMap = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, ResourceMonitor> _resourceMbeanMap = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, InstanceMonitor> _instanceMbeanMap = new ConcurrentHashMap<>();
 
     // phaseName -> eventMonitor
     protected final ConcurrentHashMap<String, ClusterEventMonitor> _clusterEventMbeanMap =
@@ -168,16 +163,26 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         this._rebalanceFailure = isFailure;
     }
 
-    @Override
-    public long getMaxMessageQueueSizeGauge() {
-        long maxQueueSize = 0;
-        for (Long queueSize : _instanceMsgQueueSizes.values()) {
-            if (queueSize > maxQueueSize) {
-                maxQueueSize = queueSize;
-            }
-        }
-        return maxQueueSize;
+  public void setResourceRebalanceStates(Collection<String> resources,
+      ResourceMonitor.RebalanceStatus state) {
+    for (String resource : resources) {
+      ResourceMonitor resourceMonitor = getOrCreateResourceMonitor(resource);
+      if (resourceMonitor != null) {
+        resourceMonitor.setRebalanceState(state);
+      }
     }
+  }
+
+  @Override
+  public long getMaxMessageQueueSizeGauge() {
+    long maxQueueSize = 0;
+    for (Long queueSize : _instanceMsgQueueSizes.values()) {
+      if (queueSize > maxQueueSize) {
+        maxQueueSize = queueSize;
+      }
+    }
+    return maxQueueSize;
+  }
 
     @Override
     public long getInstanceMessageQueueBacklog() {
@@ -431,73 +436,84 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         }
     }
 
-    /**
-     * Indicate that a resource has been dropped, thus making it OK to drop its metrics
-     * @param resourceName the resource that has been dropped
-     */
-    public void unregisterResource(String resourceName) {
-        if (_resourceMbeanMap.containsKey(resourceName)) {
-            synchronized (this) {
-                if (_resourceMbeanMap.containsKey(resourceName)) {
-                    try {
-                        unregisterResources(Arrays.asList(resourceName));
-                    } catch (MalformedObjectNameException e) {
-                        LOG.error("Could not unregister beans for " + resourceName, e);
-                    }
-                }
-            }
-        }
+  /**
+   * Cleanup resource monitors. Keep the monitors if only exist in the input set.
+   * @param resourceNames the resources that still exist
+   */
+  public void retainResourceMonitor(Set<String> resourceNames) {
+    Set<String> resourcesToRemove = new HashSet<>();
+    synchronized (this) {
+      resourceNames.retainAll(_resourceMbeanMap.keySet());
+      resourcesToRemove.addAll(_resourceMbeanMap.keySet());
+    }
+    resourcesToRemove.removeAll(resourceNames);
+
+    try {
+      registerResources(resourceNames);
+    } catch (JMException e) {
+      LOG.error(String.format("Could not register beans for the following resources: %s",
+          Joiner.on(',').join(resourceNames)), e);
     }
 
-    public void setResourceStatus(ExternalView externalView, IdealState idealState,
-            StateModelDefinition stateModelDef) {
-        try {
-            ResourceMonitor resourceMonitor = getOrCreateResourceMonitor(externalView.getId());
-
-            if (resourceMonitor != null) {
-                resourceMonitor.updateResource(externalView, idealState, stateModelDef);
-            }
-        } catch (Exception e) {
-            LOG.error("Fail to set resource status, resource: " + idealState.getResourceName(), e);
-        }
+    try {
+      unregisterResources(resourcesToRemove);
+    } catch (MalformedObjectNameException e) {
+      LOG.error(String.format("Could not unregister beans for the following resources: %s",
+          Joiner.on(',').join(resourcesToRemove)), e);
     }
+  }
 
-    public synchronized void updateMissingTopStateDurationStats(String resourceName, long duration, boolean succeeded) {
-        ResourceMonitor resourceMonitor = getOrCreateResourceMonitor(resourceName);
+  public void setResourceStatus(ExternalView externalView, IdealState idealState,
+      StateModelDefinition stateModelDef, int messageCount) {
+    try {
+      ResourceMonitor resourceMonitor = getOrCreateResourceMonitor(externalView.getId());
 
-        if (resourceMonitor != null) {
-            resourceMonitor.updateStateHandoffStats(ResourceMonitor.MonitorState.TOP_STATE, duration, succeeded);
-        }
+      if (resourceMonitor != null) {
+        resourceMonitor.updateResourceState(externalView, idealState, stateModelDef);
+        resourceMonitor.updatePendingStateTransitionMessages(messageCount);
+      }
+    } catch (Exception e) {
+      LOG.error("Fail to set resource status, resource: " + idealState.getResourceName(), e);
     }
+  }
+
+  public synchronized void updateMissingTopStateDurationStats(String resourceName,
+      long totalDuration, long helixLatency, boolean isGraceful, boolean succeeded) {
+    ResourceMonitor resourceMonitor = getOrCreateResourceMonitor(resourceName);
+
+    if (resourceMonitor != null) {
+      resourceMonitor.updateStateHandoffStats(ResourceMonitor.MonitorState.TOP_STATE, totalDuration,
+          helixLatency, isGraceful, succeeded);
+    }
+  }
 
     public void updateRebalancerStats(String resourceName, long numPendingRecoveryRebalancePartitions,
             long numPendingLoadRebalancePartitions, long numRecoveryRebalanceThrottledPartitions,
             long numLoadRebalanceThrottledPartitions) {
         ResourceMonitor resourceMonitor = getOrCreateResourceMonitor(resourceName);
 
-        if (resourceMonitor != null) {
-            resourceMonitor.updateRebalancerStat(numPendingRecoveryRebalancePartitions,
-                    numPendingLoadRebalancePartitions, numRecoveryRebalanceThrottledPartitions,
-                    numLoadRebalanceThrottledPartitions);
-        }
+    if (resourceMonitor != null) {
+      resourceMonitor.updateRebalancerStats(numPendingRecoveryRebalancePartitions,
+          numPendingLoadRebalancePartitions, numRecoveryRebalanceThrottledPartitions,
+          numLoadRebalanceThrottledPartitions);
     }
+  }
 
-    private ResourceMonitor getOrCreateResourceMonitor(String resourceName) {
-        try {
-            if (!_resourceMbeanMap.containsKey(resourceName)) {
-                synchronized (this) {
-                    if (!_resourceMbeanMap.containsKey(resourceName)) {
-                        String beanName = getResourceBeanName(resourceName);
-                        ResourceMonitor bean =
-                                new ResourceMonitor(this, _clusterName, resourceName, getObjectName(beanName));
-                        bean.register();
-                        _resourceMbeanMap.put(resourceName, bean);
-                    }
-                }
-            }
-        } catch (JMException ex) {
-            LOG.error("Fail to register resource mbean, resource: " + resourceName);
+  private ResourceMonitor getOrCreateResourceMonitor(String resourceName) {
+    try {
+      if (!_resourceMbeanMap.containsKey(resourceName)) {
+        synchronized (this) {
+          if (!_resourceMbeanMap.containsKey(resourceName)) {
+            String beanName = getResourceBeanName(resourceName);
+            ResourceMonitor bean =
+                new ResourceMonitor(_clusterName, resourceName, getObjectName(beanName));
+            _resourceMbeanMap.put(resourceName, bean);
+          }
         }
+      }
+    } catch (JMException ex) {
+      LOG.error("Fail to register resource mbean, resource: " + resourceName);
+    }
 
         return _resourceMbeanMap.get(resourceName);
     }
@@ -674,15 +690,24 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         _instanceMbeanMap.keySet().removeAll(instances);
     }
 
-    private synchronized void unregisterResources(Collection<String> resources) throws MalformedObjectNameException {
-        for (String resourceName : resources) {
-            ResourceMonitor monitor = _resourceMbeanMap.get(resourceName);
-            if (monitor != null) {
-                monitor.unregister();
-            }
-        }
-        _resourceMbeanMap.keySet().removeAll(resources);
+  private synchronized void registerResources(Collection<String> resources) throws JMException {
+    for (String resourceName : resources) {
+      ResourceMonitor monitor = _resourceMbeanMap.get(resourceName);
+      if (monitor != null) {
+        monitor.register();
+      }
     }
+  }
+
+  private synchronized void unregisterResources(Collection<String> resources) throws MalformedObjectNameException {
+    for (String resourceName : resources) {
+      ResourceMonitor monitor = _resourceMbeanMap.get(resourceName);
+      if (monitor != null) {
+        monitor.unregister();
+      }
+    }
+    _resourceMbeanMap.keySet().removeAll(resources);
+  }
 
     private synchronized void unregisterEventMonitors(Collection<ClusterEventMonitor> monitors)
             throws MalformedObjectNameException {
@@ -740,9 +765,10 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         }
     }
 
-    protected ResourceMonitor getResourceMonitor(String resourceName) {
-        return _resourceMbeanMap.get(resourceName);
-    }
+  // For test only
+  protected ResourceMonitor getResourceMonitor(String resourceName) {
+    return _resourceMbeanMap.get(resourceName);
+  }
 
     public String clusterBeanName() {
         return String.format("%s=%s", CLUSTER_DN_KEY, _clusterName);
@@ -839,40 +865,80 @@ public class ClusterStatusMonitor implements ClusterStatusMonitorMBean {
         return _rebalanceFailureCount.get();
     }
 
-    @Override
-    public long getTotalPartitionCount() {
-        return _totalPartitionCount;
-    }
+  @Override
+  public long getTotalResourceGauge() {
+    return _resourceMbeanMap.size();
+  }
 
-    @Override
-    public long getTotalErrorPartitionCount() {
-        return _totalErrorPartitionCount;
+  @Override
+  public long getTotalPartitionGauge() {
+    long total = 0;
+    for (Map.Entry<String, ResourceMonitor> entry : _resourceMbeanMap.entrySet()) {
+      total += entry.getValue().getPartitionGauge();
     }
+    return total;
+  }
 
-    @Override
-    public long getTotalPartitionsWithoutTopStateCount() {
-        return _totalPartitionsWithoutTopStateCount;
+  @Override
+  public long getErrorPartitionGauge() {
+    long total = 0;
+    for (Map.Entry<String, ResourceMonitor> entry : _resourceMbeanMap.entrySet()) {
+      total += entry.getValue().getErrorPartitionGauge();
     }
+    return total;
+  }
 
-    @Override
-    public long getTotalExternalViewIdealStateMismatchPartitionCount() {
-        return _totalExternalViewIdealStateMismatchPartitionCount;
+  @Override
+  public long getMissingTopStatePartitionGauge() {
+    long total = 0;
+    for (Map.Entry<String, ResourceMonitor> entry : _resourceMbeanMap.entrySet()) {
+      total += entry.getValue().getMissingTopStatePartitionGauge();
     }
+    return total;
+  }
 
-    synchronized void applyDeltaToTotalPartitionCount(long delta) {
-        _totalPartitionCount += delta;
+  @Override
+  public long getMissingMinActiveReplicaPartitionGauge() {
+    long total = 0;
+    for (Map.Entry<String, ResourceMonitor> entry : _resourceMbeanMap.entrySet()) {
+      total += entry.getValue().getMissingMinActiveReplicaPartitionGauge();
     }
+    return total;
+  }
 
-    synchronized void applyDeltaToTotalErrorPartitionCount(long delta) {
-        _totalErrorPartitionCount += delta;
+  @Override
+  public long getMissingReplicaPartitionGauge() {
+    long total = 0;
+    for (Map.Entry<String, ResourceMonitor> entry : _resourceMbeanMap.entrySet()) {
+      total += entry.getValue().getMissingReplicaPartitionGauge();
     }
+    return total;
+  }
 
-    synchronized void applyDeltaToTotalPartitionsWithoutTopStateCount(long delta) {
-        _totalPartitionsWithoutTopStateCount += delta;
+  @Override
+  public long getDifferenceWithIdealStateGauge() {
+    long total = 0;
+    for (Map.Entry<String, ResourceMonitor> entry : _resourceMbeanMap.entrySet()) {
+      total += entry.getValue().getDifferenceWithIdealStateGauge();
     }
+    return total;
+  }
 
-    synchronized void applyDeltaToTotalExternalViewIdealStateMismatchPartitionCount(long delta) {
-        _totalExternalViewIdealStateMismatchPartitionCount += delta;
+  @Override
+  public long getStateTransitionCounter() {
+    long total = 0;
+    for (Map.Entry<String, ResourceMonitor> entry : _resourceMbeanMap.entrySet()) {
+      total += entry.getValue().getTotalMessageReceived();
     }
+    return total;
+  }
 
+  @Override
+  public long getPendingStateTransitionGuage() {
+    long total = 0;
+    for (Map.Entry<String, ResourceMonitor> entry : _resourceMbeanMap.entrySet()) {
+      total += entry.getValue().getNumPendingStateTransitionGauge();
+    }
+    return total;
+  }
 }

@@ -33,9 +33,7 @@ import org.apache.helix.task.TaskState;
 import org.apache.helix.task.TaskSynchronizedTestBase;
 import org.apache.helix.task.TaskUtil;
 import org.apache.helix.task.Workflow;
-import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
@@ -43,7 +41,6 @@ import org.testng.annotations.Test;
 
 public class TestJobFailureHighThreshold extends TaskSynchronizedTestBase {
 
-  private ClusterControllerManager _controller;
   private static final String DB_NAME = WorkflowGenerator.DEFAULT_TGT_DB;
 
   @BeforeClass
@@ -51,16 +48,10 @@ public class TestJobFailureHighThreshold extends TaskSynchronizedTestBase {
     _participants = new MockParticipantManager[_numNodes];
     _numDbs = 1;
     _numNodes = 1;
-    _numParitions = 5;
+    _numPartitions = 5;
     _numReplicas = 1;
 
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     setupParticipants();
     setupDBs();
     startParticipants();
@@ -68,9 +59,9 @@ public class TestJobFailureHighThreshold extends TaskSynchronizedTestBase {
     _controller = new ClusterControllerManager(ZK_ADDR, CLUSTER_NAME, CONTROLLER_PREFIX);
     _controller.syncStart();
 
-    HelixClusterVerifier clusterVerifier =
+    _clusterVerifier =
         new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkClient(_gZkClient).build();
-    Assert.assertTrue(clusterVerifier.verify(10000));
+    Assert.assertTrue(_clusterVerifier.verifyByPolling(10000, 100));
   }
 
   /**

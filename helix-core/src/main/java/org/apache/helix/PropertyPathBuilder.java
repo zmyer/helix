@@ -61,98 +61,111 @@ import static org.apache.helix.PropertyType.WORKFLOWCONTEXT;
 public class PropertyPathBuilder {
     private static Logger logger = LoggerFactory.getLogger(PropertyPathBuilder.class);
 
-    static final Map<PropertyType, Map<Integer, String>> templateMap =
-            new HashMap<PropertyType, Map<Integer, String>>();
-    static final Map<PropertyType, Class<? extends HelixProperty>> typeToClassMapping =
-            new HashMap<PropertyType, Class<? extends HelixProperty>>();
+  static final Map<PropertyType, Map<Integer, String>> templateMap =
+      new HashMap<PropertyType, Map<Integer, String>>();
+  @Deprecated // typeToClassMapping is not being used anywhere
+  static final Map<PropertyType, Class<? extends HelixProperty>> typeToClassMapping =
+      new HashMap<PropertyType, Class<? extends HelixProperty>>();
+  static {
+    typeToClassMapping.put(LIVEINSTANCES, LiveInstance.class);
+    typeToClassMapping.put(IDEALSTATES, IdealState.class);
+    typeToClassMapping.put(CONFIGS, InstanceConfig.class);
+    typeToClassMapping.put(EXTERNALVIEW, ExternalView.class);
+    typeToClassMapping.put(STATEMODELDEFS, StateModelDefinition.class);
+    typeToClassMapping.put(MESSAGES, Message.class);
+    typeToClassMapping.put(CURRENTSTATES, CurrentState.class);
+    typeToClassMapping.put(STATUSUPDATES, StatusUpdate.class);
+    typeToClassMapping.put(HISTORY, LeaderHistory.class);
+    typeToClassMapping.put(PAUSE, PauseSignal.class);
+    typeToClassMapping.put(MAINTENANCE, MaintenanceSignal.class);
+    // TODO: Below must handle the case for future versions of Task Framework with a different path
+    // structure
+    typeToClassMapping.put(WORKFLOWCONTEXT, WorkflowContext.class);
 
-    static {
-        typeToClassMapping.put(LIVEINSTANCES, LiveInstance.class);
-        typeToClassMapping.put(IDEALSTATES, IdealState.class);
-        typeToClassMapping.put(CONFIGS, InstanceConfig.class);
-        typeToClassMapping.put(EXTERNALVIEW, ExternalView.class);
-        typeToClassMapping.put(STATEMODELDEFS, StateModelDefinition.class);
-        typeToClassMapping.put(MESSAGES, Message.class);
-        typeToClassMapping.put(CURRENTSTATES, CurrentState.class);
-        typeToClassMapping.put(STATUSUPDATES, StatusUpdate.class);
-        typeToClassMapping.put(HISTORY, LeaderHistory.class);
-        typeToClassMapping.put(PAUSE, PauseSignal.class);
-        typeToClassMapping.put(MAINTENANCE, MaintenanceSignal.class);
-        // TODO: Below must handle the case for future versions of Task Framework with a different path structure
-        typeToClassMapping.put(WORKFLOWCONTEXT, WorkflowContext.class);
+    // @formatter:off
+    addEntry(PropertyType.CONFIGS, 1, "/{clusterName}/CONFIGS");
+    addEntry(PropertyType.CONFIGS, 2, "/{clusterName}/CONFIGS/{scope}");
+    addEntry(PropertyType.CONFIGS, 3, "/{clusterName}/CONFIGS/{scope}/{scopeKey}");
+    // addEntry(PropertyType.CONFIGS,2,"/{clusterName}/CONFIGS/{instanceName}");
+    addEntry(PropertyType.LIVEINSTANCES, 1, "/{clusterName}/LIVEINSTANCES");
+    addEntry(PropertyType.LIVEINSTANCES, 2, "/{clusterName}/LIVEINSTANCES/{instanceName}");
+    addEntry(PropertyType.INSTANCES, 1, "/{clusterName}/INSTANCES");
+    addEntry(PropertyType.INSTANCES, 2, "/{clusterName}/INSTANCES/{instanceName}");
+    addEntry(PropertyType.IDEALSTATES, 1, "/{clusterName}/IDEALSTATES");
+    addEntry(PropertyType.IDEALSTATES, 2, "/{clusterName}/IDEALSTATES/{resourceName}");
+    addEntry(PropertyType.EXTERNALVIEW, 1, "/{clusterName}/EXTERNALVIEW");
+    addEntry(PropertyType.EXTERNALVIEW, 2, "/{clusterName}/EXTERNALVIEW/{resourceName}");
+    addEntry(PropertyType.TARGETEXTERNALVIEW, 1, "/{clusterName}/TARGETEXTERNALVIEW");
+    addEntry(PropertyType.TARGETEXTERNALVIEW, 2,
+        "/{clusterName}/TARGETEXTERNALVIEW/{resourceName}");
+    addEntry(PropertyType.STATEMODELDEFS, 1, "/{clusterName}/STATEMODELDEFS");
+    addEntry(PropertyType.STATEMODELDEFS, 2, "/{clusterName}/STATEMODELDEFS/{stateModelName}");
+    addEntry(PropertyType.CONTROLLER, 1, "/{clusterName}/CONTROLLER");
+    addEntry(PropertyType.PROPERTYSTORE, 1, "/{clusterName}/PROPERTYSTORE");
 
-        // @formatter:off
-        addEntry(PropertyType.CONFIGS, 1, "/{clusterName}/CONFIGS");
-        addEntry(PropertyType.CONFIGS, 2, "/{clusterName}/CONFIGS/{scope}");
-        addEntry(PropertyType.CONFIGS, 3, "/{clusterName}/CONFIGS/{scope}/{scopeKey}");
-        // addEntry(PropertyType.CONFIGS,2,"/{clusterName}/CONFIGS/{instanceName}");
-        addEntry(PropertyType.LIVEINSTANCES, 1, "/{clusterName}/LIVEINSTANCES");
-        addEntry(PropertyType.LIVEINSTANCES, 2, "/{clusterName}/LIVEINSTANCES/{instanceName}");
-        addEntry(PropertyType.INSTANCES, 1, "/{clusterName}/INSTANCES");
-        addEntry(PropertyType.INSTANCES, 2, "/{clusterName}/INSTANCES/{instanceName}");
-        addEntry(PropertyType.IDEALSTATES, 1, "/{clusterName}/IDEALSTATES");
-        addEntry(PropertyType.IDEALSTATES, 2, "/{clusterName}/IDEALSTATES/{resourceName}");
-        addEntry(PropertyType.EXTERNALVIEW, 1, "/{clusterName}/EXTERNALVIEW");
-        addEntry(PropertyType.EXTERNALVIEW, 2, "/{clusterName}/EXTERNALVIEW/{resourceName}");
-        addEntry(PropertyType.TARGETEXTERNALVIEW, 1, "/{clusterName}/TARGETEXTERNALVIEW");
-        addEntry(PropertyType.TARGETEXTERNALVIEW, 2, "/{clusterName}/TARGETEXTERNALVIEW/{resourceName}");
-        addEntry(PropertyType.STATEMODELDEFS, 1, "/{clusterName}/STATEMODELDEFS");
-        addEntry(PropertyType.STATEMODELDEFS, 2, "/{clusterName}/STATEMODELDEFS/{stateModelName}");
-        addEntry(PropertyType.CONTROLLER, 1, "/{clusterName}/CONTROLLER");
-        addEntry(PropertyType.PROPERTYSTORE, 1, "/{clusterName}/PROPERTYSTORE");
+    // INSTANCE
+    addEntry(PropertyType.MESSAGES, 2, "/{clusterName}/INSTANCES/{instanceName}/MESSAGES");
+    addEntry(PropertyType.MESSAGES, 3, "/{clusterName}/INSTANCES/{instanceName}/MESSAGES/{msgId}");
+    addEntry(PropertyType.CURRENTSTATES, 2,
+        "/{clusterName}/INSTANCES/{instanceName}/CURRENTSTATES");
+    addEntry(PropertyType.CURRENTSTATES, 3,
+        "/{clusterName}/INSTANCES/{instanceName}/CURRENTSTATES/{sessionId}");
+    addEntry(PropertyType.CURRENTSTATES, 4,
+        "/{clusterName}/INSTANCES/{instanceName}/CURRENTSTATES/{sessionId}/{resourceName}");
+    addEntry(PropertyType.CURRENTSTATES, 5,
+        "/{clusterName}/INSTANCES/{instanceName}/CURRENTSTATES/{sessionId}/{resourceName}/{bucketName}");
+    addEntry(PropertyType.STATUSUPDATES, 2,
+        "/{clusterName}/INSTANCES/{instanceName}/STATUSUPDATES");
+    addEntry(PropertyType.STATUSUPDATES, 3,
+        "/{clusterName}/INSTANCES/{instanceName}/STATUSUPDATES/{sessionId}");
+    addEntry(PropertyType.STATUSUPDATES, 4,
+        "/{clusterName}/INSTANCES/{instanceName}/STATUSUPDATES/{sessionId}/{subPath}");
+    addEntry(PropertyType.STATUSUPDATES, 5,
+        "/{clusterName}/INSTANCES/{instanceName}/STATUSUPDATES/{sessionId}/{subPath}/{recordName}");
+    addEntry(PropertyType.ERRORS, 2, "/{clusterName}/INSTANCES/{instanceName}/ERRORS");
+    addEntry(PropertyType.ERRORS, 3, "/{clusterName}/INSTANCES/{instanceName}/ERRORS/{sessionId}");
+    addEntry(PropertyType.ERRORS, 4,
+        "/{clusterName}/INSTANCES/{instanceName}/ERRORS/{sessionId}/{subPath}");
+    addEntry(PropertyType.ERRORS, 5,
+        "/{clusterName}/INSTANCES/{instanceName}/ERRORS/{sessionId}/{subPath}/{recordName}");
+    addEntry(PropertyType.INSTANCE_HISTORY, 2, "/{clusterName}/INSTANCES/{instanceName}/HISTORY");
+    addEntry(PropertyType.HEALTHREPORT, 2, "/{clusterName}/INSTANCES/{instanceName}/HEALTHREPORT");
+    addEntry(PropertyType.HEALTHREPORT, 3,
+        "/{clusterName}/INSTANCES/{instanceName}/HEALTHREPORT/{reportName}");
+    // CONTROLLER
+    addEntry(PropertyType.MESSAGES_CONTROLLER, 1, "/{clusterName}/CONTROLLER/MESSAGES");
+    addEntry(PropertyType.MESSAGES_CONTROLLER, 2, "/{clusterName}/CONTROLLER/MESSAGES/{msgId}");
+    addEntry(PropertyType.ERRORS_CONTROLLER, 1, "/{clusterName}/CONTROLLER/ERRORS");
+    addEntry(PropertyType.ERRORS_CONTROLLER, 2, "/{clusterName}/CONTROLLER/ERRORS/{errorId}");
+    addEntry(PropertyType.STATUSUPDATES_CONTROLLER, 1, "/{clusterName}/CONTROLLER/STATUSUPDATES");
+    addEntry(PropertyType.STATUSUPDATES_CONTROLLER, 2,
+        "/{clusterName}/CONTROLLER/STATUSUPDATES/{subPath}");
+    addEntry(PropertyType.STATUSUPDATES_CONTROLLER, 3,
+        "/{clusterName}/CONTROLLER/STATUSUPDATES/{subPath}/{recordName}");
+    addEntry(PropertyType.LEADER, 1, "/{clusterName}/CONTROLLER/LEADER");
+    addEntry(PropertyType.HISTORY, 1, "/{clusterName}/CONTROLLER/HISTORY");
+    addEntry(PropertyType.PAUSE, 1, "/{clusterName}/CONTROLLER/PAUSE");
+    addEntry(PropertyType.MAINTENANCE, 1, "/{clusterName}/CONTROLLER/MAINTENANCE");
+    // @formatter:on
 
-        // INSTANCE
-        addEntry(PropertyType.MESSAGES, 2, "/{clusterName}/INSTANCES/{instanceName}/MESSAGES");
-        addEntry(PropertyType.MESSAGES, 3, "/{clusterName}/INSTANCES/{instanceName}/MESSAGES/{msgId}");
-        addEntry(PropertyType.CURRENTSTATES, 2, "/{clusterName}/INSTANCES/{instanceName}/CURRENTSTATES");
-        addEntry(PropertyType.CURRENTSTATES, 3,
-                "/{clusterName}/INSTANCES/{instanceName}/CURRENTSTATES/{sessionId}");
-        addEntry(PropertyType.CURRENTSTATES, 4,
-                "/{clusterName}/INSTANCES/{instanceName}/CURRENTSTATES/{sessionId}/{resourceName}");
-        addEntry(PropertyType.CURRENTSTATES, 5,
-                "/{clusterName}/INSTANCES/{instanceName}/CURRENTSTATES/{sessionId}/{resourceName}/{bucketName}");
-        addEntry(PropertyType.STATUSUPDATES, 2, "/{clusterName}/INSTANCES/{instanceName}/STATUSUPDATES");
-        addEntry(PropertyType.STATUSUPDATES, 3,
-                "/{clusterName}/INSTANCES/{instanceName}/STATUSUPDATES/{sessionId}");
-        addEntry(PropertyType.STATUSUPDATES, 4,
-                "/{clusterName}/INSTANCES/{instanceName}/STATUSUPDATES/{sessionId}/{subPath}");
-        addEntry(PropertyType.STATUSUPDATES, 5,
-                "/{clusterName}/INSTANCES/{instanceName}/STATUSUPDATES/{sessionId}/{subPath}/{recordName}");
-        addEntry(PropertyType.ERRORS, 2, "/{clusterName}/INSTANCES/{instanceName}/ERRORS");
-        addEntry(PropertyType.ERRORS, 3, "/{clusterName}/INSTANCES/{instanceName}/ERRORS/{sessionId}");
-        addEntry(PropertyType.ERRORS, 4,
-                "/{clusterName}/INSTANCES/{instanceName}/ERRORS/{sessionId}/{subPath}");
-        addEntry(PropertyType.ERRORS, 5,
-                "/{clusterName}/INSTANCES/{instanceName}/ERRORS/{sessionId}/{subPath}/{recordName}");
-        addEntry(PropertyType.INSTANCE_HISTORY, 2,
-                "/{clusterName}/INSTANCES/{instanceName}/HISTORY");
-        addEntry(PropertyType.HEALTHREPORT, 2, "/{clusterName}/INSTANCES/{instanceName}/HEALTHREPORT");
-        addEntry(PropertyType.HEALTHREPORT, 3,
-                "/{clusterName}/INSTANCES/{instanceName}/HEALTHREPORT/{reportName}");
-        // CONTROLLER
-        addEntry(PropertyType.MESSAGES_CONTROLLER, 1, "/{clusterName}/CONTROLLER/MESSAGES");
-        addEntry(PropertyType.MESSAGES_CONTROLLER, 2, "/{clusterName}/CONTROLLER/MESSAGES/{msgId}");
-        addEntry(PropertyType.ERRORS_CONTROLLER, 1, "/{clusterName}/CONTROLLER/ERRORS");
-        addEntry(PropertyType.ERRORS_CONTROLLER, 2, "/{clusterName}/CONTROLLER/ERRORS/{errorId}");
-        addEntry(PropertyType.STATUSUPDATES_CONTROLLER, 1, "/{clusterName}/CONTROLLER/STATUSUPDATES");
-        addEntry(PropertyType.STATUSUPDATES_CONTROLLER, 2,
-                "/{clusterName}/CONTROLLER/STATUSUPDATES/{subPath}");
-        addEntry(PropertyType.STATUSUPDATES_CONTROLLER, 3,
-                "/{clusterName}/CONTROLLER/STATUSUPDATES/{subPath}/{recordName}");
-        addEntry(PropertyType.LEADER, 1, "/{clusterName}/CONTROLLER/LEADER");
-        addEntry(PropertyType.HISTORY, 1, "/{clusterName}/CONTROLLER/HISTORY");
-        addEntry(PropertyType.PAUSE, 1, "/{clusterName}/CONTROLLER/PAUSE");
-        addEntry(PropertyType.MAINTENANCE, 1, "/{clusterName}/CONTROLLER/MAINTENANCE");
-        // @formatter:on
-
-        // RESOURCE
-        // TODO: Below must handle the case for future versions of Task Framework with a different path structure
-        addEntry(PropertyType.WORKFLOWCONTEXT, 2,
-                "/{clusterName}/PROPERTYSTORE/TaskRebalancer/{workflowName}/Context");
-
-    }
-
-    static Pattern pattern = Pattern.compile("(\\{.+?\\})");
+    // RESOURCE
+    addEntry(PropertyType.WORKFLOWCONTEXT, 2,
+        "/{clusterName}/PROPERTYSTORE/TaskRebalancer/{workflowName}/Context"); // Old
+                                                                               // WorkflowContext
+                                                                               // path
+    addEntry(PropertyType.TASK_CONFIG_ROOT, 1, "/{clusterName}/CONFIGS/TASK");
+    addEntry(PropertyType.WORKFLOW_CONFIG, 3,
+        "/{clusterName}/CONFIGS/TASK/{workflowName}/{workflowName}");
+    addEntry(PropertyType.JOB_CONFIG, 4,
+        "/{clusterName}/CONFIGS/TASK/{workflowName}/{jobName}/{jobName}");
+    addEntry(PropertyType.TASK_CONTEXT_ROOT, 1,
+        "/{clusterName}/PROPERTYSTORE/TaskFrameworkContext");
+    addEntry(PropertyType.WORKFLOW_CONTEXT, 2,
+        "/{clusterName}/PROPERTYSTORE/TaskFrameworkContext/{workflowName}/Context");
+    addEntry(PropertyType.JOB_CONTEXT, 3,
+        "/{clusterName}/PROPERTYSTORE/TaskFrameworkContext/{workflowName}/{jobName}/Context");
+  }
+  static Pattern pattern = Pattern.compile("(\\{.+?\\})");
 
     private static void addEntry(PropertyType type, int numKeys, String template) {
         if (!templateMap.containsKey(type)) {
@@ -186,26 +199,26 @@ public class PropertyPathBuilder {
 
         String result = null;
 
-        if (template != null) {
-            result = template;
-            Matcher matcher = pattern.matcher(template);
-            int count = 0;
-            while (matcher.find()) {
-                count = count + 1;
-                String var = matcher.group();
-                if (count == 1) {
-                    result = result.replace(var, clusterName);
-                } else {
-                    result = result.replace(var, keys[count - 2]);
-                }
-            }
+    if (template != null) {
+      result = template;
+      Matcher matcher = pattern.matcher(template);
+      int count = 0;
+      while (matcher.find()) {
+        count = count + 1;
+        String var = matcher.group();
+        if (count == 1) {
+          result = result.replace(var, clusterName);
+        } else {
+          result = result.replace(var, keys[count - 2]);
         }
-        if (result == null || result.indexOf('{') > -1 || result.indexOf('}') > -1) {
-            logger.warn("Unable to instantiate template:" + template + " using clusterName:"
-                    + clusterName + " and keys:" + Arrays.toString(keys));
-        }
-        return result;
+      }
     }
+    if (result == null || result.indexOf('{') > -1 || result.indexOf('}') > -1) {
+      logger.warn("Unable to instantiate template:" + template + " using clusterName:" + clusterName
+          + " and keys:" + Arrays.toString(keys));
+    }
+    return result;
+  }
 
     /**
      * Given a path, find the name of an instance at that path
@@ -272,10 +285,11 @@ public class PropertyPathBuilder {
         return String.format("/%s/INSTANCES", clusterName);
     }
 
-    @Deprecated
-    public static String instanceProperty(String clusterName, String instanceName, PropertyType type, String key) {
-        return String.format("/%s/INSTANCES/%s/%s/%s", clusterName, instanceName, type, key);
-    }
+  @Deprecated
+  public static String instanceProperty(String clusterName, String instanceName, PropertyType type,
+      String key) {
+    return String.format("/%s/INSTANCES/%s/%s/%s", clusterName, instanceName, type, key);
+  }
 
     public static String instance(String clusterName, String instanceName) {
         return String.format("/%s/INSTANCES/%s", clusterName, instanceName);
@@ -295,26 +309,27 @@ public class PropertyPathBuilder {
         return String.format("/%s/INSTANCES/%s/CURRENTSTATES", clusterName, instanceName);
     }
 
-    public static String instanceCurrentState(String clusterName, String instanceName, String sessionId) {
-        return String.format("/%s/INSTANCES/%s/CURRENTSTATES/%s", clusterName, instanceName, sessionId);
-    }
+  public static String instanceCurrentState(String clusterName, String instanceName,
+      String sessionId) {
+    return String.format("/%s/INSTANCES/%s/CURRENTSTATES/%s", clusterName, instanceName, sessionId);
+  }
 
-    public static String instanceCurrentState(
-            String clusterName, String instanceName, String sessionId, String resourceName) {
-        return String.format("/%s/INSTANCES/%s/CURRENTSTATES/%s/%s", clusterName, instanceName, sessionId,
-                resourceName);
-    }
+  public static String instanceCurrentState(String clusterName, String instanceName,
+      String sessionId, String resourceName) {
+    return String.format("/%s/INSTANCES/%s/CURRENTSTATES/%s/%s", clusterName, instanceName,
+        sessionId, resourceName);
+  }
 
     // TODO: 2018/7/27 by zmyer
     public static String instanceError(String clusterName, String instanceName) {
         return String.format("/%s/INSTANCES/%s/ERRORS", clusterName, instanceName);
     }
 
-    public static String instanceError(
-            String clusterName, String instanceName, String sessionId, String resourceName, String partitionName) {
-        return String.format("/%s/INSTANCES/%s/ERRORS/%s/%s/%s",
-                clusterName, instanceName, sessionId, resourceName, partitionName);
-    }
+  public static String instanceError(String clusterName, String instanceName, String sessionId,
+      String resourceName, String partitionName) {
+    return String.format("/%s/INSTANCES/%s/ERRORS/%s/%s/%s", clusterName, instanceName, sessionId,
+        resourceName, partitionName);
+  }
 
     // TODO: 2018/7/27 by zmyer
     public static String instanceHistory(String clusterName, String instanceName) {
@@ -371,9 +386,10 @@ public class PropertyPathBuilder {
         return String.format("/%s/CONTROLLER/STATUSUPDATES", clusterName);
     }
 
-    public static String controllerStatusUpdate(String clusterName, String subPath, String recordName) {
-        return String.format("/%s/CONTROLLER/STATUSUPDATES/%s/%s", clusterName, subPath, recordName);
-    }
+  public static String controllerStatusUpdate(String clusterName, String subPath,
+      String recordName) {
+    return String.format("/%s/CONTROLLER/STATUSUPDATES/%s/%s", clusterName, subPath, recordName);
+  }
 
     public static String controllerError(String clusterName) {
         return String.format("/%s/CONTROLLER/ERRORS", clusterName);

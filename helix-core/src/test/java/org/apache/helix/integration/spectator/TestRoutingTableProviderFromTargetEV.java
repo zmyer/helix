@@ -3,13 +3,15 @@ package org.apache.helix.integration.spectator;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixManagerFactory;
 import org.apache.helix.InstanceType;
 import org.apache.helix.PropertyType;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.TestHelper;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.integration.task.WorkflowGenerator;
@@ -19,15 +21,13 @@ import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.spectator.RoutingTableProvider;
-import org.apache.helix.tools.ClusterSetup;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-public class TestRoutingTableProviderFromTargetEV extends ZkIntegrationTestBase {
+public class TestRoutingTableProviderFromTargetEV extends ZkTestBase {
   private HelixManager _manager;
-  private ClusterSetup _setupTool;
   private final String MASTER_SLAVE_STATE_MODEL = "MasterSlave";
   private final int NUM_NODES = 10;
   protected int NUM_PARTITIONS = 20;
@@ -40,25 +40,19 @@ public class TestRoutingTableProviderFromTargetEV extends ZkIntegrationTestBase 
 
   @BeforeClass
   public void beforeClass() throws Exception {
-    String namespace = "/" + CLUSTER_NAME;
     _participants =  new MockParticipantManager[NUM_NODES];
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
 
     _participants = new MockParticipantManager[NUM_NODES];
     for (int i = 0; i < NUM_NODES; i++) {
       String storageNodeName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
-      _setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
+      _gSetupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
     }
 
-    _setupTool.addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, NUM_PARTITIONS,
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, NUM_PARTITIONS,
         MASTER_SLAVE_STATE_MODEL, IdealState.RebalanceMode.FULL_AUTO.name());
 
-    _setupTool
+    _gSetupTool
         .rebalanceStorageCluster(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, NUM_REPLICAS);
 
     for (int i = 0; i < NUM_NODES; i++) {
@@ -85,12 +79,19 @@ public class TestRoutingTableProviderFromTargetEV extends ZkIntegrationTestBase 
 
   @AfterClass
   public void afterClass() throws Exception {
-    _manager.disconnect();
+    if (_controller != null && _controller.isConnected()) {
+      _controller.syncStop();
+    }
     for (int i = 0; i < NUM_NODES; i++) {
       if (_participants[i] != null && _participants[i].isConnected()) {
-        _participants[i].reset();
+        _participants[i].syncStop();
       }
     }
+    if (_manager != null && _manager.isConnected()) {
+      _manager.disconnect();
+    }
+
+    deleteCluster(CLUSTER_NAME);
   }
 
   @Test (expectedExceptions = HelixException.class)
@@ -103,12 +104,16 @@ public class TestRoutingTableProviderFromTargetEV extends ZkIntegrationTestBase 
     String resourceName = WorkflowGenerator.DEFAULT_TGT_DB + 1;
     RoutingTableProvider externalViewProvider =
         new RoutingTableProvider(_manager, PropertyType.EXTERNALVIEW);
-    Assert.assertEquals(externalViewProvider.getInstancesForResource(resourceName, "SLAVE").size(),
-        0);
+    try {
+      Assert.assertEquals(externalViewProvider.getInstancesForResource(resourceName, "SLAVE").size(),
+          0);
+    } finally {
+      externalViewProvider.shutdown();
+    }
   }
 
   @Test (dependsOnMethods = "testTargetExternalViewWithoutEnable")
-  public void testExternalViewDiffFromTargetExternalView() throws InterruptedException {
+  public void testExternalViewDiffFromTargetExternalView() throws Exception {
     ClusterConfig clusterConfig = _configAccessor.getClusterConfig(CLUSTER_NAME);
     clusterConfig.enableTargetExternalView(true);
     clusterConfig.setPersistBestPossibleAssignment(true);
@@ -117,36 +122,48 @@ public class TestRoutingTableProviderFromTargetEV extends ZkIntegrationTestBase 
 
     RoutingTableProvider externalViewProvider =
         new RoutingTableProvider(_manager, PropertyType.EXTERNALVIEW);
-    RoutingTableProvider targetExternalViewProvider =
+    final RoutingTableProvider targetExternalViewProvider =
         new RoutingTableProvider(_manager, PropertyType.TARGETEXTERNALVIEW);
 
-    // ExternalView should not contain any MASTERS
-    // TargetExternalView should contain MASTERS same as the partition number
-    Set<InstanceConfig> externalViewMasters =
-        externalViewProvider.getInstancesForResource(WorkflowGenerator.DEFAULT_TGT_DB, "MASTER");
-    Assert.assertEquals(externalViewMasters.size(), 0);
-    Set<InstanceConfig> targetExternalViewMasters = targetExternalViewProvider
-        .getInstancesForResource(WorkflowGenerator.DEFAULT_TGT_DB, "MASTER");
-    Assert.assertEquals(targetExternalViewMasters.size(), NUM_NODES);
+    try {
+      // ExternalView should not contain any MASTERS
+      // TargetExternalView should contain MASTERS same as the partition number
+      Set<InstanceConfig> externalViewMasters =
+          externalViewProvider.getInstancesForResource(WorkflowGenerator.DEFAULT_TGT_DB, "MASTER");
+      Assert.assertEquals(externalViewMasters.size(), 0);
 
-    // TargetExternalView MASTERS mapping should exactly match IdealState MASTERS mapping
-    Map<String, Map<String, String>> stateMap = _setupTool.getClusterManagementTool()
-        .getResourceIdealState(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB).getRecord()
-        .getMapFields();
+      final Set<InstanceConfig> targetExternalViewMasters = new HashSet<>();
+      Assert.assertTrue(TestHelper.verify(new TestHelper.Verifier() {
+        @Override
+        public boolean verify() {
+          targetExternalViewMasters.clear();
+          targetExternalViewMasters.addAll(targetExternalViewProvider
+              .getInstancesForResource(WorkflowGenerator.DEFAULT_TGT_DB, "MASTER"));
+          return targetExternalViewMasters.size() == NUM_NODES;
+        }
+      }, 3000));
 
-    Set<String> idealMasters = new HashSet<>();
-    Set<String> targetMasters = new HashSet<>();
-    for (Map<String, String> instanceMap : stateMap.values()) {
-      for (String instance : instanceMap.keySet()) {
-        if (instanceMap.get(instance).equals("MASTER")) {
-          idealMasters.add(instance);
+      // TargetExternalView MASTERS mapping should exactly match IdealState MASTERS mapping
+      Map<String, Map<String, String>> stateMap = _gSetupTool.getClusterManagementTool()
+          .getResourceIdealState(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB).getRecord().getMapFields();
+
+      Set<String> idealMasters = new HashSet<>();
+      Set<String> targetMasters = new HashSet<>();
+      for (Map<String, String> instanceMap : stateMap.values()) {
+        for (String instance : instanceMap.keySet()) {
+          if (instanceMap.get(instance).equals("MASTER")) {
+            idealMasters.add(instance);
+          }
         }
       }
-    }
 
-    for (InstanceConfig instanceConfig : targetExternalViewMasters) {
-      targetMasters.add(instanceConfig.getInstanceName());
+      for (InstanceConfig instanceConfig : targetExternalViewMasters) {
+        targetMasters.add(instanceConfig.getInstanceName());
+      }
+      Assert.assertTrue(idealMasters.equals(targetMasters));
+    } finally {
+      externalViewProvider.shutdown();
+      targetExternalViewProvider.shutdown();
     }
-    Assert.assertTrue(idealMasters.equals(targetMasters));
   }
 }

@@ -19,6 +19,17 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+import org.apache.helix.HelixException;
+import org.apache.helix.controller.LogUtil;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
 import org.apache.helix.model.IdealState;
@@ -56,43 +67,49 @@ public class MessageSelectionStage extends AbstractBaseStage {
         }
     }
 
-    // TODO: 2018/7/25 by zmyer
-    @Override
-    public void process(ClusterEvent event) throws Exception {
-        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-        Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
-        CurrentStateOutput currentStateOutput =
-                event.getAttribute(AttributeName.CURRENT_STATE.name());
-        MessageGenerationOutput messageGenOutput =
-                event.getAttribute(AttributeName.MESSAGES_ALL.name());
-        if (cache == null || resourceMap == null || currentStateOutput == null
-                || messageGenOutput == null) {
-            throw new StageException("Missing attributes in event:" + event
-                    + ". Requires DataCache|RESOURCES|CURRENT_STATE|MESSAGES_ALL");
-        }
+  @Override
+  public void process(ClusterEvent event) throws Exception {
+    _eventId = event.getEventId();
+    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
 
-        MessageSelectionStageOutput output = new MessageSelectionStageOutput();
-
-        for (String resourceName : resourceMap.keySet()) {
-            Resource resource = resourceMap.get(resourceName);
-            StateModelDefinition stateModelDef = cache.getStateModelDef(resource.getStateModelDefRef());
-
-            Map<String, Integer> stateTransitionPriorities = getStateTransitionPriorityMap(stateModelDef);
-            IdealState idealState = cache.getIdealState(resourceName);
-            Map<String, Bounds> stateConstraints =
-                    computeStateConstraints(stateModelDef, idealState, cache);
-            for (Partition partition : resource.getPartitions()) {
-                List<Message> messages = messageGenOutput.getMessages(resourceName, partition);
-                List<Message> selectedMessages = selectMessages(cache.getLiveInstances(),
-                        currentStateOutput.getCurrentStateMap(resourceName, partition),
-                        currentStateOutput.getPendingMessageMap(resourceName, partition), messages,
-                        stateConstraints, stateTransitionPriorities, stateModelDef,
-                        resource.isP2PMessageEnabled());
-                output.addMessages(resourceName, partition, selectedMessages);
-            }
-        }
-        event.addAttribute(AttributeName.MESSAGES_SELECTED.name(), output);
+    Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
+    CurrentStateOutput currentStateOutput =
+        event.getAttribute(AttributeName.CURRENT_STATE.name());
+    MessageOutput messageGenOutput =
+        event.getAttribute(AttributeName.MESSAGES_ALL.name());
+    if (cache == null || resourceMap == null || currentStateOutput == null
+        || messageGenOutput == null) {
+      throw new StageException("Missing attributes in event:" + event
+          + ". Requires DataCache|RESOURCES|CURRENT_STATE|MESSAGES_ALL");
     }
+
+    MessageOutput output = new MessageOutput();
+
+    for (String resourceName : resourceMap.keySet()) {
+      Resource resource = resourceMap.get(resourceName);
+      try {
+        StateModelDefinition stateModelDef = cache.getStateModelDef(resource.getStateModelDefRef());
+        Map<String, Integer> stateTransitionPriorities = getStateTransitionPriorityMap(stateModelDef);
+        IdealState idealState = cache.getIdealState(resourceName);
+        Map<String, Bounds> stateConstraints =
+            computeStateConstraints(stateModelDef, idealState, cache);
+        for (Partition partition : resource.getPartitions()) {
+          List<Message> messages = messageGenOutput.getMessages(resourceName, partition);
+          List<Message> selectedMessages = selectMessages(cache.getLiveInstances(),
+              currentStateOutput.getCurrentStateMap(resourceName, partition),
+              currentStateOutput.getPendingMessageMap(resourceName, partition), messages,
+              currentStateOutput.getPendingRelayMessageMap(resourceName, partition).values(),
+              stateConstraints, stateTransitionPriorities, stateModelDef,
+              resource.isP2PMessageEnabled());
+          output.addMessages(resourceName, partition, selectedMessages);
+        }
+      } catch (HelixException ex) {
+        LogUtil.logError(LOG, _eventId,
+            "Failed to finish message selection for resource " + resourceName, ex);
+      }
+    }
+    event.addAttribute(AttributeName.MESSAGES_SELECTED.name(), output);
+  }
 
     private void increaseStateCnt(Map<String, Bounds> stateConstraints, String state,
             Map<String, Integer> stateCnts) {
@@ -106,36 +123,35 @@ public class MessageSelectionStage extends AbstractBaseStage {
         stateCnts.put(state, stateCnts.get(state) + 1);
     }
 
-    // TODO: This method deserves its own class. The class should not understand helix but
-    // just be able to solve the problem using the algo. I think the method is following that
-    // but if we don't move it to another class its quite easy to break that contract
-
-    /**
-     * greedy message selection algorithm: 1) calculate CS+PS state lower/upper-bounds 2)
-     * group messages by state transition and sorted by priority 3) from highest priority to
-     * lowest, for each message group with the same transition add message one by one and
-     * make sure state constraint is not violated update state lower/upper-bounds when a new
-     * message is selected.
-     *
-     * @param liveInstances
-     * @param currentStates
-     * @param pendingMessages
-     * @param messages
-     * @param stateConstraints
-     * @param stateTransitionPriorities
-     * @param stateModelDef
-     * @return
-     */
-    List<Message> selectMessages(Map<String, LiveInstance> liveInstances,
-            Map<String, String> currentStates, Map<String, Message> pendingMessages,
-            List<Message> messages, Map<String, Bounds> stateConstraints,
-            final Map<String, Integer> stateTransitionPriorities, StateModelDefinition stateModelDef,
-            boolean p2pMessageEnabled) {
-        if (messages == null || messages.isEmpty()) {
-            return Collections.emptyList();
-        }
-        List<Message> selectedMessages = new ArrayList<>();
-        Map<String, Integer> stateCnts = new HashMap<>();
+  // TODO: This method deserves its own class. The class should not understand helix but
+  // just be able to solve the problem using the algo. I think the method is following that
+  // but if we don't move it to another class its quite easy to break that contract
+  /**
+   * greedy message selection algorithm: 1) calculate CS+PS state lower/upper-bounds 2)
+   * group messages by state transition and sorted by priority 3) from highest priority to
+   * lowest, for each message group with the same transition add message one by one and
+   * make sure state constraint is not violated update state lower/upper-bounds when a new
+   * message is selected.
+   *
+   * @param liveInstances
+   * @param currentStates
+   * @param pendingMessages
+   * @param messages
+   * @param stateConstraints
+   * @param stateTransitionPriorities
+   * @param stateModelDef
+   * @return
+   */
+  List<Message> selectMessages(Map<String, LiveInstance> liveInstances,
+      Map<String, String> currentStates, Map<String, Message> pendingMessages,
+      List<Message> messages, Collection<Message> pendingRelayMessages,
+      Map<String, Bounds> stateConstraints, final Map<String, Integer> stateTransitionPriorities,
+      StateModelDefinition stateModelDef, boolean p2pMessageEnabled) {
+    if (messages == null || messages.isEmpty()) {
+      return Collections.emptyList();
+    }
+    List<Message> selectedMessages = new ArrayList<>();
+    Map<String, Integer> stateCnts = new HashMap<>();
 
         String initialState = stateModelDef.getInitialState();
         // count currentState, if no currentState, count as in initialState
@@ -185,30 +201,52 @@ public class MessageSelectionStage extends AbstractBaseStage {
             }
         }
 
-        // select messages
-        for (List<Message> messageList : messagesGroupByStateTransitPriority.values()) {
-            for (Message message : messageList) {
-                String toState = message.getToState();
+    // select messages
+    for (List<Message> messageList : messagesGroupByStateTransitPriority.values()) {
+      for (Message message : messageList) {
+        String toState = message.getToState();
+        String fromState = message.getFromState();
 
-                if (stateConstraints.containsKey(toState)) {
-                    int newCnt = (stateCnts.containsKey(toState) ? stateCnts.get(toState) + 1 : 1);
-                    if (newCnt > stateConstraints.get(toState).getUpperBound()) {
-                        if (p2pMessageEnabled && toState.equals(stateModelDef.getTopState())
-                                && stateModelDef.isSingleTopStateModel()) {
-                            // attach this message as a relay message to the message to transition off current top-state replica
-                            if (fromTopStateMessages.size() > 0) {
-                                Message fromTopStateMsg = fromTopStateMessages.get(0);
-                                fromTopStateMsg.attachRelayMessage(message.getTgtName(), message);
-                                fromTopStateMessages.remove(0);
-                            }
-                        } else {
-                            // reach upper-bound of message for the topState, will not send the message
-                            LOG.info("Reach upper_bound: " + stateConstraints.get(toState).getUpperBound() +
-                                    ", not send message: " + message);
-                        }
-                        continue;
-                    }
-                }
+        if (toState.equals(stateModelDef.getTopState())) {
+          // find if there are any pending relay messages match this message.
+          // if yes, rebuild the message to use the same message id from the original relay message.
+          for (Message relayMsg : pendingRelayMessages) {
+            if (relayMsg.getToState().equals(toState) && relayMsg.getFromState()
+                .equals(fromState)) {
+              if (relayMsg.getTgtName().equals(message.getTgtName())) {
+                message = new Message(message, relayMsg.getMsgId());
+              } else {
+                // if there are pending relay message that was sent to a different host than the current message
+                // we should not send the toState message now.
+                LOG.info(
+                    "There is pending relay message to a different host, not send message: {}, pending relay message: {}",
+                    message, relayMsg);
+                continue;
+              }
+            }
+          }
+        }
+
+        if (stateConstraints.containsKey(toState)) {
+          int newCnt = (stateCnts.containsKey(toState) ? stateCnts.get(toState) + 1 : 1);
+          if (newCnt > stateConstraints.get(toState).getUpperBound()) {
+            if (p2pMessageEnabled && toState.equals(stateModelDef.getTopState())
+                && stateModelDef.isSingleTopStateModel()) {
+              // attach this message as a relay message to the message to transition off current top-state replica
+              if (fromTopStateMessages.size() > 0) {
+                Message fromTopStateMsg = fromTopStateMessages.get(0);
+                fromTopStateMsg.attachRelayMessage(message.getTgtName(), message);
+                fromTopStateMessages.remove(0);
+              }
+            } else {
+              // reach upper-bound of message for the topState, will not send the message
+              LogUtil.logInfo(LOG, _eventId,
+                  "Reach upper_bound: " + stateConstraints.get(toState).getUpperBound()
+                      + ", not send message: " + message);
+            }
+            continue;
+          }
+        }
 
                 increaseStateCnt(stateConstraints, message.getToState(), stateCnts);
                 selectedMessages.add(message);

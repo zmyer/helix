@@ -6,25 +6,23 @@ import org.apache.helix.HelixManager;
 import org.apache.helix.HelixManagerFactory;
 import org.apache.helix.InstanceType;
 import org.apache.helix.PropertyType;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.spectator.RoutingTableProvider;
 import org.apache.helix.spectator.RoutingTableSnapshot;
-import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 
-public class TestRoutingTableSnapshot extends ZkIntegrationTestBase {
+public class TestRoutingTableSnapshot extends ZkTestBase {
   private HelixManager _manager;
-  private ClusterSetup _setupTool;
   private final int NUM_NODES = 10;
   protected int NUM_PARTITIONS = 20;
   protected int NUM_REPLICAS = 3;
@@ -35,19 +33,13 @@ public class TestRoutingTableSnapshot extends ZkIntegrationTestBase {
 
   @BeforeClass
   public void beforeClass() throws Exception {
-    String namespace = "/" + CLUSTER_NAME;
     _participants =  new MockParticipantManager[NUM_NODES];
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
 
     _participants = new MockParticipantManager[NUM_NODES];
     for (int i = 0; i < NUM_NODES; i++) {
       String storageNodeName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
-      _setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
+      _gSetupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
     }
 
     for (int i = 0; i < NUM_NODES; i++) {
@@ -80,47 +72,51 @@ public class TestRoutingTableSnapshot extends ZkIntegrationTestBase {
     RoutingTableProvider routingTableProvider =
         new RoutingTableProvider(_manager, PropertyType.EXTERNALVIEW);
 
-    String db1 = "TestDB-1";
-    _setupTool.addResourceToCluster(CLUSTER_NAME, db1, NUM_PARTITIONS, "MasterSlave",
-        IdealState.RebalanceMode.FULL_AUTO.name());
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, db1, NUM_REPLICAS);
+    try {
+      String db1 = "TestDB-1";
+      _gSetupTool.addResourceToCluster(CLUSTER_NAME, db1, NUM_PARTITIONS, "MasterSlave", IdealState.RebalanceMode.FULL_AUTO.name());
+      _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, db1, NUM_REPLICAS);
 
-    Thread.sleep(200);
-    HelixClusterVerifier clusterVerifier =
-        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(clusterVerifier.verify());
+      Thread.sleep(200);
+      ZkHelixClusterVerifier clusterVerifier =
+          new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR).build();
+      Assert.assertTrue(clusterVerifier.verifyByPolling());
 
-    IdealState idealState1 = _setupTool.getClusterManagementTool().getResourceIdealState(
-        CLUSTER_NAME, db1);
+      IdealState idealState1 =
+          _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db1);
 
-    RoutingTableSnapshot routingTableSnapshot = routingTableProvider.getRoutingTableSnapshot();
-    validateMapping(idealState1, routingTableSnapshot);
+      RoutingTableSnapshot routingTableSnapshot = routingTableProvider.getRoutingTableSnapshot();
+      validateMapping(idealState1, routingTableSnapshot);
 
-    Assert.assertEquals(routingTableSnapshot.getInstanceConfigs().size(), NUM_NODES);
-    Assert.assertEquals(routingTableSnapshot.getResources().size(), 1);
-    Assert.assertEquals(routingTableSnapshot.getLiveInstances().size(), NUM_NODES);
+      Assert.assertEquals(routingTableSnapshot.getInstanceConfigs().size(), NUM_NODES);
+      Assert.assertEquals(routingTableSnapshot.getResources().size(), 1);
+      Assert.assertEquals(routingTableSnapshot.getLiveInstances().size(), NUM_NODES);
+      Assert.assertEquals(routingTableSnapshot.getExternalViews().size(), 1); // 1 DB
 
-    // add new DB and shutdown an instance
-    String db2 = "TestDB-2";
-    _setupTool.addResourceToCluster(CLUSTER_NAME, db2, NUM_PARTITIONS, "MasterSlave",
-        IdealState.RebalanceMode.FULL_AUTO.name());
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, db2, NUM_REPLICAS);
+      // add new DB and shutdown an instance
+      String db2 = "TestDB-2";
+      _gSetupTool.addResourceToCluster(CLUSTER_NAME, db2, NUM_PARTITIONS, "MasterSlave", IdealState.RebalanceMode.FULL_AUTO.name());
+      _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, db2, NUM_REPLICAS);
 
-    // shutdown an instance
-    _participants[0].syncStop();
-    Thread.sleep(200);
-    Assert.assertTrue(clusterVerifier.verify());
+      // shutdown an instance
+      _participants[0].syncStop();
+      Thread.sleep(200);
+      Assert.assertTrue(clusterVerifier.verifyByPolling());
 
-    // the original snapshot should not change
-    Assert.assertEquals(routingTableSnapshot.getInstanceConfigs().size(), NUM_NODES);
-    Assert.assertEquals(routingTableSnapshot.getResources().size(), 1);
-    Assert.assertEquals(routingTableSnapshot.getLiveInstances().size(), NUM_NODES);
+      // the original snapshot should not change
+      Assert.assertEquals(routingTableSnapshot.getInstanceConfigs().size(), NUM_NODES);
+      Assert.assertEquals(routingTableSnapshot.getResources().size(), 1);
+      Assert.assertEquals(routingTableSnapshot.getLiveInstances().size(), NUM_NODES);
 
-    RoutingTableSnapshot newRoutingTableSnapshot = routingTableProvider.getRoutingTableSnapshot();
+      RoutingTableSnapshot newRoutingTableSnapshot = routingTableProvider.getRoutingTableSnapshot();
 
-    Assert.assertEquals(newRoutingTableSnapshot.getInstanceConfigs().size(), NUM_NODES);
-    Assert.assertEquals(newRoutingTableSnapshot.getResources().size(), 2);
-    Assert.assertEquals(newRoutingTableSnapshot.getLiveInstances().size(), NUM_NODES - 1);
+      Assert.assertEquals(newRoutingTableSnapshot.getInstanceConfigs().size(), NUM_NODES);
+      Assert.assertEquals(newRoutingTableSnapshot.getResources().size(), 2);
+      Assert.assertEquals(newRoutingTableSnapshot.getLiveInstances().size(), NUM_NODES - 1);
+      Assert.assertEquals(newRoutingTableSnapshot.getExternalViews().size(), 2); // 2 DBs
+    } finally {
+      routingTableProvider.shutdown();
+    }
   }
 
   private void validateMapping(IdealState idealState, RoutingTableSnapshot routingTableSnapshot) {
@@ -137,4 +133,3 @@ public class TestRoutingTableSnapshot extends ZkIntegrationTestBase {
     }
   }
 }
-

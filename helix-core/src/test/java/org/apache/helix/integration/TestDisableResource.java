@@ -22,7 +22,6 @@ package org.apache.helix.integration;
 import java.util.Date;
 import java.util.Map;
 import java.util.Set;
-
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
@@ -153,6 +152,7 @@ public class TestDisableResource extends ZkUnitTestBase {
     for (int i = 0; i < N; i++) {
       participants[i].syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -219,6 +219,7 @@ public class TestDisableResource extends ZkUnitTestBase {
     for (int i = 0; i < N; i++) {
       participants[i].syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }

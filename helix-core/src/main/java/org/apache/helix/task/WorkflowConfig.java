@@ -37,58 +37,54 @@ import java.util.concurrent.TimeUnit;
 /**
  * Provides a typed interface to workflow level configurations. Validates the configurations.
  */
-// TODO: 2018/7/25 by zmyer
 public class WorkflowConfig extends ResourceConfig {
-    private static final Logger LOG = LoggerFactory.getLogger(WorkflowConfig.class);
+  private static final Logger LOG = LoggerFactory.getLogger(WorkflowConfig.class);
 
-    /**
-     * Do not use these values directly, always use the getters/setters
-     * in WorkflowConfig and WorkflowConfig.Builder.
-     *
-     * For back-compatible, this class will be left for public for a while,
-     * but it will be change to protected in future major release.
-     */
-    public enum WorkflowConfigProperty {
-        WorkflowID,
-        Dag,
-        ParallelJobs,
-        TargetState,
-        Expiry,
-        StartTime,
-        RecurrenceUnit,
-        RecurrenceInterval,
-        Terminable,
-        FailureThreshold,
-        /* this is for non-terminable workflow. */
-        capacity,
-        WorkflowType,
-        JobTypes,
-        IsJobQueue,
-        JobPurgeInterval,
-        /* Allow multiple jobs in this workflow to be assigned to a same instance or not */
-        AllowOverlapJobAssignment,
-        Timeout
-    }
+  /**
+   * Do not use these values directly, always use the getters/setters
+   * in WorkflowConfig and WorkflowConfig.Builder.
+   * For back-compatible, this class will be left for public for a while,
+   * but it will be change to protected in future major release.
+   */
+  public enum WorkflowConfigProperty {
+    WorkflowID,
+    Dag,
+    ParallelJobs,
+    TargetState,
+    Expiry,
+    StartTime,
+    RecurrenceUnit,
+    RecurrenceInterval,
+    Terminable,
+    FailureThreshold,
+    /* this is for non-terminable workflow. */
+    capacity,
+    WorkflowType,
+    JobTypes,
+    IsJobQueue,
+    JobPurgeInterval,
+    /* Allow multiple jobs in this workflow to be assigned to a same instance or not */
+    AllowOverlapJobAssignment,
+    Timeout
+  }
 
-    /* Default values */
-    public static final long DEFAULT_EXPIRY = 24 * 60 * 60 * 1000;
-    public static final int DEFAULT_FAILURE_THRESHOLD = 0;
-    public static final int DEFAULT_PARALLEL_JOBS = 1;
-    public static final int DEFAULT_CAPACITY = Integer.MAX_VALUE;
-    public static final JobDag DEFAULT_JOB_DAG = JobDag.EMPTY_DAG;
-    public static final TargetState DEFAULT_TARGET_STATE = TargetState.START;
-    public static final boolean DEFAULT_TERMINABLE = true;
-    public static final boolean DEFAULT_JOB_QUEUE = false;
-    public static final boolean DEFAULT_MONITOR_DISABLE = true;
-    public static final boolean DEFAULT_ALLOW_OVERLAP_JOB_ASSIGNMENT = false;
-    protected static final long DEFAULT_JOB_PURGE_INTERVAL = 30 * 60 * 1000; //default 30 minutes
-    private JobDag _jobDag;
+  /* Default values */
+  public static final long DEFAULT_EXPIRY = 24 * 60 * 60 * 1000;
+  public static final int DEFAULT_FAILURE_THRESHOLD = 0;
+  public static final int DEFAULT_PARALLEL_JOBS = 1;
+  public static final int DEFAULT_CAPACITY = Integer.MAX_VALUE;
+  public static final JobDag DEFAULT_JOB_DAG = JobDag.EMPTY_DAG;
+  public static final TargetState DEFAULT_TARGET_STATE = TargetState.START;
+  public static final boolean DEFAULT_TERMINABLE = true;
+  public static final boolean DEFAULT_JOB_QUEUE = false;
+  public static final boolean DEFAULT_MONITOR_DISABLE = true;
+  public static final boolean DEFAULT_ALLOW_OVERLAP_JOB_ASSIGNMENT = false;
+  protected static final long DEFAULT_JOB_PURGE_INTERVAL = 30 * 60 * 1000; // default 30 minutes
+  private JobDag _jobDag;
 
-
-    // TODO: 2018/7/26 by zmyer
-    public WorkflowConfig(HelixProperty property) {
-        super(property.getRecord());
-    }
+  public WorkflowConfig(HelixProperty property) {
+    super(property.getRecord());
+  }
 
     public WorkflowConfig(WorkflowConfig cfg, String workflowId) {
         this(workflowId, cfg.getJobDag(), cfg.getParallelJobs(), cfg.getTargetState(), cfg.getExpiry(),
@@ -107,22 +103,22 @@ public class WorkflowConfig extends ResourceConfig {
             long timeout) {
         super(workflowId);
 
-        putSimpleConfig(WorkflowConfigProperty.WorkflowID.name(), workflowId);
-        try {
-            putSimpleConfig(WorkflowConfigProperty.Dag.name(), jobDag.toJson());
-        } catch (IOException ex) {
-            throw new HelixException("Invalid job dag configuration!", ex);
-        }
-        putSimpleConfig(WorkflowConfigProperty.ParallelJobs.name(), String.valueOf(parallelJobs));
-        putSimpleConfig(WorkflowConfigProperty.Expiry.name(), String.valueOf(expiry));
-        putSimpleConfig(WorkflowConfigProperty.TargetState.name(), targetState.name());
-        putSimpleConfig(WorkflowConfigProperty.Terminable.name(), String.valueOf(terminable));
-        putSimpleConfig(WorkflowConfigProperty.IsJobQueue.name(), String.valueOf(isJobQueue));
-        putSimpleConfig(WorkflowConfigProperty.FailureThreshold.name(),
-                String.valueOf(failureThreshold));
-        putSimpleConfig(WorkflowConfigProperty.JobPurgeInterval.name(), String.valueOf(purgeInterval));
-        putSimpleConfig(WorkflowConfigProperty.AllowOverlapJobAssignment.name(),
-                String.valueOf(allowOverlapJobAssignment));
+    putSimpleConfig(WorkflowConfigProperty.WorkflowID.name(), workflowId);
+    try {
+      putSimpleConfig(WorkflowConfigProperty.Dag.name(), jobDag.toJson());
+    } catch (IOException ex) {
+      throw new HelixException("Invalid job dag configuration!", ex);
+    }
+    putSimpleConfig(WorkflowConfigProperty.ParallelJobs.name(), String.valueOf(parallelJobs));
+    putSimpleConfig(WorkflowConfigProperty.Expiry.name(), String.valueOf(expiry));
+    putSimpleConfig(WorkflowConfigProperty.TargetState.name(), targetState.name());
+    putSimpleConfig(WorkflowConfigProperty.Terminable.name(), String.valueOf(terminable));
+    putSimpleConfig(WorkflowConfigProperty.IsJobQueue.name(), String.valueOf(isJobQueue));
+    putSimpleConfig(WorkflowConfigProperty.FailureThreshold.name(),
+        String.valueOf(failureThreshold));
+    putSimpleConfig(WorkflowConfigProperty.JobPurgeInterval.name(), String.valueOf(purgeInterval));
+    putSimpleConfig(WorkflowConfigProperty.AllowOverlapJobAssignment.name(),
+        String.valueOf(allowOverlapJobAssignment));
 
         if (capacity > 0) {
             putSimpleConfig(WorkflowConfigProperty.capacity.name(), String.valueOf(capacity));
@@ -161,13 +157,14 @@ public class WorkflowConfig extends ResourceConfig {
         return getSimpleConfig(WorkflowConfigProperty.WorkflowID.name());
     }
 
-    public JobDag getJobDag() {
-        if (_jobDag == null) {
-            _jobDag = simpleConfigContains(WorkflowConfigProperty.Dag.name()) ? JobDag
-                    .fromJson(getSimpleConfig(WorkflowConfigProperty.Dag.name())) : DEFAULT_JOB_DAG;
-        }
-        return _jobDag;
+  public JobDag getJobDag() {
+    if (_jobDag == null) {
+      _jobDag = simpleConfigContains(WorkflowConfigProperty.Dag.name())
+          ? JobDag.fromJson(getSimpleConfig(WorkflowConfigProperty.Dag.name()))
+          : DEFAULT_JOB_DAG;
     }
+    return _jobDag;
+  }
 
     protected void setJobDag(JobDag jobDag) {
         try {
@@ -177,33 +174,33 @@ public class WorkflowConfig extends ResourceConfig {
         }
     }
 
-    public int getParallelJobs() {
-        return _record
-                .getIntField(WorkflowConfigProperty.ParallelJobs.name(), DEFAULT_PARALLEL_JOBS);
-    }
+  public int getParallelJobs() {
+    return _record.getIntField(WorkflowConfigProperty.ParallelJobs.name(), DEFAULT_PARALLEL_JOBS);
+  }
 
-    public TargetState getTargetState() {
-        return simpleConfigContains(WorkflowConfigProperty.TargetState.name()) ? TargetState
-                .valueOf(getSimpleConfig(WorkflowConfigProperty.TargetState.name())) : DEFAULT_TARGET_STATE;
-    }
+  public TargetState getTargetState() {
+    return simpleConfigContains(WorkflowConfigProperty.TargetState.name())
+        ? TargetState.valueOf(getSimpleConfig(WorkflowConfigProperty.TargetState.name()))
+        : DEFAULT_TARGET_STATE;
+  }
 
     public long getExpiry() {
         return _record.getLongField(WorkflowConfigProperty.Expiry.name(), DEFAULT_EXPIRY);
     }
 
-    public long getJobPurgeInterval() {
-        return _record
-                .getLongField(WorkflowConfigProperty.JobPurgeInterval.name(), DEFAULT_JOB_PURGE_INTERVAL);
-    }
+  public long getJobPurgeInterval() {
+    return _record.getLongField(WorkflowConfigProperty.JobPurgeInterval.name(),
+        DEFAULT_JOB_PURGE_INTERVAL);
+  }
 
-    /**
-     * This Failure threshold only works for generic workflow. Will be ignored by JobQueue
-     * @return
-     */
-    public int getFailureThreshold() {
-        return _record
-                .getIntField(WorkflowConfigProperty.FailureThreshold.name(), DEFAULT_FAILURE_THRESHOLD);
-    }
+  /**
+   * This Failure threshold only works for generic workflow. Will be ignored by JobQueue
+   * @return
+   */
+  public int getFailureThreshold() {
+    return _record.getIntField(WorkflowConfigProperty.FailureThreshold.name(),
+        DEFAULT_FAILURE_THRESHOLD);
+  }
 
     /**
      * Determine the number of jobs that this workflow can accept before rejecting further jobs,
@@ -214,10 +211,11 @@ public class WorkflowConfig extends ResourceConfig {
         return _record.getIntField(WorkflowConfigProperty.capacity.name(), DEFAULT_CAPACITY);
     }
 
-    public String getWorkflowType() {
-        return simpleConfigContains(WorkflowConfigProperty.WorkflowType.name()) ? getSimpleConfig(
-                WorkflowConfigProperty.WorkflowType.name()) : null;
-    }
+  public String getWorkflowType() {
+    return simpleConfigContains(WorkflowConfigProperty.WorkflowType.name())
+        ? getSimpleConfig(WorkflowConfigProperty.WorkflowType.name())
+        : null;
+  }
 
     public boolean isTerminable() {
         return _record.getBooleanField(WorkflowConfigProperty.Terminable.name(), DEFAULT_TERMINABLE);
@@ -227,11 +225,11 @@ public class WorkflowConfig extends ResourceConfig {
         return parseScheduleFromConfigMap(getSimpleConfigs());
     }
 
-    public boolean isRecurring() {
-        return simpleConfigContains(WorkflowConfigProperty.StartTime.name()) && simpleConfigContains(
-                WorkflowConfigProperty.RecurrenceInterval.name()) && simpleConfigContains(
-                WorkflowConfigProperty.RecurrenceUnit.name());
-    }
+  public boolean isRecurring() {
+    return simpleConfigContains(WorkflowConfigProperty.StartTime.name())
+        && simpleConfigContains(WorkflowConfigProperty.RecurrenceInterval.name())
+        && simpleConfigContains(WorkflowConfigProperty.RecurrenceUnit.name());
+  }
 
     public boolean isJobQueue() {
         return _record.getBooleanField(WorkflowConfigProperty.IsJobQueue.name(), DEFAULT_JOB_QUEUE);
@@ -241,82 +239,76 @@ public class WorkflowConfig extends ResourceConfig {
         putMapConfig(WorkflowConfigProperty.JobTypes.name(), jobTypes);
     }
 
-    public Map<String, String> getJobTypes() {
-        return mapConfigContains(WorkflowConfigProperty.JobTypes.name()) ? getMapConfig(
-                WorkflowConfigProperty.JobTypes.name()) : null;
-    }
+  public Map<String, String> getJobTypes() {
+    return mapConfigContains(WorkflowConfigProperty.JobTypes.name())
+        ? getMapConfig(WorkflowConfigProperty.JobTypes.name())
+        : null;
+  }
 
     public boolean isAllowOverlapJobAssignment() {
         return _record.getBooleanField(WorkflowConfigProperty.AllowOverlapJobAssignment.name(),
                 DEFAULT_ALLOW_OVERLAP_JOB_ASSIGNMENT);
     }
 
-    public long getTimeout() {
-        return _record
-                .getLongField(WorkflowConfigProperty.Timeout.name(), TaskConstants.DEFAULT_NEVER_TIMEOUT);
-    }
+  public long getTimeout() {
+    return _record.getLongField(WorkflowConfigProperty.Timeout.name(),
+        TaskConstants.DEFAULT_NEVER_TIMEOUT);
+  }
 
-    public static SimpleDateFormat getDefaultDateFormat() {
-        SimpleDateFormat defaultDateFormat = new SimpleDateFormat(
-                "MM-dd-yyyy HH:mm:ss");
-        defaultDateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+  public static SimpleDateFormat getDefaultDateFormat() {
+    SimpleDateFormat defaultDateFormat = new SimpleDateFormat("MM-dd-yyyy HH:mm:ss");
+    defaultDateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
 
         return defaultDateFormat;
     }
 
-    /**
-     * Get the scheduled start time of the workflow.
-     *
-     * @return start time if the workflow schedule is set, null if no schedule config set.
-     */
-    public Date getStartTime() {
-        // Workflow with non-scheduled config is ready to schedule immediately.
-        try {
-            return simpleConfigContains(WorkflowConfigProperty.StartTime.name())
-                    ? WorkflowConfig.getDefaultDateFormat()
-                    .parse(getSimpleConfig(WorkflowConfigProperty.StartTime.name()))
-                    : null;
-        } catch (ParseException e) {
-            LOG.error("Unparseable date " + getSimpleConfig(WorkflowConfigProperty.StartTime.name()), e);
-        }
-        return null;
+  /**
+   * Get the scheduled start time of the workflow.
+   * @return start time if the workflow schedule is set, null if no schedule config set.
+   */
+  public Date getStartTime() {
+    // Workflow with non-scheduled config is ready to schedule immediately.
+    try {
+      return simpleConfigContains(WorkflowConfigProperty.StartTime.name()) ? WorkflowConfig
+          .getDefaultDateFormat().parse(getSimpleConfig(WorkflowConfigProperty.StartTime.name()))
+          : null;
+    } catch (ParseException e) {
+      LOG.error("Unparseable date " + getSimpleConfig(WorkflowConfigProperty.StartTime.name()), e);
     }
+    return null;
+  }
 
     public Map<String, String> getResourceConfigMap() {
         return getSimpleConfigs();
     }
 
-    /**
-     * Get a ScheduleConfig from a workflow config string map
-     *
-     * @param cfg the string map
-     * @return a ScheduleConfig if one exists, otherwise null
-     */
-    public static ScheduleConfig parseScheduleFromConfigMap(Map<String, String> cfg) {
-        // Parse schedule-specific configs, if they exist
-        Date startTime = null;
-        if (cfg.containsKey(WorkflowConfigProperty.StartTime.name())) {
-            try {
-                startTime = WorkflowConfig.getDefaultDateFormat()
-                        .parse(cfg.get(WorkflowConfigProperty.StartTime.name()));
-            } catch (ParseException e) {
-                LOG.error(
-                        "Unparseable date " + cfg.get(WorkflowConfigProperty.StartTime.name()),
-                        e);
-                return null;
-            }
-        }
-        if (cfg.containsKey(WorkflowConfigProperty.RecurrenceUnit.name()) && cfg
-                .containsKey(WorkflowConfigProperty.RecurrenceInterval.name())) {
-            return ScheduleConfig.recurringFromDate(startTime,
-                    TimeUnit.valueOf(cfg.get(WorkflowConfigProperty.RecurrenceUnit.name())),
-                    Long.parseLong(
-                            cfg.get(WorkflowConfigProperty.RecurrenceInterval.name())));
-        } else if (startTime != null) {
-            return ScheduleConfig.oneTimeDelayedStart(startTime);
-        }
+  /**
+   * Get a ScheduleConfig from a workflow config string map
+   * @param cfg the string map
+   * @return a ScheduleConfig if one exists, otherwise null
+   */
+  public static ScheduleConfig parseScheduleFromConfigMap(Map<String, String> cfg) {
+    // Parse schedule-specific configs, if they exist
+    Date startTime = null;
+    if (cfg.containsKey(WorkflowConfigProperty.StartTime.name())) {
+      try {
+        startTime = WorkflowConfig.getDefaultDateFormat()
+            .parse(cfg.get(WorkflowConfigProperty.StartTime.name()));
+      } catch (ParseException e) {
+        LOG.error("Unparseable date " + cfg.get(WorkflowConfigProperty.StartTime.name()), e);
         return null;
+      }
     }
+    if (cfg.containsKey(WorkflowConfigProperty.RecurrenceUnit.name())
+        && cfg.containsKey(WorkflowConfigProperty.RecurrenceInterval.name())) {
+      return ScheduleConfig.recurringFromDate(startTime,
+          TimeUnit.valueOf(cfg.get(WorkflowConfigProperty.RecurrenceUnit.name())),
+          Long.parseLong(cfg.get(WorkflowConfigProperty.RecurrenceInterval.name())));
+    } else if (startTime != null) {
+      return ScheduleConfig.oneTimeDelayedStart(startTime);
+    }
+    return null;
+  }
 
     public static WorkflowConfig fromHelixProperty(HelixProperty property)
             throws IllegalArgumentException {
@@ -353,8 +345,8 @@ public class WorkflowConfig extends ResourceConfig {
                     _jobTypes, _jobPurgeInterval, _allowOverlapJobAssignment, _timeout);
         }
 
-        public Builder() {
-        }
+    public Builder() {
+    }
 
         public Builder(String workflowId) {
             _workflowId = workflowId;
@@ -398,57 +390,49 @@ public class WorkflowConfig extends ResourceConfig {
             return this;
         }
 
-        /**
-         * The expiry time for this workflow. Helix may clean up the workflow information after the
-         * expiry time from the completion of the workflow.
-         *
-         * @param v
-         * @param unit
-         *
-         * @return
-         */
-        public Builder setExpiry(long v, TimeUnit unit) {
-            _expiry = unit.toMillis(v);
-            return this;
-        }
+    /**
+     * The expiry time for this workflow. Helix may clean up the workflow information after the
+     * expiry time from the completion of the workflow.
+     * @param v
+     * @param unit
+     * @return
+     */
+    public Builder setExpiry(long v, TimeUnit unit) {
+      _expiry = unit.toMillis(v);
+      return this;
+    }
 
-        /**
-         * The expiry time for this workflow. Helix may clean up the workflow information after the
-         * expiry time from the completion of the workflow.
-         *
-         * @param v in milliseconds
-         *
-         * @return
-         */
-        public Builder setExpiry(long v) {
-            _expiry = v;
-            return this;
-        }
+    /**
+     * The expiry time for this workflow. Helix may clean up the workflow information after the
+     * expiry time from the completion of the workflow.
+     * @param v in milliseconds
+     * @return
+     */
+    public Builder setExpiry(long v) {
+      _expiry = v;
+      return this;
+    }
 
-        /**
-         * The time periodical Helix should clean up all completed jobs. This config applies only on
-         * JobQueue.
-         *
-         * @param t in milliseconds
-         *
-         * @return
-         */
-        public Builder setJobPurgeInterval(long t) {
-            _jobPurgeInterval = t;
-            return this;
-        }
+    /**
+     * The time periodical Helix should clean up all completed jobs. This config applies only on
+     * JobQueue.
+     * @param t in milliseconds
+     * @return
+     */
+    public Builder setJobPurgeInterval(long t) {
+      _jobPurgeInterval = t;
+      return this;
+    }
 
-        /**
-         * The max allowed numbers of failed jobs before Helix should marks the workflow failure.
-         *
-         * @param failureThreshold
-         *
-         * @return
-         */
-        public Builder setFailureThreshold(int failureThreshold) {
-            _failureThreshold = failureThreshold;
-            return this;
-        }
+    /**
+     * The max allowed numbers of failed jobs before Helix should marks the workflow failure.
+     * @param failureThreshold
+     * @return
+     */
+    public Builder setFailureThreshold(int failureThreshold) {
+      _failureThreshold = failureThreshold;
+      return this;
+    }
 
         /**
          * This method only applies for JobQueue, will be ignored in generic workflows
@@ -485,15 +469,15 @@ public class WorkflowConfig extends ResourceConfig {
             return this;
         }
 
-        /**
-         * ONLY generic workflow can be timeouted. JobQueue does not allow to be timeouted.
-         * @param timeout  The timeout period
-         * @return
-         */
-        public Builder setTimeout(long timeout) {
-            _timeout = timeout;
-            return this;
-        }
+    /**
+     * ONLY generic workflow can be timeouted. JobQueue does not allow to be timeouted.
+     * @param timeout The timeout period
+     * @return
+     */
+    public Builder setTimeout(long timeout) {
+      _timeout = timeout;
+      return this;
+    }
 
         /**
          * Set if allow multiple jobs in one workflow to be assigned on one instance.
@@ -506,12 +490,11 @@ public class WorkflowConfig extends ResourceConfig {
             return this;
         }
 
-        @Deprecated
-        public static Builder fromMap(Map<String, String> cfg) {
-            Builder builder = new Builder();
-            builder.setConfigMap(cfg);
-            return builder;
-        }
+    @Deprecated
+    public static Builder fromMap(Map<String, String> cfg) {
+      Builder builder = new Builder();
+      return builder.setConfigMap(cfg);
+    }
 
         // TODO: Add user customized simple field clone.
         // TODO: Add API to set map fields. This API only set simple fields
@@ -633,27 +616,27 @@ public class WorkflowConfig extends ResourceConfig {
             return _timeout;
         }
 
-        public static Builder from(WorkflowBean workflowBean) {
-            WorkflowConfig.Builder b = new WorkflowConfig.Builder();
-            if (workflowBean.schedule != null) {
-                b.setScheduleConfig(ScheduleConfig.from(workflowBean.schedule));
-            }
-            b.setExpiry(workflowBean.expiry);
-
-            return b;
-        }
+    public static Builder from(WorkflowBean workflowBean) {
+      WorkflowConfig.Builder b = new WorkflowConfig.Builder();
+      if (workflowBean.schedule != null) {
+        b.setScheduleConfig(ScheduleConfig.from(workflowBean.schedule));
+      }
+      b.setExpiry(workflowBean.expiry);
+      b.setWorkFlowType(workflowBean.workflowType);
+      return b;
+    }
 
         private void validate() {
             _taskDag.validate();
 
-            if (_expiry < 0) {
-                throw new HelixException(String
-                        .format("%s has invalid value %s", WorkflowConfigProperty.Expiry.name(), _expiry));
-            } else if (_scheduleConfig != null && !_scheduleConfig.isValid()) {
-                throw new HelixException(
-                        "Scheduler configuration is invalid. The configuration must have a start time if it is "
-                                + "one-time, and it must have a positive interval magnitude if it is recurring");
-            }
-        }
+      if (_expiry < 0) {
+        throw new HelixException(String.format("%s has invalid value %s",
+            WorkflowConfigProperty.Expiry.name(), _expiry));
+      } else if (_scheduleConfig != null && !_scheduleConfig.isValid()) {
+        throw new HelixException(
+            "Scheduler configuration is invalid. The configuration must have a start time if it is "
+                + "one-time, and it must have a positive interval magnitude if it is recurring");
+      }
     }
+  }
 }

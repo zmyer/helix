@@ -19,12 +19,12 @@ package org.apache.helix.spectator;
  * under the License.
  */
 
-import org.apache.helix.model.InstanceConfig;
-import org.apache.helix.model.LiveInstance;
-
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
+import org.apache.helix.model.ExternalView;
+import org.apache.helix.model.InstanceConfig;
+import org.apache.helix.model.LiveInstance;
 
 /**
  * The snapshot of RoutingTable information.  It is immutable, it reflects the routing table
@@ -144,10 +144,19 @@ public class RoutingTableSnapshot {
         return _routingTable.getInstanceConfigs();
     }
 
-    /**
-     * Return names of all resources (shown in ExternalView) in this cluster.
-     */
-    public Collection<String> getResources() {
-        return _routingTable.getResources();
-    }
+  /**
+   * Return names of all resources (shown in ExternalView) in this cluster.
+   */
+  public Collection<String> getResources() {
+    return _routingTable.getResources();
+  }
+
+  /**
+   * Returns a Collection of latest snapshot of ExternalViews. Note that if the RoutingTable is
+   * instantiated using CurrentStates, this Collection will be empty.
+   * @return
+   */
+  public Collection<ExternalView> getExternalViews() {
+    return _routingTable.getExternalViews();
+  }
 }

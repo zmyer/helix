@@ -19,23 +19,17 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import org.apache.helix.controller.LogUtil;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
-import org.apache.helix.model.CurrentState;
-import org.apache.helix.model.LiveInstance;
-import org.apache.helix.model.Message;
+import org.apache.helix.model.*;
 import org.apache.helix.model.Message.MessageType;
-import org.apache.helix.model.Partition;
-import org.apache.helix.model.Resource;
-import org.apache.helix.model.StateModelDefinition;
-import org.apache.helix.monitoring.mbeans.ClusterStatusMonitor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 /**
  * For each LiveInstances select currentState and message whose sessionId matches
@@ -46,90 +40,122 @@ import java.util.Map;
 public class CurrentStateComputationStage extends AbstractBaseStage {
     private static Logger LOG = LoggerFactory.getLogger(CurrentStateComputationStage.class);
 
-    public final long NOT_RECORDED = -1L;
-    public final long TRANSITION_FAILED = -2L;
-    public final String TASK_STATE_MODEL_NAME = "Task";
-
-    // TODO: 2018/7/25 by zmyer
-    @Override
-    public void process(final ClusterEvent event) throws Exception {
-        final ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-        final Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
+  @Override
+  public void process(ClusterEvent event) throws Exception {
+    _eventId = event.getEventId();
+    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    final Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
 
         if (cache == null || resourceMap == null) {
             throw new StageException("Missing attributes in event:" + event
                     + ". Requires DataCache|RESOURCE");
         }
 
-        final Map<String, LiveInstance> liveInstances = cache.getLiveInstances();
-        final CurrentStateOutput currentStateOutput = new CurrentStateOutput();
+    Map<String, LiveInstance> liveInstances = cache.getLiveInstances();
+    final CurrentStateOutput currentStateOutput = new CurrentStateOutput();
 
         for (final LiveInstance instance : liveInstances.values()) {
             final String instanceName = instance.getInstanceName();
             final String instanceSessionId = instance.getSessionId();
 
-            // update pending messages
-            final Map<String, Message> messages = cache.getMessages(instanceName);
-            updatePendingMessages(instance, messages.values(), currentStateOutput, resourceMap);
+      // update pending messages
+      Map<String, Message> messages = cache.getMessages(instanceName);
+      Map<String, Message> relayMessages = cache.getRelayMessages(instanceName);
+      updatePendingMessages(instance, messages.values(), currentStateOutput, relayMessages.values(), resourceMap);
 
-            // update current states.
-            final Map<String, CurrentState> currentStateMap = cache.getCurrentState(instanceName, instanceSessionId);
-            updateCurrentStates(instance, currentStateMap.values(), currentStateOutput, resourceMap);
-        }
-
-        if (!cache.isTaskCache()) {
-            ClusterStatusMonitor clusterStatusMonitor =
-                    event.getAttribute(AttributeName.clusterStatusMonitor.name());
-            updateMissingTopStateStatus(cache, clusterStatusMonitor, resourceMap, currentStateOutput);
-        }
-        event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
+      // update current states.
+      Map<String, CurrentState> currentStateMap = cache.getCurrentState(instanceName,
+          instanceSessionId);
+      updateCurrentStates(instance, currentStateMap.values(), currentStateOutput, resourceMap);
     }
+    event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
+  }
 
-    // TODO: 2018/7/25 by zmyer
-    // update all pending messages to CurrentStateOutput.
-    private void updatePendingMessages(LiveInstance instance, Collection<Message> pendingMessages,
-            CurrentStateOutput currentStateOutput, Map<String, Resource> resourceMap) {
-        String instanceName = instance.getInstanceName();
-        String instanceSessionId = instance.getSessionId();
+  // update all pending messages to CurrentStateOutput.
+  private void updatePendingMessages(LiveInstance instance, Collection<Message> pendingMessages,
+      CurrentStateOutput currentStateOutput, Collection<Message> pendingRelayMessages,
+      Map<String, Resource> resourceMap) {
+    String instanceName = instance.getInstanceName();
+    String instanceSessionId = instance.getSessionId();
 
-        // update all pending messages
-        for (Message message : pendingMessages) {
-            if (!MessageType.STATE_TRANSITION.name().equalsIgnoreCase(message.getMsgType())
-                    && !MessageType.STATE_TRANSITION_CANCELLATION.name().equalsIgnoreCase(message.getMsgType())) {
-                continue;
-            }
-            if (!instanceSessionId.equals(message.getTgtSessionId())) {
-                continue;
-            }
-            String resourceName = message.getResourceName();
-            Resource resource = resourceMap.get(resourceName);
-            if (resource == null) {
-                continue;
-            }
+    // update all pending messages
+    for (Message message : pendingMessages) {
+      if (!MessageType.STATE_TRANSITION.name().equalsIgnoreCase(message.getMsgType())
+          && !MessageType.STATE_TRANSITION_CANCELLATION.name().equalsIgnoreCase(message.getMsgType())) {
+        continue;
+      }
+      if (!instanceSessionId.equals(message.getTgtSessionId())) {
+        continue;
+      }
+      String resourceName = message.getResourceName();
+      Resource resource = resourceMap.get(resourceName);
+      if (resource == null) {
+        LogUtil.logInfo(LOG, _eventId, String.format(
+            "Ignore a pending relay message %s for a non-exist resource %s and partition %s",
+            message.getMsgId(), resourceName, message.getPartitionName()));
+        continue;
+      }
 
-            if (!message.getBatchMessageMode()) {
-                String partitionName = message.getPartitionName();
-                Partition partition = resource.getPartition(partitionName);
-                if (partition != null) {
-                    setMessageState(currentStateOutput, resourceName, partition, instanceName, message);
-                } else {
-                    // log
-                }
+      if (!message.getBatchMessageMode()) {
+        String partitionName = message.getPartitionName();
+        Partition partition = resource.getPartition(partitionName);
+        if (partition != null) {
+          setMessageState(currentStateOutput, resourceName, partition, instanceName, message);
+        } else {
+          LogUtil.logInfo(LOG, _eventId, String
+              .format("Ignore a pending message %s for a non-exist resource %s and partition %s",
+                  message.getMsgId(), resourceName, message.getPartitionName()));
+        }
+      } else {
+        List<String> partitionNames = message.getPartitionNames();
+        if (!partitionNames.isEmpty()) {
+          for (String partitionName : partitionNames) {
+            Partition partition = resource.getPartition(partitionName);
+            if (partition != null) {
+              setMessageState(currentStateOutput, resourceName, partition, instanceName, message);
             } else {
-                final List<String> partitionNames = message.getPartitionNames();
-                if (!partitionNames.isEmpty()) {
-                    for (final String partitionName : partitionNames) {
-                        final Partition partition = resource.getPartition(partitionName);
-                        if (partition != null) {
-                            setMessageState(currentStateOutput, resourceName, partition, instanceName, message);
-                        } else {
-                            // log
-                        }
-                    }
-                }
+              LogUtil.logInfo(LOG, _eventId, String.format(
+                  "Ignore a pending message %s for a non-exist resource %s and partition %s",
+                  message.getMsgId(), resourceName, message.getPartitionName()));
             }
+          }
         }
+      }
     }
+
+
+    // update all pending relay messages
+    for (Message message : pendingRelayMessages) {
+      if (!message.isRelayMessage()) {
+        LogUtil.logWarn(LOG, _eventId,
+            String.format("Not a relay message %s, ignored!", message.getMsgId()));
+        continue;
+      }
+      String resourceName = message.getResourceName();
+      Resource resource = resourceMap.get(resourceName);
+      if (resource == null) {
+        LogUtil.logInfo(LOG, _eventId, String.format(
+            "Ignore a pending relay message %s for a non-exist resource %s and partition %s",
+            message.getMsgId(), resourceName, message.getPartitionName()));
+        continue;
+      }
+
+      if (!message.getBatchMessageMode()) {
+        String partitionName = message.getPartitionName();
+        Partition partition = resource.getPartition(partitionName);
+        if (partition != null) {
+          currentStateOutput.setPendingRelayMessage(resourceName, partition, instanceName, message);
+        } else {
+          LogUtil.logInfo(LOG, _eventId, String.format(
+              "Ignore a pending relay message %s for a non-exist resource %s and partition %s",
+              message.getMsgId(), resourceName, message.getPartitionName()));
+        }
+      } else {
+        LogUtil.logWarn(LOG, _eventId,
+            String.format("A relay message %s should not be batched, ignored!", message.getMsgId()));
+      }
+    }
+  }
 
     // TODO: 2018/7/25 by zmyer
     // update current states in CurrentStateOutput
@@ -171,157 +197,12 @@ public class CurrentStateComputationStage extends AbstractBaseStage {
         }
     }
 
-    // TODO: 2018/7/25 by zmyer
-    private void setMessageState(CurrentStateOutput currentStateOutput, String resourceName,
-            Partition partition, String instanceName, Message message) {
-        if (MessageType.STATE_TRANSITION.name().equalsIgnoreCase(message.getMsgType())) {
-            currentStateOutput.setPendingState(resourceName, partition, instanceName, message);
-        } else {
-            currentStateOutput.setCancellationState(resourceName, partition, instanceName, message);
-        }
+  private void setMessageState(CurrentStateOutput currentStateOutput, String resourceName,
+      Partition partition, String instanceName, Message message) {
+    if (MessageType.STATE_TRANSITION.name().equalsIgnoreCase(message.getMsgType())) {
+      currentStateOutput.setPendingMessage(resourceName, partition, instanceName, message);
+    } else {
+      currentStateOutput.setCancellationMessage(resourceName, partition, instanceName, message);
     }
-
-    // TODO: 2018/7/25 by zmyer
-    private void updateMissingTopStateStatus(ClusterDataCache cache,
-            ClusterStatusMonitor clusterStatusMonitor, Map<String, Resource> resourceMap,
-            CurrentStateOutput currentStateOutput) {
-        final Map<String, Map<String, Long>> missingTopStateMap = cache.getMissingTopStateMap();
-        long durationThreshold = Long.MAX_VALUE;
-        if (cache.getClusterConfig() != null) {
-            durationThreshold = cache.getClusterConfig().getMissTopStateDurationThreshold();
-        }
-
-        for (final Resource resource : resourceMap.values()) {
-            final StateModelDefinition stateModelDef = cache.getStateModelDef(resource.getStateModelDefRef());
-            if (stateModelDef == null || resource.getStateModelDefRef()
-                    .equalsIgnoreCase(TASK_STATE_MODEL_NAME)) {
-                // Resource does not have valid statemodel or it is task state model
-                continue;
-            }
-
-            for (final Partition partition : resource.getPartitions()) {
-                final Map<String, String> stateMap =
-                        currentStateOutput.getCurrentStateMap(resource.getResourceName(), partition);
-
-                // TODO: improve following with MIN_ACTIVE_TOP_STATE logic
-                // Missing top state need to record
-                if (!stateMap.values().contains(stateModelDef.getTopState()) && (!missingTopStateMap
-                        .containsKey(resource.getResourceName()) || !missingTopStateMap
-                        .get(resource.getResourceName()).containsKey(partition.getPartitionName()))) {
-                    reportNewTopStateMissing(cache, stateMap, missingTopStateMap, resource, partition,
-                            stateModelDef.getTopState());
-                }
-
-                // Top state comes back
-                // The first time participant started or controller switched will be ignored
-                if (missingTopStateMap.containsKey(resource.getResourceName()) && missingTopStateMap
-                        .get(resource.getResourceName()).containsKey(partition.getPartitionName()) && stateMap
-                        .values().contains(stateModelDef.getTopState())) {
-                    reportTopStateComesBack(cache, stateMap, missingTopStateMap, resource, partition,
-                            clusterStatusMonitor, durationThreshold, stateModelDef.getTopState());
-                }
-            }
-        }
-
-        // Check whether it is already passed threshold
-        for (String resourceName : missingTopStateMap.keySet()) {
-            for (String partitionName : missingTopStateMap.get(resourceName).keySet()) {
-                long startTime = missingTopStateMap.get(resourceName).get(partitionName);
-                if (startTime > 0 && System.currentTimeMillis() - startTime > durationThreshold) {
-                    missingTopStateMap.get(resourceName).put(partitionName, TRANSITION_FAILED);
-                    if (clusterStatusMonitor != null) {
-                        clusterStatusMonitor.updateMissingTopStateDurationStats(resourceName, 0L, false);
-                    }
-                }
-            }
-        }
-        if (clusterStatusMonitor != null) {
-            clusterStatusMonitor.resetMaxMissingTopStateGauge();
-        }
-    }
-
-    // TODO: 2018/7/25 by zmyer
-    private void reportNewTopStateMissing(ClusterDataCache cache, Map<String, String> stateMap,
-            Map<String, Map<String, Long>> missingTopStateMap, Resource resource, Partition partition,
-            String topState) {
-
-        long startTime = NOT_RECORDED;
-        Map<String, LiveInstance> liveInstances = cache.getLiveInstances();
-        for (String instanceName : stateMap.keySet()) {
-            if (liveInstances.containsKey(instanceName)) {
-                final CurrentState currentState =
-                        cache.getCurrentState(instanceName, liveInstances.get(instanceName).getSessionId())
-                                .get(resource.getResourceName());
-
-                if (currentState.getPreviousState(partition.getPartitionName()) != null && currentState
-                        .getPreviousState(partition.getPartitionName()).equalsIgnoreCase(topState)) {
-                    // Update the latest start time only from top state to other state transition
-                    // At beginning, the start time should -1 (not recorded). If something happen either
-                    // instance not alive or the instance just started for that partition, Helix does not know
-                    // the previous start time or end time. So we count from current.
-                    //
-                    // Previous state is top state does not mean that resource has only one top state
-                    // (i.e. Online/Offline). So Helix has to find the latest start time as the staring point.
-                    startTime = Math.max(startTime, currentState.getStartTime(partition.getPartitionName()));
-                }
-            }
-        }
-
-        if (startTime == NOT_RECORDED) {
-            startTime = System.currentTimeMillis();
-        }
-
-        if (!missingTopStateMap.containsKey(resource.getResourceName())) {
-            missingTopStateMap.put(resource.getResourceName(), new HashMap<String, Long>());
-        }
-
-        Map<String, Long> partitionMap = missingTopStateMap.get(resource.getResourceName());
-        // Update the new partition without top state
-        if (!partitionMap.containsKey(partition.getPartitionName())) {
-            missingTopStateMap.get(resource.getResourceName())
-                    .put(partition.getPartitionName(), startTime);
-        }
-    }
-
-    private void reportTopStateComesBack(ClusterDataCache cache, Map<String, String> stateMap,
-            Map<String, Map<String, Long>> missingTopStateMap, Resource resource, Partition partition,
-            ClusterStatusMonitor clusterStatusMonitor, long threshold, String topState) {
-
-        long handOffStartTime =
-                missingTopStateMap.get(resource.getResourceName()).get(partition.getPartitionName());
-
-        // Find the earliest end time from the top states
-        long handOffEndTime = System.currentTimeMillis();
-        Map<String, LiveInstance> liveInstances = cache.getLiveInstances();
-        for (String instanceName : stateMap.keySet()) {
-            CurrentState currentState =
-                    cache.getCurrentState(instanceName, liveInstances.get(instanceName).getSessionId())
-                            .get(resource.getResourceName());
-            if (currentState.getState(partition.getPartitionName()).equalsIgnoreCase(topState)) {
-                handOffEndTime =
-                        Math.min(handOffEndTime, currentState.getEndTime(partition.getPartitionName()));
-            }
-        }
-
-        if (handOffStartTime != TRANSITION_FAILED && handOffEndTime - handOffStartTime <= threshold) {
-            LOG.info(String.format("Missing topstate duration is %d for partition %s",
-                    handOffEndTime - handOffStartTime, partition.getPartitionName()));
-            if (clusterStatusMonitor != null) {
-                clusterStatusMonitor.updateMissingTopStateDurationStats(resource.getResourceName(),
-                        handOffEndTime - handOffStartTime, true);
-            }
-        }
-        removeFromStatsMap(missingTopStateMap, resource, partition);
-    }
-
-    private void removeFromStatsMap(Map<String, Map<String, Long>> missingTopStateMap,
-            Resource resource, Partition partition) {
-        if (missingTopStateMap.containsKey(resource.getResourceName())) {
-            missingTopStateMap.get(resource.getResourceName()).remove(partition.getPartitionName());
-        }
-
-        if (missingTopStateMap.get(resource.getResourceName()).size() == 0) {
-            missingTopStateMap.remove(resource.getResourceName());
-        }
-    }
+  }
 }

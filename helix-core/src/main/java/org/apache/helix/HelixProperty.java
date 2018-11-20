@@ -116,14 +116,20 @@ public class HelixProperty {
             return _modifiedTime == stat._modifiedTime;
         }
 
-        @Override
-        public int hashCode() {
-            int result = _version;
-            result = 31 * result + (int) (_creationTime ^ (_creationTime >>> 32));
-            result = 31 * result + (int) (_modifiedTime ^ (_modifiedTime >>> 32));
-            return result;
-        }
+    @Override
+    public int hashCode() {
+      int result = _version;
+      result = 31 * result + (int) (_creationTime ^ (_creationTime >>> 32));
+      result = 31 * result + (int) (_modifiedTime ^ (_modifiedTime >>> 32));
+      return result;
     }
+
+    @Override
+    public String toString() {
+      return "Stat {" + "_version=" + _version + ", _creationTime=" + _creationTime
+          + ", _modifiedTime=" + _modifiedTime + '}';
+    }
+  }
 
     private Stat _stat;
 
@@ -177,10 +183,10 @@ public class HelixProperty {
         _record.setDeltaList(deltaList);
     }
 
-    @Override
-    public String toString() {
-        return _record.toString();
-    }
+  @Override
+  public String toString() {
+    return "ZnRecord=" + _record.toString() + ", Stat=" + _stat.toString() ;
+  }
 
     /**
      * Get the size of buckets defined

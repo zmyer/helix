@@ -26,17 +26,16 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.helix.common.ZkTestBase;
+import org.apache.helix.controller.rebalancer.strategy.CrushRebalanceStrategy;
 import org.apache.helix.controller.rebalancer.util.RebalanceScheduler;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
-import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
-import org.omg.PortableServer.THREAD_POLICY_ID;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -44,7 +43,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
-public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
+public class TestDelayedAutoRebalance extends ZkTestBase {
   final int NUM_NODE = 5;
   protected static final int START_PORT = 12918;
   protected static final int _PARTITIONS = 5;
@@ -53,27 +52,21 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
   protected final String CLUSTER_NAME = CLUSTER_PREFIX + "_" + CLASS_NAME;
   protected ClusterControllerManager _controller;
 
-  protected ClusterSetup _setupTool = null;
   List<MockParticipantManager> _participants = new ArrayList<MockParticipantManager>();
   int _replica = 3;
   int _minActiveReplica = _replica - 1;
-  HelixClusterVerifier _clusterVerifier;
+  ZkHelixClusterVerifier _clusterVerifier;
   List<String> _testDBs = new ArrayList<String>();
 
   @BeforeClass
   public void beforeClass() throws Exception {
     System.out.println("START " + CLASS_NAME + " at " + new Date(System.currentTimeMillis()));
 
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-    _setupTool = new ClusterSetup(_gZkClient);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
 
     for (int i = 0; i < NUM_NODE; i++) {
       String storageNodeName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
-      _setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
+      _gSetupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
 
       // start dummy participants
       MockParticipantManager participant =
@@ -135,8 +128,8 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
     Thread.sleep(500);
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
     }
     setDelayTimeInCluster(_gZkClient, CLUSTER_NAME, -1);
@@ -154,12 +147,12 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
     validateDelayedMovements(externalViewsBefore);
 
     Thread.sleep(delay + 200);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
     // after delay time, it should maintain required number of replicas.
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _replica, NUM_NODE);
     }
   }
@@ -171,20 +164,20 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
 
     // disable delay rebalance for one db, partition should be moved immediately
     String testDb = _testDBs.get(0);
-    IdealState idealState = _setupTool.getClusterManagementTool().getResourceIdealState(
+    IdealState idealState = _gSetupTool.getClusterManagementTool().getResourceIdealState(
         CLUSTER_NAME, testDb);
     idealState.setDelayRebalanceEnabled(false);
-    _setupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, testDb, idealState);
-    Thread.sleep(1000);
+    _gSetupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, testDb, idealState);
 
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // once delay rebalance is disabled, it should maintain required number of replicas for that db.
     // replica for other dbs should not be moved.
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
       IdealState is =
-          _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
 
       if (db.equals(testDb)) {
         validateMinActiveAndTopStateReplica(idealState, ev, _replica, NUM_NODE);
@@ -207,12 +200,12 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
     enableDelayRebalanceInCluster(_gZkClient, CLUSTER_NAME, false);
     // TODO: remove this once controller is listening on cluster config change.
     RebalanceScheduler.invokeRebalance(_controller.getHelixDataAccessor(), _testDBs.get(0));
-    Thread.sleep(500);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Thread.sleep(100);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _replica, NUM_NODE);
     }
 
@@ -226,10 +219,10 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
 
     String disabledInstanceName = _participants.get(0).getInstanceName();
     enableDelayRebalanceInInstance(_gZkClient, CLUSTER_NAME, disabledInstanceName, false);
-    Thread.sleep(1000);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       Map<String, List<String>> preferenceLists = is.getPreferenceLists();
       for (List<String> instances : preferenceLists.values()) {
         Assert.assertFalse(instances.contains(disabledInstanceName));
@@ -242,7 +235,7 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
   public void afterTest() throws InterruptedException {
     // delete all DBs create in last test
     for (String db : _testDBs) {
-      _setupTool.dropResourceFromCluster(CLUSTER_NAME, db);
+      _gSetupTool.dropResourceFromCluster(CLUSTER_NAME, db);
     }
     _testDBs.clear();
     Thread.sleep(50);
@@ -267,14 +260,14 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
     for (String stateModel : TestStateModels) {
       String db = "Test-DB-" + i++;
       createResourceWithDelayedRebalance(CLUSTER_NAME, db, stateModel, _PARTITIONS, _replica,
-          _minActiveReplica, delayTime);
+          _minActiveReplica, delayTime, CrushRebalanceStrategy.class.getName());
       _testDBs.add(db);
     }
-    Thread.sleep(800);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Thread.sleep(100);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
       externalViews.put(db, ev);
     }
     return externalViews;
@@ -314,13 +307,13 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
       throws InterruptedException {
     // bring down one node, no partition should be moved.
     _participants.get(0).syncStop();
-    Thread.sleep(500);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Thread.sleep(100);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
       validateNoPartitionMove(is, externalViewsBefore.get(db), ev,
           _participants.get(0).getInstanceName(), false);
@@ -336,7 +329,7 @@ public class TestDelayedAutoRebalance extends ZkIntegrationTestBase {
     for (MockParticipantManager participant : _participants) {
       participant.syncStop();
     }
-    _setupTool.deleteCluster(CLUSTER_NAME);
+    deleteCluster(CLUSTER_NAME);
     System.out.println("END " + CLASS_NAME + " at " + new Date(System.currentTimeMillis()));
   }
 }

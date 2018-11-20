@@ -48,6 +48,7 @@ import org.apache.helix.api.listeners.PreFetch;
 import org.apache.helix.api.listeners.ResourceConfigChangeListener;
 import org.apache.helix.api.listeners.ScopedConfigChangeListener;
 import org.apache.helix.common.DedupEventProcessor;
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.ExternalView;
@@ -103,18 +104,18 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
     // processor to handle async zk event resubscription.
     private static DedupEventProcessor SubscribeChangeEventProcessor;
 
-    private final String _path;
-    private final Object _listener;
-    private final Set<EventType> _eventTypes;
-    private final HelixDataAccessor _accessor;
-    private final ChangeType _changeType;
-    private final ZkClient _zkClient;
-    private final AtomicLong _lastNotificationTimeStamp;
-    private final HelixManager _manager;
-    private final PropertyKey _propertyKey;
-    private boolean _batchModeEnabled = false;
-    private boolean _preFetchEnabled = true;
-    private HelixCallbackMonitor _monitor;
+  private final String _path;
+  private final Object _listener;
+  private final Set<EventType> _eventTypes;
+  private final HelixDataAccessor _accessor;
+  private final ChangeType _changeType;
+  private final HelixZkClient _zkClient;
+  private final AtomicLong _lastNotificationTimeStamp;
+  private final HelixManager _manager;
+  private final PropertyKey _propertyKey;
+  private boolean _batchModeEnabled = false;
+  private boolean _preFetchEnabled = true;
+  private HelixCallbackMonitor _monitor;
 
     // TODO: make this be per _manager or per _listener instaed of per callbackHandler -- Lei
     private CallbackProcessor _batchCallbackProcessor;
@@ -193,18 +194,17 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
      */
     private List<NotificationContext.Type> _expectTypes = nextNotificationType.get(Type.FINALIZE);
 
-    public CallbackHandler(HelixManager manager, ZkClient client, PropertyKey propertyKey,
-            Object listener, EventType[] eventTypes, ChangeType changeType) {
-        this(manager, client, propertyKey, listener, eventTypes, changeType, null);
-    }
+  public CallbackHandler(HelixManager manager, HelixZkClient client, PropertyKey propertyKey,
+      Object listener, EventType[] eventTypes, ChangeType changeType) {
+    this(manager, client, propertyKey, listener, eventTypes, changeType, null);
+  }
 
-    // TODO: 2018/7/24 by zmyer
-    public CallbackHandler(HelixManager manager, ZkClient client, PropertyKey propertyKey,
-            Object listener, EventType[] eventTypes, ChangeType changeType,
-            HelixCallbackMonitor monitor) {
-        if (listener == null) {
-            throw new HelixException("listener could not be null");
-        }
+  public CallbackHandler(HelixManager manager, HelixZkClient client, PropertyKey propertyKey,
+        Object listener, EventType[] eventTypes, ChangeType changeType,
+        HelixCallbackMonitor monitor) {
+    if (listener == null) {
+      throw new HelixException("listener could not be null");
+    }
 
         if (monitor != null && !monitor.getChangeType().equals(changeType)) {
             throw new HelixException(
@@ -431,10 +431,10 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
                 List<Message> messages = preFetch(_propertyKey);
                 messageListener.onMessage(_manager.getInstanceName(), messages, changeContext);
 
-            } else if (_changeType == EXTERNAL_VIEW || _changeType == TARGET_EXTERNAL_VIEW) {
-                ExternalViewChangeListener externalViewListener = (ExternalViewChangeListener) _listener;
-                List<ExternalView> externalViewList = preFetch(_propertyKey);
-                externalViewListener.onExternalViewChange(externalViewList, changeContext);
+      } else if (_changeType == EXTERNAL_VIEW || _changeType == TARGET_EXTERNAL_VIEW) {
+        ExternalViewChangeListener externalViewListener = (ExternalViewChangeListener) _listener;
+        List<ExternalView> externalViewList = preFetch(_propertyKey);
+        externalViewListener.onExternalViewChange(externalViewList, changeContext);
 
             } else if (_changeType == CONTROLLER) {
                 ControllerChangeListener controllerChangelistener = (ControllerChangeListener) _listener;
@@ -523,11 +523,11 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
             subscribeDataChange(path, callbackType);
         }
 
-        if (_eventTypes.contains(EventType.NodeChildrenChanged)) {
-            logger.info("Subscribing child change listener to path:" + path);
-            subscribeChildChange(path, callbackType);
-            if (watchChild) {
-                logger.info("Subscribing data change listener to all children for path:" + path);
+    if (_eventTypes.contains(EventType.NodeChildrenChanged)) {
+      logger.info("Subscribing child change listener to path:" + path);
+      subscribeChildChange(path, callbackType);
+      if (watchChild) {
+        logger.info("Subscribing data change listener to all children for path:" + path);
 
                 try {
                     switch (_changeType) {
@@ -666,13 +666,12 @@ public class CallbackHandler implements IZkChildListener, IZkDataListener {
         }
     }
 
-    @Override
-    public void handleChildChange(String parentPath, List<String> currentChilds) {
-        if (logger.isDebugEnabled()) {
-            logger.debug(
-                    "Data change callback: child changed, path: " + parentPath + ", current child count: "
-                            + currentChilds.size());
-        }
+  @Override
+  public void handleChildChange(String parentPath, List<String> currentChilds) {
+    if (logger.isDebugEnabled()) {
+      logger.debug("Data change callback: child changed, path: {} , current child count: {}",
+          parentPath, currentChilds == null ? 0 : currentChilds.size());
+    }
 
         try {
             updateNotificationTime(System.nanoTime());

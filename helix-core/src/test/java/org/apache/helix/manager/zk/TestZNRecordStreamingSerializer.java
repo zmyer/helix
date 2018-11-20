@@ -1,15 +1,13 @@
 package org.apache.helix.manager.zk;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
-
 import org.apache.helix.ZNRecord;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -46,6 +44,25 @@ public class TestZNRecordStreamingSerializer {
     ZNRecordStreamingSerializer serializer = new ZNRecordStreamingSerializer();
     ZNRecord result = (ZNRecord) serializer.deserialize(serializer.serialize(record));
     Assert.assertEquals(result, record);
+  }
+
+
+  // TODO: need to fix ZnRecordStreamingSerializer before enabling this test.
+  @Test (enabled = false)
+  public void testNullFields() {
+    ZNRecord record = new ZNRecord("testId");
+    record.setMapField("K1", null);
+    record.setListField("k2", null);
+    record.setSimpleField("k3", null);
+    ZNRecordStreamingSerializer serializer = new ZNRecordStreamingSerializer();
+    byte [] data = serializer.serialize(record);
+    ZNRecord result = (ZNRecord) serializer.deserialize(data);
+
+    Assert.assertEquals(result, record);
+    Assert.assertNull(result.getMapField("K1"));
+    Assert.assertNull(result.getListField("K2"));
+    Assert.assertNull(result.getSimpleField("K3"));
+    Assert.assertNull(result.getListField("K4"));
   }
 
   /**

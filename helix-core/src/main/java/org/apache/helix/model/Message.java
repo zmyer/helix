@@ -62,46 +62,46 @@ public class Message extends HelixProperty {
         RELAYED_MESSAGE
     }
 
-    /**
-     * Properties attached to Messages
-     */
-    public enum Attributes {
-        MSG_ID,
-        RELAY_MSG_ID,
-        SRC_SESSION_ID,
-        TGT_SESSION_ID,
-        SRC_NAME,
-        TGT_NAME,
-        SRC_INSTANCE_TYPE,
-        MSG_STATE,
-        PARTITION_NAME,
-        RESOURCE_NAME,
-        RESOURCE_GROUP_NAME,
-        RESOURCE_TAG,
-        FROM_STATE,
-        TO_STATE,
-        STATE_MODEL_DEF,
-        CREATE_TIMESTAMP,
-        READ_TIMESTAMP,
-        EXECUTE_START_TIMESTAMP,
-        MSG_TYPE,
-        MSG_SUBTYPE,
-        CORRELATION_ID,
-        MESSAGE_RESULT,
-        EXE_SESSION_ID,
-        TIMEOUT,
-        RETRY_COUNT,
-        STATE_MODEL_FACTORY_NAME,
-        BUCKET_SIZE,
-        PARENT_MSG_ID,
-        // used for group message mode
-        ClusterEventName,
-        INNER_MESSAGE,
-        RELAY_PARTICIPANTS,
-        RELAY_TIME,
-        RELAY_FROM,
-        EXPIRY_PERIOD
-    }
+  /**
+   * Properties attached to Messages
+   */
+  public enum Attributes {
+    MSG_ID,
+    RELAY_MSG_ID,
+    SRC_SESSION_ID,
+    TGT_SESSION_ID,
+    SRC_NAME,
+    TGT_NAME,
+    SRC_INSTANCE_TYPE,
+    MSG_STATE,
+    PARTITION_NAME,
+    RESOURCE_NAME,
+    RESOURCE_GROUP_NAME,
+    RESOURCE_TAG,
+    FROM_STATE,
+    TO_STATE,
+    STATE_MODEL_DEF,
+    CREATE_TIMESTAMP,
+    READ_TIMESTAMP,
+    EXECUTE_START_TIMESTAMP,
+    MSG_TYPE,
+    MSG_SUBTYPE,
+    CORRELATION_ID,
+    MESSAGE_RESULT,
+    EXE_SESSION_ID,
+    TIMEOUT,
+    RETRY_COUNT,
+    STATE_MODEL_FACTORY_NAME,
+    BUCKET_SIZE,
+    PARENT_MSG_ID, // used for group message mode
+    ClusterEventName,
+    INNER_MESSAGE,
+    RELAY_PARTICIPANTS,
+    RELAY_TIME,
+    RELAY_FROM,
+    EXPIRY_PERIOD,
+    SRC_CLUSTER
+  }
 
     /**
      * The current processed state of the message
@@ -183,13 +183,23 @@ public class Message extends HelixProperty {
         setMsgId(id);
     }
 
-    /**
-     * Set a subtype of the message
-     * @param subType name of the subtype
-     */
-    public void setMsgSubType(String subType) {
-        _record.setSimpleField(Attributes.MSG_SUBTYPE.toString(), subType);
-    }
+  /**
+   * Instantiate a message with a new id
+   * @param message message to be copied
+   * @param id unique message identifier
+   */
+  public Message(Message message, String id) {
+    super(new ZNRecord(message.getRecord(), id));
+    setMsgId(id);
+  }
+
+  /**
+   * Set a subtype of the message
+   * @param subType name of the subtype
+   */
+  public void setMsgSubType(String subType) {
+    _record.setSimpleField(Attributes.MSG_SUBTYPE.toString(), subType);
+  }
 
     /**
      * Get the subtype of the message
@@ -824,11 +834,11 @@ public class Message extends HelixProperty {
 
         long current = System.currentTimeMillis();
 
-        // use relay time if this is a relay message
-        if (isRelayMessage()) {
-            long relayTime = getRelayTime();
-            return relayTime <= 0 || (relayTime + expiry < current);
-        }
+    // use relay time if this is a relay message
+    if (isRelayMessage()) {
+      long relayTime = getRelayTime();
+      return (relayTime > 0 && (relayTime + expiry < current));
+    }
 
         return getCreateTimeStamp() + expiry < current;
     }
@@ -854,13 +864,29 @@ public class Message extends HelixProperty {
         _record.setLongField(Attributes.EXPIRY_PERIOD.name(), expiry);
     }
 
-    /**
-     * Check if this message is targetted for a controller
-     * @return true if this is a controller message, false otherwise
-     */
-    public boolean isControlerMsg() {
-        return getTgtName().equalsIgnoreCase(InstanceType.CONTROLLER.name());
-    }
+  /**
+   * Get the source cluster name
+   * @return the source cluster from where the message was sent or null if the message was sent locally
+   */
+  public String getSrcClusterName() {
+    return _record.getStringField(Attributes.SRC_CLUSTER.name(), null);
+  }
+
+  /**
+   * Set the source cluster name
+   * @param clusterName source cluster name where message was sent from
+   */
+  public void setSrcClusterName(String clusterName) {
+    _record.setSimpleField(Attributes.SRC_CLUSTER.name(), clusterName);
+  }
+
+  /**
+   * Check if this message is targetted for a controller
+   * @return true if this is a controller message, false otherwise
+   */
+  public boolean isControlerMsg() {
+    return getTgtName().equalsIgnoreCase(InstanceType.CONTROLLER.name());
+  }
 
     /**
      * Get the {@link PropertyKey} for this message

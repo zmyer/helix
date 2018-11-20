@@ -19,6 +19,13 @@ package org.apache.helix.messaging;
  * under the License.
  */
 
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -32,29 +39,32 @@ import org.apache.helix.PropertyKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.regex.Pattern;
-
-// TODO: 2018/7/24 by zmyer
 public class CriteriaEvaluator {
     private static Logger logger = LoggerFactory.getLogger(CriteriaEvaluator.class);
     public static final String MATCH_ALL_SYM = "%";
 
-    /**
-     * Examine persisted data to match wildcards in {@link Criteria}
-     * @param recipientCriteria Criteria specifying the message destinations
-     * @param manager connection to the persisted data
-     * @return map of evaluated criteria
-     */
-    // TODO: 2018/7/27 by zmyer
-    public List<Map<String, String>> evaluateCriteria(Criteria recipientCriteria, HelixManager manager) {
-        // get the data
-        HelixDataAccessor accessor = manager.getHelixDataAccessor();
-        PropertyKey.Builder keyBuilder = accessor.keyBuilder();
+  /**
+   * Examine persisted data to match wildcards in {@link Criteria}
+   * @param recipientCriteria Criteria specifying the message destinations
+   * @param manager connection to the persisted data
+   * @return map of evaluated criteria
+   */
+  public List<Map<String, String>> evaluateCriteria(Criteria recipientCriteria,
+      HelixManager manager) {
+    return evaluateCriteria(recipientCriteria, manager.getHelixDataAccessor());
+  }
+
+  /**
+   * Examine persisted data to match wildcards in {@link Criteria}
+   *
+   * @param recipientCriteria Criteria specifying the message destinations
+   * @param accessor          connection to the persisted data
+   * @return map of evaluated criteria
+   */
+  public List<Map<String, String>> evaluateCriteria(Criteria recipientCriteria,
+      HelixDataAccessor accessor) {
+    // get the data
+    PropertyKey.Builder keyBuilder = accessor.keyBuilder();
 
         List<HelixProperty> properties;
         DataSource dataSource = recipientCriteria.getDataSource();

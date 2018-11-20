@@ -57,12 +57,12 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     enableInstance(instance, false);
 
     Thread.sleep(300);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
       validateNoPartitionMove(is, externalViewsBefore.get(db), ev, instance, true);
     }
@@ -80,12 +80,12 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     enableInstance(instance, false);
 
     Thread.sleep(100);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
       validateNoPartitionMove(is, externalViewsBefore.get(db), ev,
           _participants.get(0).getInstanceName(), true);
@@ -107,12 +107,12 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     // disable one node, no partition should be moved.
     enableInstance(_participants.get(0).getInstanceName(), false);
     Thread.sleep(100);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
       validateNoPartitionMove(is, externalViewsBefore.get(db), ev,
           _participants.get(0).getInstanceName(), true);
@@ -120,13 +120,13 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
 
     // disable another node, the minimal active replica for each partition should be maintained.
     enableInstance(_participants.get(3).getInstanceName(), false);
-    Thread.sleep(100);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Thread.sleep(1000);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
     }
     setDelayTimeInCluster(_gZkClient, CLUSTER_NAME, -1);
@@ -144,12 +144,12 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     // disable one node, no partition should be moved.
     enableInstance(_participants.get(0).getInstanceName(), false);
     Thread.sleep(100);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
       validateNoPartitionMove(is, externalViewsBefore.get(db), ev,
           _participants.get(0).getInstanceName(), true);
@@ -158,12 +158,12 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     // bring down another node, the minimal active replica for each partition should be maintained.
     _participants.get(3).syncStop();
     Thread.sleep(100);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
     }
     setDelayTimeInCluster(_gZkClient, CLUSTER_NAME, -1);
@@ -183,22 +183,22 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     // disable one node, no partition should be moved.
     enableInstance(_participants.get(0).getInstanceName(), false);
     Thread.sleep(100);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
       validateNoPartitionMove(is, externalViewsBefore.get(db), ev,
           _participants.get(0).getInstanceName(), true);
     }
 
-    Thread.sleep(delay + 200);
+    Thread.sleep(delay + 500);
     // after delay time, it should maintain required number of replicas.
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _replica, NUM_NODE);
     }
   }
@@ -211,12 +211,12 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     // disable one node, no partition should be moved.
     enableInstance(_participants.get(0).getInstanceName(), false);
     Thread.sleep(100);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
       validateNoPartitionMove(is, externalViewsBefore.get(db), ev,
           _participants.get(0).getInstanceName(), true);
@@ -224,20 +224,20 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
 
     // disable delay rebalance for one db, partition should be moved immediately
     String testDb = _testDBs.get(0);
-    IdealState idealState = _setupTool.getClusterManagementTool().getResourceIdealState(
+    IdealState idealState = _gSetupTool.getClusterManagementTool().getResourceIdealState(
         CLUSTER_NAME, testDb);
     idealState.setDelayRebalanceEnabled(false);
-    _setupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, testDb, idealState);
+    _gSetupTool.getClusterManagementTool().setResourceIdealState(CLUSTER_NAME, testDb, idealState);
     Thread.sleep(2000);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     // once delay rebalance is disabled, it should maintain required number of replicas for that db.
     // replica for other dbs should not be moved.
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
       IdealState is =
-          _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
 
       if (db.equals(testDb)) {
         validateMinActiveAndTopStateReplica(idealState, ev, _replica, NUM_NODE);
@@ -259,12 +259,12 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     // disable one node, no partition should be moved.
     enableInstance(_participants.get(0).getInstanceName(), false);
     Thread.sleep(100);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _minActiveReplica, NUM_NODE);
       validateNoPartitionMove(is, externalViewsBefore.get(db), ev,
           _participants.get(0).getInstanceName(), true);
@@ -274,12 +274,12 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
     enableDelayRebalanceInCluster(_gZkClient, CLUSTER_NAME, false);
     // TODO: remove this once controller is listening on cluster config change.
     RebalanceScheduler.invokeRebalance(_controller.getHelixDataAccessor(), _testDBs.get(0));
-    Thread.sleep(500);
-    Assert.assertTrue(_clusterVerifier.verify());
+    Thread.sleep(2000);
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
     for (String db : _testDBs) {
       ExternalView ev =
-          _setupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
-      IdealState is = _setupTool.getClusterManagementTool().getResourceIdealState(
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
+      IdealState is = _gSetupTool.getClusterManagementTool().getResourceIdealState(
           CLUSTER_NAME, db);
       validateMinActiveAndTopStateReplica(is, ev, _replica, NUM_NODE);
     }
@@ -308,7 +308,7 @@ public class TestDelayedAutoRebalanceWithDisabledInstance extends TestDelayedAut
   private void enableInstance(String instance, boolean enabled) {
     // Disable one node, no partition should be moved.
     long currentTime = System.currentTimeMillis();
-    _setupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, instance, enabled);
+    _gSetupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, instance, enabled);
     InstanceConfig instanceConfig = _configAccessor.getInstanceConfig(CLUSTER_NAME, instance);
     Assert.assertEquals(instanceConfig.getInstanceEnabled(), enabled);
     Assert.assertTrue(instanceConfig.getInstanceEnabledTime() >= currentTime);

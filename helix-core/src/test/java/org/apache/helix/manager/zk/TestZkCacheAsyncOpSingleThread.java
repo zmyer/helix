@@ -23,15 +23,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
-
 import org.I0Itec.zkclient.DataUpdater;
 import org.apache.helix.AccessOption;
 import org.apache.helix.PropertyPathBuilder;
-import org.apache.helix.PropertyType;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.ZNRecordUpdater;
 import org.apache.helix.ZkUnitTestBase;
+import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.manager.zk.client.SharedZkClientFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -44,7 +44,8 @@ public class TestZkCacheAsyncOpSingleThread extends ZkUnitTestBase {
     System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
 
     // init external base data accessor
-    ZkClient extZkclient = new ZkClient(ZK_ADDR);
+    HelixZkClient extZkclient = SharedZkClientFactory.getInstance()
+        .buildZkClient(new HelixZkClient.ZkConnectionConfig(ZK_ADDR));
     extZkclient.setZkSerializer(new ZNRecordSerializer());
     ZkBaseDataAccessor<ZNRecord> extBaseAccessor = new ZkBaseDataAccessor<ZNRecord>(extZkclient);
 

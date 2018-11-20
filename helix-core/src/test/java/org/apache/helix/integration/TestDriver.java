@@ -29,33 +29,33 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.ZNRecord;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.manager.zk.client.SharedZkClientFactory;
 import org.apache.helix.model.IdealState.IdealStateProperty;
 import org.apache.helix.model.IdealState.RebalanceMode;
 import org.apache.helix.store.PropertyJsonSerializer;
 import org.apache.helix.store.PropertyStoreException;
 import org.apache.helix.tools.ClusterSetup;
-import org.apache.helix.tools.ClusterStateVerifier;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.apache.helix.tools.DefaultIdealStateCalculator;
 import org.apache.helix.tools.TestCommand;
+import org.apache.helix.tools.TestCommand.CommandType;
 import org.apache.helix.tools.TestExecutor;
+import org.apache.helix.tools.TestExecutor.ZnodePropertyType;
 import org.apache.helix.tools.TestTrigger;
 import org.apache.helix.tools.ZnodeOpArg;
-import org.apache.helix.tools.TestCommand.CommandType;
-import org.apache.helix.tools.TestExecutor.ZnodePropertyType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 
 public class TestDriver {
   private static Logger LOG = LoggerFactory.getLogger(TestDriver.class);
-  private static final String ZK_ADDR = ZkIntegrationTestBase.ZK_ADDR;
+  private static final String ZK_ADDR = ZkTestBase.ZK_ADDR;
 
   // private static final String CLUSTER_PREFIX = "TestDriver";
   private static final String STATE_MODEL = "MasterSlave";
@@ -71,7 +71,7 @@ public class TestDriver {
       new ConcurrentHashMap<String, TestInfo>();
 
   public static class TestInfo {
-    public final ZkClient _zkClient;
+    public final HelixZkClient _zkClient;
     public final String _clusterName;
     public final int _numDb;
     public final int _numPartitionsPerDb;
@@ -81,7 +81,7 @@ public class TestDriver {
     public final Map<String, HelixManager> _managers =
         new ConcurrentHashMap<String, HelixManager>();
 
-    public TestInfo(String clusterName, ZkClient zkClient, int numDb, int numPartitionsPerDb,
+    public TestInfo(String clusterName, HelixZkClient zkClient, int numDb, int numPartitionsPerDb,
         int numNode, int replica) {
       this._clusterName = clusterName;
       this._zkClient = zkClient;
@@ -118,47 +118,51 @@ public class TestDriver {
   public static void setupCluster(String uniqClusterName, String zkAddr, int numResources,
       int numPartitionsPerResource, int numInstances, int replica, boolean doRebalance)
       throws Exception {
-    ZkClient zkClient = new ZkClient(zkAddr);
-    zkClient.setZkSerializer(new ZNRecordSerializer());
+    HelixZkClient zkClient = SharedZkClientFactory.getInstance()
+        .buildZkClient(new HelixZkClient.ZkConnectionConfig(ZK_ADDR));
 
-    // String clusterName = CLUSTER_PREFIX + "_" + uniqClusterName;
-    String clusterName = uniqClusterName;
-    if (zkClient.exists("/" + clusterName)) {
-      LOG.warn("test cluster already exists:" + clusterName + ", test name:" + uniqClusterName
-          + " is not unique or test has been run without cleaning up zk; deleting it");
-      zkClient.deleteRecursively("/" + clusterName);
-    }
+    try {
+      zkClient.setZkSerializer(new ZNRecordSerializer());
 
-    if (_testInfoMap.containsKey(uniqClusterName)) {
-      LOG.warn("test info already exists:" + uniqClusterName
-          + " is not unique or test has been run without cleaning up test info map; removing it");
-      _testInfoMap.remove(uniqClusterName);
-    }
-    TestInfo testInfo =
-        new TestInfo(clusterName, zkClient, numResources, numPartitionsPerResource, numInstances,
-            replica);
-    _testInfoMap.put(uniqClusterName, testInfo);
-
-    ClusterSetup setupTool = new ClusterSetup(zkAddr);
-    setupTool.addCluster(clusterName, true);
-
-    for (int i = 0; i < numInstances; i++) {
-      int port = START_PORT + i;
-      setupTool.addInstanceToCluster(clusterName, PARTICIPANT_PREFIX + "_" + port);
-    }
-
-    for (int i = 0; i < numResources; i++) {
-      String dbName = TEST_DB_PREFIX + i;
-      setupTool.addResourceToCluster(clusterName, dbName, numPartitionsPerResource, STATE_MODEL);
-      if (doRebalance) {
-        setupTool.rebalanceStorageCluster(clusterName, dbName, replica);
-
-        // String idealStatePath = "/" + clusterName + "/" +
-        // PropertyType.IDEALSTATES.toString() + "/"
-        // + dbName;
-        // ZNRecord idealState = zkClient.<ZNRecord> readData(idealStatePath);
-        // testInfo._idealStateMap.put(dbName, idealState);
+      // String clusterName = CLUSTER_PREFIX + "_" + uniqClusterName;
+      String clusterName = uniqClusterName;
+      if (zkClient.exists("/" + clusterName)) {
+        LOG.warn("test cluster already exists:" + clusterName + ", test name:" + uniqClusterName + " is not unique or test has been run without cleaning up zk; deleting it");
+        zkClient.deleteRecursively("/" + clusterName);
       }
+
+      if (_testInfoMap.containsKey(uniqClusterName)) {
+        LOG.warn("test info already exists:" + uniqClusterName + " is not unique or test has been run without cleaning up test info map; removing it");
+        _testInfoMap.remove(uniqClusterName);
+      }
+      TestInfo testInfo =
+          new TestInfo(clusterName, zkClient, numResources, numPartitionsPerResource, numInstances,
+              replica);
+      _testInfoMap.put(uniqClusterName, testInfo);
+
+      ClusterSetup setupTool = new ClusterSetup(zkAddr);
+      setupTool.addCluster(clusterName, true);
+
+      for (int i = 0; i < numInstances; i++) {
+        int port = START_PORT + i;
+        setupTool.addInstanceToCluster(clusterName, PARTICIPANT_PREFIX + "_" + port);
+      }
+
+      for (int i = 0; i < numResources; i++) {
+        String dbName = TEST_DB_PREFIX + i;
+        setupTool.addResourceToCluster(clusterName, dbName, numPartitionsPerResource, STATE_MODEL);
+        if (doRebalance) {
+          setupTool.rebalanceStorageCluster(clusterName, dbName, replica);
+
+          // String idealStatePath = "/" + clusterName + "/" +
+          // PropertyType.IDEALSTATES.toString() + "/"
+          // + dbName;
+          // ZNRecord idealState = zkClient.<ZNRecord> readData(idealStatePath);
+          // testInfo._idealStateMap.put(dbName, idealState);
+        }
+      }
+    } finally {
+      zkClient.close();
     }
   }
 
@@ -240,9 +244,9 @@ public class TestDriver {
     TestInfo testInfo = _testInfoMap.get(uniqClusterName);
     String clusterName = testInfo._clusterName;
 
-    HelixClusterVerifier verifier =
+    ZkHelixClusterVerifier verifier =
         new BestPossibleExternalViewVerifier.Builder(clusterName).setZkAddr(ZK_ADDR).build();
-    Assert.assertTrue(verifier.verify());
+    Assert.assertTrue(verifier.verifyByPolling());
 
   }
 

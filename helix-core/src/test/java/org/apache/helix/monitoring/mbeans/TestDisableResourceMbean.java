@@ -19,6 +19,11 @@ package org.apache.helix.monitoring.mbeans;
  * under the License.
  */
 
+import java.lang.management.ManagementFactory;
+import java.util.Date;
+import javax.management.MBeanServerConnection;
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectName;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZkUnitTestBase;
@@ -29,17 +34,9 @@ import org.apache.helix.model.IdealState.RebalanceMode;
 import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.builder.HelixConfigScopeBuilder;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
-import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import javax.management.MBeanServerConnection;
-import javax.management.MalformedObjectNameException;
-import javax.management.ObjectName;
-import java.lang.management.ManagementFactory;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
 
 public class TestDisableResourceMbean extends ZkUnitTestBase {
   private MBeanServerConnection _mbeanServer = ManagementFactory.getPlatformMBeanServer();
@@ -86,20 +83,32 @@ public class TestDisableResourceMbean extends ZkUnitTestBase {
         new ClusterControllerManager(ZK_ADDR, clusterName, "controller_0");
     controller.syncStart();
 
-    HelixClusterVerifier clusterVerifier =
+    ZkHelixClusterVerifier clusterVerifier =
         new BestPossibleExternalViewVerifier.Builder(clusterName).setZkClient(_gZkClient).build();
-    Assert.assertTrue(clusterVerifier.verify());
+    Assert.assertTrue(clusterVerifier.verifyByPolling());
 
     // Verify the bean was created for TestDB0, but not for TestDB1.
-    Assert.assertTrue(_mbeanServer.isRegistered(getMbeanName("TestDB0", clusterName)));
-    Assert.assertFalse(_mbeanServer.isRegistered(getMbeanName("TestDB1", clusterName)));
-    Assert.assertTrue(_mbeanServer.isRegistered(getMbeanName("TestDB2", clusterName)));
+    pollForMBeanExistance(getMbeanName("TestDB0", clusterName), true);
+    pollForMBeanExistance(getMbeanName("TestDB1", clusterName), false);
+    pollForMBeanExistance(getMbeanName("TestDB2", clusterName), true);
 
     controller.syncStop();
     for (MockParticipantManager participant : participants) {
       participant.syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
+  }
+
+  private void pollForMBeanExistance(final ObjectName objectName, boolean expectation)
+      throws Exception {
+    boolean result = TestHelper.verify(new TestHelper.Verifier() {
+      @Override
+      public boolean verify() throws Exception {
+        return _mbeanServer.isRegistered(objectName);
+      }
+    }, 3000);
+    Assert.assertEquals(result, expectation);
   }
 
   private ObjectName getMbeanName(String resourceName, String clusterName)

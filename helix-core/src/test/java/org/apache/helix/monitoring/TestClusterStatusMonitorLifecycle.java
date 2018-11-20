@@ -19,16 +19,29 @@ package org.apache.helix.monitoring;
  * under the License.
  */
 
+import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.Set;
+import javax.management.InstanceNotFoundException;
+import javax.management.MBeanServerConnection;
+import javax.management.MBeanServerNotification;
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectInstance;
+import javax.management.ObjectName;
+import javax.management.Query;
+import javax.management.QueryExp;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.TestHelper;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterDistributedController;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.monitoring.mbeans.ClusterMBeanObserver;
 import org.apache.helix.tools.ClusterSetup;
-import org.apache.helix.tools.ClusterStateVerifier;
-import org.apache.helix.tools.ClusterStateVerifier.BestPossAndExtViewZkVerifier;
+import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
+import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -36,22 +49,15 @@ import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import javax.management.*;
-import java.io.IOException;
-import java.lang.management.ManagementFactory;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.Set;
-
-public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(TestClusterStatusMonitorLifecycle.class);
+public class TestClusterStatusMonitorLifecycle extends ZkTestBase {
+  private static final Logger LOG = LoggerFactory.getLogger(TestClusterStatusMonitorLifecycle.class);
 
   MockParticipantManager[] _participants;
   ClusterDistributedController[] _controllers;
   String _controllerClusterName;
   String _clusterNamePrefix;
   String _firstClusterName;
+  Set<String> _clusters = new HashSet<>();
 
   final int n = 5;
   final int clusterNb = 10;
@@ -77,6 +83,8 @@ public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
           n, // number of nodes
           3, // replicas
           "MasterSlave", true); // do rebalance
+
+      _clusters.add(clusterName);
     }
 
     // setup controller cluster
@@ -99,10 +107,11 @@ public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
       _controllers[i].syncStart();
     }
 
-    boolean result = ClusterStateVerifier.verifyByZkCallback(
-        new ClusterStateVerifier.BestPossAndExtViewZkVerifier(ZK_ADDR, _controllerClusterName),
-        30000);
-    Assert.assertTrue(result, "Controller cluster NOT in ideal state");
+    ZkHelixClusterVerifier controllerClusterVerifier =
+        new BestPossibleExternalViewVerifier.Builder(_controllerClusterName).setZkClient(_gZkClient)
+            .build();
+
+    Assert.assertTrue(controllerClusterVerifier.verifyByPolling(), "Controller cluster NOT in ideal state");
 
     // start first cluster
     _participants = new MockParticipantManager[n];
@@ -113,9 +122,10 @@ public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
       _participants[i].syncStart();
     }
 
-    result = ClusterStateVerifier
-        .verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR, _firstClusterName));
-    Assert.assertTrue(result, "first cluster NOT in ideal state");
+    ZkHelixClusterVerifier firstClusterVerifier =
+        new BestPossibleExternalViewVerifier.Builder(_firstClusterName).setZkClient(_gZkClient)
+            .build();
+    Assert.assertTrue(firstClusterVerifier.verifyByPolling(), "first cluster NOT in ideal state");
 
     // add more controllers to controller cluster
     ClusterSetup setupTool = new ClusterSetup(ZK_ADDR);
@@ -131,22 +141,39 @@ public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
     }
 
     // verify controller cluster
-    result = ClusterStateVerifier.verifyByZkCallback(
-        new ClusterStateVerifier.BestPossAndExtViewZkVerifier(ZK_ADDR, _controllerClusterName));
-    Assert.assertTrue(result, "Controller cluster NOT in ideal state");
+    Assert.assertTrue(controllerClusterVerifier.verifyByPolling(), "Controller cluster NOT in ideal state");
 
     // verify first cluster
-    result = ClusterStateVerifier
-        .verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR, _firstClusterName));
-    Assert.assertTrue(result, "first cluster NOT in ideal state");
+    Assert.assertTrue(firstClusterVerifier.verifyByPolling(), "first cluster NOT in ideal state");
+    // verify all the rest clusters
+    for (int i = 1; i < clusterNb; i++) {
+      ZkHelixClusterVerifier clusterVerifier =
+          new BestPossibleExternalViewVerifier.Builder(_clusterNamePrefix + "0_" + i)
+              .setZkClient(_gZkClient).build();
+      Assert.assertTrue(clusterVerifier.verifyByPolling(), "Cluster NOT in ideal state.");
+    }
   }
 
   @AfterClass
-  public void afterClass() {
+  public void afterClass() throws Exception {
     System.out.println("Cleaning up...");
-    for (int i = 0; i < _participants.length; i++) {
-      _participants[i].syncStop();
+    for (int i = 0; i < 2 * n; i++) {
+      if (_controllers[i] != null && _controllers[i].isConnected()) {
+        _controllers[i].syncStop();
+      }
     }
+    for (int i = 0; i < _participants.length; i++) {
+      if (_participants[i] != null && _participants[i].isConnected()) {
+        _participants[i].syncStop();
+      }
+    }
+    cleanupControllers();
+    deleteCluster(_controllerClusterName);
+
+    for (String cluster : _clusters) {
+      TestHelper.dropCluster(cluster, _gZkClient);
+    }
+
     System.out.println("END " + _clusterNamePrefix + " at " + new Date(System.currentTimeMillis()));
   }
 
@@ -178,30 +205,35 @@ public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
 
   private void cleanupControllers() {
     for (int i = 0; i < _controllers.length; i++) {
-      _controllers[i].syncStop();
+      if (_controllers[i] != null && _controllers[i].isConnected()) {
+        _controllers[i].syncStop();
+      }
     }
   }
 
   @Test
-  public void testClusterStatusMonitorLifecycle()
-      throws InstanceNotFoundException, MalformedObjectNameException, NullPointerException,
-      IOException, InterruptedException {
+  public void testClusterStatusMonitorLifecycle() throws Exception {
     // Filter other unrelated clusters' metrics
-    QueryExp exp =
+    final QueryExp exp1 =
         Query.match(Query.attr("SensorName"), Query.value("*" + _clusterNamePrefix + "*"));
-    Set<ObjectInstance> mbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
-        .queryMBeans(new ObjectName("ClusterStatus:*"), exp));
+    final Set<ObjectInstance> mbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
+        .queryMBeans(new ObjectName("ClusterStatus:*"), exp1));
 
     _participants[0].disconnect();
 
     // 1 participant goes away
     // No change in instance/resource mbean
     // Unregister 1 per-instance resource mbean and message queue mbean
-    Thread.sleep(1000);
-    int previousMBeanCount = mbeans.size();
-    mbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
-        .queryMBeans(new ObjectName("ClusterStatus:*"), exp));
-    Assert.assertEquals(mbeans.size(), previousMBeanCount - 2);
+    final int previousMBeanCount = mbeans.size();
+    Assert.assertTrue(TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        Set<ObjectInstance> newMbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
+            .queryMBeans(new ObjectName("ClusterStatus:*"), exp1));
+        mbeans.clear();
+        mbeans.addAll(newMbeans);
+        return newMbeans.size() == (previousMBeanCount - 2);
+      }
+    }, 10000));
 
     HelixDataAccessor accessor = _participants[n - 1].getHelixDataAccessor();
     String firstControllerName =
@@ -217,11 +249,16 @@ public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
 
     // 1 controller goes away
     // 1 message queue mbean, 1 PerInstanceResource mbean, and one message queue mbean
-    Thread.sleep(2000);
-    previousMBeanCount = mbeans.size();
-    mbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
-        .queryMBeans(new ObjectName("ClusterStatus:*"), exp));
-    Assert.assertEquals(mbeans.size(), previousMBeanCount - 3);
+    final int previousMBeanCount2 = mbeans.size();
+    Assert.assertTrue(TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        Set<ObjectInstance> newMbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
+            .queryMBeans(new ObjectName("ClusterStatus:*"), exp1));
+        mbeans.clear();
+        mbeans.addAll(newMbeans);
+        return newMbeans.size() == (previousMBeanCount2 - 3);
+      }
+    }, 10000));
 
     String instanceName = "localhost0_" + (12918 + 0);
     _participants[0] = new MockParticipantManager(ZK_ADDR, _firstClusterName, instanceName);
@@ -230,11 +267,16 @@ public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
     // 1 participant comes back
     // No change in instance/resource mbean
     // Register 1 per-instance resource mbean and 1 message queue mbean
-    Thread.sleep(2000);
-    previousMBeanCount = mbeans.size();
-    mbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
-        .queryMBeans(new ObjectName("ClusterStatus:*"), exp));
-    Assert.assertEquals(mbeans.size(), previousMBeanCount + 2);
+    final int previousMBeanCount3 = mbeans.size();
+    Assert.assertTrue(TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        Set<ObjectInstance> newMbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
+            .queryMBeans(new ObjectName("ClusterStatus:*"), exp1));
+        mbeans.clear();
+        mbeans.addAll(newMbeans);
+        return newMbeans.size() == (previousMBeanCount3 + 2);
+      }
+    }, 10000));
 
     // Add a resource
     // Register 1 resource mbean
@@ -247,38 +289,48 @@ public class TestClusterStatusMonitorLifecycle extends ZkIntegrationTestBase {
     setupTool.rebalanceResource(_firstClusterName, "TestDB1",
         Integer.parseInt(idealState.getReplicas()));
 
-    Thread.sleep(2000);
     // Add one resource, PerInstanceResource mbeans and 1 resource monitor
-    previousMBeanCount = mbeans.size();
-    mbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
-        .queryMBeans(new ObjectName("ClusterStatus:*"), exp));
-    Assert.assertEquals(mbeans.size(), previousMBeanCount + _participants.length + 1);
+    final int previousMBeanCount4 = mbeans.size();
+    Assert.assertTrue(TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        Set<ObjectInstance> newMbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
+            .queryMBeans(new ObjectName("ClusterStatus:*"), exp1));
+        mbeans.clear();
+        mbeans.addAll(newMbeans);
+        return newMbeans.size() == (previousMBeanCount4 + _participants.length + 1);
+      }
+    }, 10000));
 
     // Remove a resource
     // No change in instance/resource mbean
     // Unregister 5 per-instance resource mbean
     setupTool.dropResourceFromCluster(_firstClusterName, "TestDB1");
-    Thread.sleep(2000);
-    previousMBeanCount = mbeans.size();
-    mbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
-        .queryMBeans(new ObjectName("ClusterStatus:*"), exp));
-    Assert.assertEquals(mbeans.size(), previousMBeanCount - (_participants.length + 1));
+
+    final int previousMBeanCount5 = mbeans.size();
+    Assert.assertTrue(TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        Set<ObjectInstance> newMbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
+            .queryMBeans(new ObjectName("ClusterStatus:*"), exp1));
+        mbeans.clear();
+        mbeans.addAll(newMbeans);
+        return newMbeans.size() == (previousMBeanCount5 - (_participants.length + 1));
+      }
+    }, 10000));
 
     // Cleanup controllers then MBeans should all be removed.
     cleanupControllers();
-    Thread.sleep(2000);
-
     // Check if any MBeans leftover.
     // Note that MessageQueueStatus is not bound with controller only. So it will still exist.
-    exp = Query
-        .and(Query.not(Query.match(Query.attr("SensorName"), Query.value("MessageQueueStatus.*"))),
-            exp);
-    if (!ManagementFactory.getPlatformMBeanServer()
-        .queryMBeans(new ObjectName("ClusterStatus:*"), exp).isEmpty()) {
-      System.out.println(ManagementFactory.getPlatformMBeanServer()
-          .queryMBeans(new ObjectName("ClusterStatus:*"), exp));
-    }
-    Assert.assertTrue(ManagementFactory.getPlatformMBeanServer()
-        .queryMBeans(new ObjectName("ClusterStatus:*"), exp).isEmpty());
+
+    final QueryExp exp2 = Query.and(
+        Query.not(Query.match(Query.attr("SensorName"), Query.value("MessageQueueStatus.*"))),
+        exp1);
+
+    Assert.assertTrue(TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        return ManagementFactory.getPlatformMBeanServer()
+            .queryMBeans(new ObjectName("ClusterStatus:*"), exp2).isEmpty();
+      }
+    }, 10000));
   }
 }

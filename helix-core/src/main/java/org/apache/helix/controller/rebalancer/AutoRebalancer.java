@@ -74,12 +74,12 @@ public class AutoRebalancer extends AbstractRebalancer {
         Map<String, LiveInstance> liveInstance = clusterData.getLiveInstances();
         int replicas = currentIdealState.getReplicaCount(liveInstance.size());
 
-        LinkedHashMap<String, Integer> stateCountMap = stateModelDef
-                .getStateCountMap(liveInstance.size(), replicas);
-        List<String> liveNodes = new ArrayList<String>(liveInstance.keySet());
-        List<String> allNodes = new ArrayList<String>(clusterData.getInstanceConfigMap().keySet());
-        allNodes.removeAll(clusterData.getDisabledInstances());
-        liveNodes.retainAll(allNodes);
+    LinkedHashMap<String, Integer> stateCountMap = stateModelDef
+        .getStateCountMap(liveInstance.size(), replicas);
+    List<String> liveNodes = new ArrayList<>(liveInstance.keySet());
+    List<String> allNodes = new ArrayList<>(clusterData.getAllInstances());
+    allNodes.removeAll(clusterData.getDisabledInstances());
+    liveNodes.retainAll(allNodes);
 
         Map<String, Map<String, String>> currentMapping =
                 currentMapping(currentStateOutput, resourceName, partitions, stateCountMap);

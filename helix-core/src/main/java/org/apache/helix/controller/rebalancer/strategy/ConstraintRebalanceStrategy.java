@@ -19,23 +19,30 @@ package org.apache.helix.controller.rebalancer.strategy;
  * under the License.
  */
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+
 import org.apache.helix.HelixException;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.api.rebalancer.constraint.AbstractRebalanceHardConstraint;
 import org.apache.helix.api.rebalancer.constraint.AbstractRebalanceSoftConstraint;
 import org.apache.helix.api.rebalancer.constraint.dataprovider.CapacityProvider;
 import org.apache.helix.api.rebalancer.constraint.dataprovider.PartitionWeightProvider;
+import org.apache.helix.controller.LogUtil;
 import org.apache.helix.controller.common.ResourcesStateMap;
 import org.apache.helix.controller.rebalancer.constraint.PartitionWeightAwareEvennessConstraint;
-import org.apache.helix.controller.rebalancer.strategy.crushMapping.CardDealingAdjustmentAlgorithm;
+import org.apache.helix.controller.rebalancer.strategy.crushMapping.CardDealingAdjustmentAlgorithmV2;
 import org.apache.helix.controller.rebalancer.topology.Topology;
 import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.Partition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.*;
 
 /**
  * Constraints based rebalance strategy.
@@ -82,7 +89,6 @@ public class ConstraintRebalanceStrategy extends AbstractEvenDistributionRebalan
   /**
    * This strategy is currently for rebalance tool only.
    * For the constructor defined for AutoRebalancer, use a simplified default constraint to ensure balance.
-   *
    * Note this strategy will flip-flop almost for sure if directly used in the existing rebalancer.
    * TODO Enable different constraints for automatic rebalance process in the controller later.
    */
@@ -108,11 +114,11 @@ public class ConstraintRebalanceStrategy extends AbstractEvenDistributionRebalan
     _softConstraints.add(defaultConstraint);
   }
 
-  protected CardDealingAdjustmentAlgorithm getCardDealingAlgorithm(Topology topology) {
+  protected CardDealingAdjustmentAlgorithmV2 getCardDealingAlgorithm(Topology topology) {
     // For constraint based strategy, need more fine-grained assignment for each partition.
     // So evenness is more important.
-    return new CardDealingAdjustmentAlgorithm(topology, _replica,
-        CardDealingAdjustmentAlgorithm.Mode.EVENNESS);
+    return new CardDealingAdjustmentAlgorithmV2(topology, _replica,
+        CardDealingAdjustmentAlgorithmV2.Mode.EVENNESS);
   }
 
   @Override
@@ -133,10 +139,10 @@ public class ConstraintRebalanceStrategy extends AbstractEvenDistributionRebalan
   /**
    * Generate assignment based on the constraints.
    *
-   * @param allNodes         All instances
-   * @param liveNodes        List of live instances
-   * @param currentMapping   current replica mapping. Will directly use this mapping if it meets state model requirement
-   * @param clusterData      cluster data
+   * @param allNodes       All instances
+   * @param liveNodes      List of live instances
+   * @param currentMapping current replica mapping. Will directly use this mapping if it meets state model requirement
+   * @param clusterData    cluster data
    * @return IdeaState node that contains both preference list and a proposed state mapping.
    * @throws HelixException
    */
@@ -156,7 +162,7 @@ public class ConstraintRebalanceStrategy extends AbstractEvenDistributionRebalan
     List<String> candidates = new ArrayList<>(allNodes);
     // Only calculate for configured nodes.
     // Remove all non-configured nodes.
-    candidates.retainAll(clusterData.getInstanceConfigMap().keySet());
+    candidates.retainAll(clusterData.getAllInstances());
 
     // For generating the IdealState ZNRecord
     Map<String, List<String>> preferenceList = new HashMap<>();
@@ -168,11 +174,11 @@ public class ConstraintRebalanceStrategy extends AbstractEvenDistributionRebalan
         // check for the preferred assignment
         partitionMapping = validateStateMap(partitionMapping);
         if (partitionMapping != null) {
-          _logger.debug(
+          LogUtil.logDebug(_logger, clusterData.getEventId(),
               "The provided preferred partition assignment meets state model requirements. Skip rebalance.");
           preferenceList.put(partition, new ArrayList<>(partitionMapping.keySet()));
           idealStateMap.put(partition, partitionMapping);
-          updateConstraints(partition, partitionMapping);
+          updateConstraints(partition, partitionMapping, clusterData.getEventId());
           continue;
         }
       } // else, recalculate the assignment
@@ -195,7 +201,7 @@ public class ConstraintRebalanceStrategy extends AbstractEvenDistributionRebalan
       idealStateMap.put(partition, stateMap);
       preferenceList.put(partition, assignment);
       // Note, only update with the new pending assignment
-      updateConstraints(partition, stateMap);
+      updateConstraints(partition, stateMap, clusterData.getEventId());
     }
 
     // recover the original weight
@@ -213,7 +219,7 @@ public class ConstraintRebalanceStrategy extends AbstractEvenDistributionRebalan
   /**
    * @param actualMapping
    * @return a filtered state mapping that fit state model definition.
-   *          Or null if the input mapping is conflict with state model.
+   * Or null if the input mapping is conflict with state model.
    */
   private Map<String, String> validateStateMap(Map<String, String> actualMapping) {
     Map<String, String> filteredStateMapping = new HashMap<>();
@@ -303,15 +309,18 @@ public class ConstraintRebalanceStrategy extends AbstractEvenDistributionRebalan
     return partitionAssignment.getListFields().get(partitionName);
   }
 
-  private void updateConstraints(String partition, Map<String, String> pendingAssignment) {
+  private void updateConstraints(String partition, Map<String, String> pendingAssignment,
+      String eventId) {
     if (pendingAssignment.isEmpty()) {
-      _logger.warn("No pending assignment needs to update. Skip constraint update.");
+      LogUtil.logWarn(_logger, eventId,
+          "No pending assignment needs to update. Skip constraint update.");
       return;
     }
 
     ResourcesStateMap tempStateMap = new ResourcesStateMap();
     tempStateMap.setState(_resourceName, new Partition(partition), pendingAssignment);
-    _logger.debug("Update constraints with pending assignment: " + tempStateMap.toString());
+    LogUtil.logDebug(_logger, eventId,
+        "Update constraints with pending assignment: " + tempStateMap.toString());
 
     for (AbstractRebalanceHardConstraint hardConstraint : _hardConstraints) {
       hardConstraint.updateAssignment(tempStateMap);

@@ -22,20 +22,19 @@ package org.apache.helix.integration.messaging;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.I0Itec.zkclient.IZkChildListener;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZKHelixAdmin;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.model.Message;
 import org.apache.helix.model.ClusterConstraints.ConstraintType;
+import org.apache.helix.model.Message;
 import org.apache.helix.model.builder.ConstraintItemBuilder;
 import org.apache.helix.tools.ClusterStateVerifier;
 import org.apache.helix.tools.ClusterStateVerifier.BestPossAndExtViewZkVerifier;
@@ -43,7 +42,7 @@ import org.apache.helix.tools.ClusterStateVerifier.MasterNbInExtViewVerifier;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-public class TestMessageThrottle extends ZkIntegrationTestBase {
+public class TestMessageThrottle extends ZkTestBase {
   @Test()
   public void testMessageThrottle() throws Exception {
     // Logger.getRootLogger().setLevel(Level.INFO);
@@ -142,6 +141,7 @@ public class TestMessageThrottle extends ZkIntegrationTestBase {
     for (int i = 0; i < 5; i++) {
       participants[i].syncStop();
     }
+    TestHelper.dropCluster(clusterName, _gZkClient);
 
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }

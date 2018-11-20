@@ -114,65 +114,66 @@ public class GroupCommit {
                         // OK.
                     }
 
-                    /**
-                     * If the local cache does not contain a value, need to check if there is a
-                     * value in ZK; use it as initial value if exists
-                     */
-                    if (merged == null) {
-                        merged = new ZNRecord(first._record);
-                    } else {
-                        merged.merge(first._record);
-                    }
-                    Iterator<Entry> it = queue._pending.iterator();
-                    while (it.hasNext()) {
-                        Entry ent = it.next();
-                        if (!ent._key.equals(mergedKey)) {
-                            continue;
-                        }
-                        processed.add(ent);
-                        merged.merge(ent._record);
-                        // System.out.println("After merging:" + merged);
-                        it.remove();
-                    }
+          /**
+           * If the local cache does not contain a value, need to check if there is a
+           * value in ZK; use it as initial value if exists
+           */
+          if (merged == null) {
+            merged = new ZNRecord(first._record);
+          }
+          merged.merge(first._record);
 
-                    int retry = 0;
-                    success = false;
-                    while (++retry <= MAX_RETRY && !success) {
-                        if (removeIfEmpty && merged.getMapFields().isEmpty()) {
-                            success = accessor.remove(mergedKey, options);
-                            if (!success) {
-                                LOG.error("Fails to remove " + mergedKey + " from ZK, retry it!");
-                            }
-                        } else {
-                            success = accessor.set(mergedKey, merged, options);
-                            if (!success) {
-                                LOG.error("Fails to update " + mergedKey + " to ZK, retry it! ");
-                            }
-                        }
-                    }
-                } finally {
-                    queue._running.set(null);
-                    for (Entry e : processed) {
-                        synchronized (e) {
-                            e._sent.set(true);
-                            e.notify();
-                        }
-                    }
-                }
+          Iterator<Entry> it = queue._pending.iterator();
+          while (it.hasNext()) {
+            Entry ent = it.next();
+            if (!ent._key.equals(mergedKey))
+              continue;
+            processed.add(ent);
+            merged.merge(ent._record);
+            // System.out.println("After merging:" + merged);
+            it.remove();
+          }
+
+          int retry = 0;
+          success = false;
+          while (++retry <= MAX_RETRY && !success) {
+            if (removeIfEmpty && merged.getMapFields().isEmpty()) {
+              success = accessor.remove(mergedKey, options);
+              if (!success) {
+                LOG.error("Fails to remove " + mergedKey + " from ZK, retry it!");
+              } else {
+                LOG.info("Removed " + mergedKey);
+              }
             } else {
-                synchronized (entry) {
-                    try {
-                        entry.wait(10);
-                    } catch (InterruptedException e) {
-                        LOG.error("Interrupted while committing change, key: " + key + ", record: " + record, e);
-                        // Restore interrupt status
-                        Thread.currentThread().interrupt();
-                        return false;
-                    }
-                }
+              success = accessor.set(mergedKey, merged, options);
+              if (!success) {
+                LOG.error("Fails to update " + mergedKey + " to ZK, retry it! ");
+              }
             }
+          }
+        } finally {
+          queue._running.set(null);
+          for (Entry e : processed) {
+            synchronized (e) {
+              e._sent.set(true);
+              e.notify();
+            }
+          }
         }
-        return success;
+      } else {
+        synchronized (entry) {
+          try {
+            entry.wait(10);
+          } catch (InterruptedException e) {
+            LOG.error("Interrupted while committing change, key: " + key + ", record: " + record, e);
+            // Restore interrupt status
+            Thread.currentThread().interrupt();
+            return false;
+          }
+        }
+      }
     }
+    return success;
+  }
 
 }

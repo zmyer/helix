@@ -19,6 +19,7 @@ package org.apache.helix.model;
  * under the License.
  */
 
+import java.util.Map;
 import org.apache.helix.HelixProperty;
 import org.apache.helix.ZNRecord;
 import org.slf4j.Logger;
@@ -29,15 +30,23 @@ import org.slf4j.LoggerFactory;
  */
 // TODO: 2018/7/24 by zmyer
 public class LiveInstance extends HelixProperty {
-    /**
-     * Saved properties of a live instance
-     */
-    public enum LiveInstanceProperty {
-        SESSION_ID,
-        HELIX_VERSION,
-        LIVE_INSTANCE,
-        ZKPROPERTYTRANSFERURL
-    }
+  /**
+   * Saved properties of a live instance
+   */
+  public enum LiveInstanceProperty {
+    SESSION_ID,
+    HELIX_VERSION,
+    LIVE_INSTANCE,
+    ZKPROPERTYTRANSFERURL,
+    RESOURCE_CAPACITY
+  }
+
+  /**
+   * Resource this instance can provide, i.e. thread, memory heap size, CPU cores, etc
+   */
+  public enum InstanceResourceType {
+    TASK_EXEC_THREAD
+  }
 
     private static final Logger _logger = LoggerFactory.getLogger(LiveInstance.class.getName());
 
@@ -115,13 +124,35 @@ public class LiveInstance extends HelixProperty {
         _record.setSimpleField(LiveInstanceProperty.LIVE_INSTANCE.toString(), liveInstance);
     }
 
-    /**
-     * Get the last modified time of this live instance
-     * @return UNIX timestamp
-     */
-    public long getModifiedTime() {
-        return _record.getModifiedTime();
-    }
+  /**
+   * Get resource quota map of the live instance. Note that this resource name
+   * refers to compute / storage / network resource that this liveinstance
+   * has, i.e. thread count, CPU cores, heap size, etc.
+   * @return resource quota map: key=resourceName, value=quota
+   */
+  public Map<String, String> getResourceCapacityMap() {
+    return _record.getMapField(LiveInstanceProperty.RESOURCE_CAPACITY.name());
+  }
+
+  /**
+   * Add a resource quota map to this LiveInstance. For resource quota map, key=resourceName;
+   * value=quota of that resource. We assume that value can be casted into integers. Note that
+   * this resourceName refers to compute / storage / network resource that this liveinstance
+   * has, i.e. thread count, CPU cores, heap size, etc.
+   *
+   * @param resourceQuotaMap resourceQuotaMap
+   */
+  public void setResourceCapacityMap(Map<String, String> resourceQuotaMap) {
+    _record.setMapField(LiveInstanceProperty.RESOURCE_CAPACITY.name(), resourceQuotaMap);
+  }
+
+  /**
+   * Get the last modified time of this live instance
+   * @return UNIX timestamp
+   */
+  public long getModifiedTime() {
+    return _record.getModifiedTime();
+  }
 
     /**
      * Get a web service URL where ZK properties can be transferred to

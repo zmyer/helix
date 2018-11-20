@@ -19,12 +19,20 @@ package org.apache.helix;
  * under the License.
  */
 
-import org.apache.helix.manager.zk.ZKUtil;
-import org.apache.helix.manager.zk.ZkClient;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ConfigScope;
 import org.apache.helix.model.HelixConfigScope;
 import org.apache.helix.model.HelixConfigScope.ConfigScopeProperty;
+import org.apache.helix.manager.zk.ZKUtil;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.builder.HelixConfigScopeBuilder;
@@ -68,16 +76,15 @@ public class ConfigAccessor {
         // @formatter:on
     }
 
-    private final ZkClient zkClient;
+  private final HelixZkClient zkClient;
 
-    /**
-     * Initialize an accessor with a Zookeeper client
-     * @param zkClient
-     */
-    // TODO: 2018/7/25 by zmyer
-    public ConfigAccessor(ZkClient zkClient) {
-        this.zkClient = zkClient;
-    }
+  /**
+   * Initialize an accessor with a Zookeeper client
+   * @param zkClient
+   */
+  public ConfigAccessor(HelixZkClient zkClient) {
+    this.zkClient = zkClient;
+  }
 
     /**
      * get config
@@ -287,17 +294,17 @@ public class ConfigAccessor {
         set(scope, map);
     }
 
-    /**
-     * Set multiple configs, creating them if they don't exist
-     * @param scope scope specification of the entity set to query
-     *          (e.g. cluster, resource, participant, etc.)
-     * @param keyValueMap configurations organized by their identifiers
-     */
-    public void set(HelixConfigScope scope, Map<String, String> keyValueMap) {
-        if (scope == null || scope.getType() == null || !scope.isFullKey()) {
-            LOG.error("fail to set config. invalid config scope. scope: " + scope);
-            return;
-        }
+  /**
+   * Set multiple configs, creating them if they don't exist
+   * @param scope scope specification of the entity set to query
+   *          (e.g. cluster, resource, participant, etc.)
+   * @param keyValueMap configurations organized by their identifiers
+   */
+  public void set(HelixConfigScope scope, Map<String, String> keyValueMap) {
+    if (scope == null || scope.getType() == null || !scope.isFullKey()) {
+      LOG.error("fail to set config. invalid config scope. scope: {}", scope);
+      return;
+    }
 
         String clusterName = scope.getClusterName();
         if (!ZKUtil.isClusterSetup(clusterName, zkClient)) {
@@ -770,10 +777,16 @@ public class ConfigAccessor {
                         .forParticipant(instanceName).build();
         String zkPath = scope.getZkPath();
 
-        if (overwrite) {
-            ZKUtil.createOrReplace(zkClient, zkPath, instanceConfig.getRecord(), true);
-        } else {
-            ZKUtil.createOrUpdate(zkClient, zkPath, instanceConfig.getRecord(), true, true);
-        }
+    if (!zkClient.exists(zkPath)) {
+      throw new HelixException(
+          "updateInstanceConfig failed. Given InstanceConfig does not already exist. instance: "
+              + instanceName);
     }
+
+    if (overwrite) {
+      ZKUtil.createOrReplace(zkClient, zkPath, instanceConfig.getRecord(), true);
+    } else {
+      ZKUtil.createOrUpdate(zkClient, zkPath, instanceConfig.getRecord(), true, true);
+    }
+  }
 }

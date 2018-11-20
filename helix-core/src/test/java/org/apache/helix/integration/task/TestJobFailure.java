@@ -38,7 +38,6 @@ import org.apache.helix.task.TaskState;
 import org.apache.helix.task.TaskSynchronizedTestBase;
 import org.apache.helix.task.TaskUtil;
 import org.apache.helix.task.Workflow;
-import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.util.TestInputLoader;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
@@ -46,25 +45,17 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 public final class TestJobFailure extends TaskSynchronizedTestBase {
-
-  private ClusterControllerManager _controller;
   private final String DB_NAME = WorkflowGenerator.DEFAULT_TGT_DB;
 
   @BeforeClass
   public void beforeClass() throws Exception {
     _participants = new MockParticipantManager[_numNodes];
     _numNodes = 2;
-    _numParitions = 2;
+    _numPartitions = 2;
     _numReplicas = 1; // only Master, no Slave
     _numDbs = 1;
 
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-
-    _setupTool = new ClusterSetup(ZK_ADDR);
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
     setupParticipants();
     setupDBs();
     startParticipants();

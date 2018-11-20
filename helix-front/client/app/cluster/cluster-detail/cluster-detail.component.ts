@@ -18,6 +18,7 @@ import { InputDialogComponent } from '../../shared/dialog/input-dialog/input-dia
 export class ClusterDetailComponent implements OnInit {
 
   readonly tabLinks = [
+    { label: 'Dashboard (beta)', link: 'dashboard' },
     { label: 'Resources', link: 'resources' },
     { label: 'Workflows', link: 'workflows' },
     { label: 'Instances', link: 'instances' },
@@ -155,31 +156,55 @@ export class ClusterDetailComponent implements OnInit {
       });
   }
 
-  deleteCluster() {
-    // disable delete function right now since it's too dangerous
-    /*
+  enableMaintenanceMode() {
     this.dialog
-      .open(ConfirmDialogComponent, {
+      .open(InputDialogComponent, {
         data: {
-          title: 'Confirmation',
-          message: 'Are you sure you want to delete this cluster?'
+          title: 'Enable maintenance mode',
+          message: 'What reason do you want to use to put the cluster in maintenance mode?',
+          values: {
+            reason: {
+              label: 'reason'
+            }
+          }
         }
       })
       .afterClosed()
       .subscribe(result => {
+        if (result && result.reason.value) {
+          this.clusterService
+            .enableMaintenanceMode(this.clusterName, result.reason.value)
+            .subscribe(
+              () => this.loadCluster(),
+              error => this.helperService.showError(error)
+            );
+        }
+      });
+  }
+
+  disableMaintenanceMode() {
+    this.clusterService
+      .disableMaintenanceMode(this.clusterName)
+      .subscribe(
+        () => this.loadCluster(),
+        error => this.helperService.showError(error)
+      );
+  }
+
+  deleteCluster() {
+    this.helperService
+      .showConfirmation('Are you sure you want to delete this cluster?')
+      .then(result => {
         if (result) {
           this.clusterService
             .remove(this.cluster.name)
             .subscribe(data => {
-              this.snackBar.open('Cluster deleted!', 'OK', {
-                duration: 2000,
-              });
+              this.helperService.showSnackBar('Cluster deleted!');
               // FIXME: should reload cluster list as well
               this.router.navigate(['..'], { relativeTo: this.route });
             });
-        }
+          }
       });
-      */
   }
 
 }

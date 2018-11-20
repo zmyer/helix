@@ -50,23 +50,26 @@ public class Pipeline {
         stage.init(context);
     }
 
-    // TODO: 2018/7/25 by zmyer
-    public void handle(ClusterEvent event) throws Exception {
-        if (_stages == null) {
-            return;
-        }
-        for (Stage stage : _stages) {
-            long startTime = System.currentTimeMillis();
+  public String getPipelineType() {
+    return _pipelineType;
+  }
+
+  public void handle(ClusterEvent event) throws Exception {
+    if (_stages == null) {
+      return;
+    }
+    for (Stage stage : _stages) {
+      long startTime = System.currentTimeMillis();
 
             stage.preProcess();
             stage.process(event);
             stage.postProcess();
 
-            long endTime = System.currentTimeMillis();
-            long duration = endTime - startTime;
-            logger.info(String
-                    .format("END %s for %s pipeline for cluster %s. took: %d ms ", stage.getStageName(),
-                            _pipelineType, event.getClusterName(), duration));
+      long endTime = System.currentTimeMillis();
+      long duration = endTime - startTime;
+      logger.info(String.format("END %s for %s pipeline for cluster %s. took: %d ms for event %s",
+          stage.getStageName(), _pipelineType, event.getClusterName(), duration,
+          event.getEventId()));
 
             ClusterStatusMonitor clusterStatusMonitor =
                     event.getAttribute(AttributeName.clusterStatusMonitor.name());

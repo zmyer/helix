@@ -24,7 +24,12 @@ public class MaintenanceRebalancer extends SemiAutoRebalancer {
     if (currentStateMap == null || currentStateMap.size() == 0) {
       LOG.warn(String
           .format("No new partition will be assigned for %s in maintenance mode", resourceName));
-      currentIdealState.setPreferenceLists(Collections.EMPTY_MAP);
+
+      // Clear all preference lists, if the resource has not yet been rebalanced,
+      // leave it as is
+      for (List<String> pList : currentIdealState.getPreferenceLists().values()) {
+        pList.clear();
+      }
       return currentIdealState;
     }
 
@@ -34,10 +39,12 @@ public class MaintenanceRebalancer extends SemiAutoRebalancer {
       Map<String, String> stateMap = currentStateMap.get(partition);
       List<String> preferenceList = new ArrayList<>(stateMap.keySet());
       Collections.sort(preferenceList, new PreferenceListNodeComparator(stateMap,
-          clusterData.getStateModelDef(currentIdealState.getStateModelDefRef())));
+          clusterData.getStateModelDef(currentIdealState.getStateModelDefRef()),
+          Collections.<String>emptyList()));
       currentIdealState.setPreferenceList(partition.getPartitionName(), preferenceList);
     }
-    LOG.info("End computing ideal state for resource %s in maintenance mode.");
+    LOG.info(String
+        .format("End computing ideal state for resource %s in maintenance mode.", resourceName));
     return currentIdealState;
   }
 }

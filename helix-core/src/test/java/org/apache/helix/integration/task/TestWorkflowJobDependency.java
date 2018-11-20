@@ -19,6 +19,7 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
+import com.google.common.collect.Sets;
 import org.apache.helix.TestHelper;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.JobContext;
@@ -33,15 +34,13 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.Sets;
-
 public class TestWorkflowJobDependency extends TaskTestBase {
   private static final Logger LOG = LoggerFactory.getLogger(TestWorkflowJobDependency.class);
 
   @BeforeClass
   public void beforeClass() throws Exception {
     _numDbs = 5;
-    _numParitions = 1;
+    _numPartitions = 1;
     _partitionVary = false;
     super.beforeClass();
   }

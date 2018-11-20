@@ -24,9 +24,10 @@ package org.apache.helix.monitoring.mbeans;
  */
 // TODO: 2018/6/4 by zmyer
 public enum MonitorDomainNames {
-    ClusterStatus,
-    HelixZkClient,
-    HelixThreadPoolExecutor,
-    HelixCallback,
-    CLMParticipantReport
+  ClusterStatus,
+  HelixZkClient,
+  HelixThreadPoolExecutor,
+  HelixCallback,
+  RoutingTableProvider,
+  CLMParticipantReport
 }

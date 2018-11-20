@@ -25,7 +25,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManagerFactory;
@@ -50,13 +49,11 @@ import org.apache.helix.participant.statemachine.StateModelFactory;
 import org.apache.helix.participant.statemachine.StateModelInfo;
 import org.apache.helix.participant.statemachine.StateTransitionError;
 import org.apache.helix.participant.statemachine.Transition;
-import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterStateVerifier;
 import org.apache.helix.tools.ClusterStateVerifier.MasterNbInExtViewVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
-import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
@@ -70,18 +67,12 @@ public class TestStateTransitionTimeoutWithResource extends ZkStandAloneCMTestBa
   public void beforeClass() throws Exception {
     System.out.println("START " + CLASS_NAME + " at " + new Date(System.currentTimeMillis()));
 
-    String namespace = "/" + CLUSTER_NAME;
-    if (_gZkClient.exists(namespace)) {
-      _gZkClient.deleteRecursively(namespace);
-    }
-    _setupTool = new ClusterSetup(ZK_ADDR);
-
     // setup storage cluster
-    _setupTool.addCluster(CLUSTER_NAME, true);
+    _gSetupTool.addCluster(CLUSTER_NAME, true);
 
     for (int i = 0; i < NODE_NR; i++) {
       String storageNodeName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
-      _setupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
+      _gSetupTool.addInstanceToCluster(CLUSTER_NAME, storageNodeName);
     }
 
     _manager = HelixManagerFactory
@@ -155,9 +146,9 @@ public class TestStateTransitionTimeoutWithResource extends ZkStandAloneCMTestBa
 
   @Test
   public void testStateTransitionTimeOut() throws Exception {
-    _setupTool.addResourceToCluster(CLUSTER_NAME, TEST_DB, _PARTITIONS, STATE_MODEL);
-    _setupTool.getClusterManagementTool().enableResource(CLUSTER_NAME, TEST_DB, false);
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, TEST_DB, 3);
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, TEST_DB, _PARTITIONS, STATE_MODEL);
+    _gSetupTool.getClusterManagementTool().enableResource(CLUSTER_NAME, TEST_DB, false);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, TEST_DB, 3);
 
     // Set the timeout values
     StateTransitionTimeoutConfig stateTransitionTimeoutConfig =
@@ -171,7 +162,7 @@ public class TestStateTransitionTimeoutWithResource extends ZkStandAloneCMTestBa
     setParticipants(TEST_DB);
 
 
-    _setupTool.getClusterManagementTool().enableResource(CLUSTER_NAME, TEST_DB, true);
+    _gSetupTool.getClusterManagementTool().enableResource(CLUSTER_NAME, TEST_DB, true);
     boolean result =
         ClusterStateVerifier
             .verifyByZkCallback(new MasterNbInExtViewVerifier(ZK_ADDR, CLUSTER_NAME));
@@ -182,9 +173,9 @@ public class TestStateTransitionTimeoutWithResource extends ZkStandAloneCMTestBa
 
   @Test
   public void testStateTransitionTimeoutByClusterLevel() throws InterruptedException {
-    _setupTool.addResourceToCluster(CLUSTER_NAME, TEST_DB + 1, _PARTITIONS, STATE_MODEL);
-    _setupTool.getClusterManagementTool().enableResource(CLUSTER_NAME, TEST_DB + 1, false);
-    _setupTool.rebalanceStorageCluster(CLUSTER_NAME, TEST_DB  + 1, 3);
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, TEST_DB + 1, _PARTITIONS, STATE_MODEL);
+    _gSetupTool.getClusterManagementTool().enableResource(CLUSTER_NAME, TEST_DB + 1, false);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, TEST_DB  + 1, 3);
 
     StateTransitionTimeoutConfig stateTransitionTimeoutConfig =
         new StateTransitionTimeoutConfig(new ZNRecord(TEST_DB + 1));
@@ -195,17 +186,17 @@ public class TestStateTransitionTimeoutWithResource extends ZkStandAloneCMTestBa
 
     setParticipants(TEST_DB + 1);
 
-    _setupTool.getClusterManagementTool().enableResource(CLUSTER_NAME, TEST_DB + 1, true);
+    _gSetupTool.getClusterManagementTool().enableResource(CLUSTER_NAME, TEST_DB + 1, true);
     boolean result =
         ClusterStateVerifier
-            .verifyByZkCallback(new MasterNbInExtViewVerifier(ZK_ADDR, CLUSTER_NAME));
+            .verifyByPolling(new MasterNbInExtViewVerifier(ZK_ADDR, CLUSTER_NAME));
     Assert.assertTrue(result);
     verify(TEST_DB + 1);
   }
 
   private void verify(String dbName) {
     IdealState idealState =
-        _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, dbName);
+        _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, dbName);
     HelixDataAccessor accessor = _manager.getHelixDataAccessor();
     ExternalView ev = accessor.getProperty(accessor.keyBuilder().externalView(dbName));
     for (String p : idealState.getPartitionSet()) {
@@ -221,7 +212,7 @@ public class TestStateTransitionTimeoutWithResource extends ZkStandAloneCMTestBa
   private void setParticipants(String dbName) throws InterruptedException {
     _factories = new HashMap<>();
     IdealState idealState =
-        _setupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, dbName);
+        _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, dbName);
     for (int i = 0; i < NODE_NR; i++) {
       if (_participants[i] != null) {
         _participants[i].syncStop();

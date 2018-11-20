@@ -19,9 +19,9 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
+import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.List;
-
 import org.apache.helix.TestHelper;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.TaskState;
@@ -31,8 +31,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.Sets;
 
 public class TestRunJobsWithMissingTarget extends TaskTestBase {
   private static final Logger LOG = LoggerFactory.getLogger(TestRunJobsWithMissingTarget.class);
@@ -65,7 +63,7 @@ public class TestRunJobsWithMissingTarget extends TaskTestBase {
       currentJobNames.add(jobName);
     }
 
-    _setupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(1));
+    _gSetupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(1));
     _driver.start(builder.build());
 
     String namedSpaceJob = String.format("%s_%s", workflowName, currentJobNames.get(1));
@@ -129,7 +127,7 @@ public class TestRunJobsWithMissingTarget extends TaskTestBase {
     }
 
     _driver.start(builder.build());
-    _setupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(0));
+    _gSetupTool.dropResourceFromCluster(CLUSTER_NAME, _testDbs.get(0));
 
     String namedSpaceJob1 = String.format("%s_%s", workflowName, currentJobNames.get(0));
     _driver.pollForJobState(workflowName, namedSpaceJob1, TaskState.FAILED);

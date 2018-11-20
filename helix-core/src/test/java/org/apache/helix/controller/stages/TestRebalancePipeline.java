@@ -31,6 +31,8 @@ import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.ZkUnitTestBase;
 import org.apache.helix.controller.pipeline.Pipeline;
+import org.apache.helix.controller.stages.resource.ResourceMessageDispatchStage;
+import org.apache.helix.controller.stages.resource.ResourceMessageGenerationPhase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.manager.zk.ZKHelixAdmin;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
@@ -85,10 +87,10 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     rebalancePipeline.addStage(new CurrentStateComputationStage());
     rebalancePipeline.addStage(new BestPossibleStateCalcStage());
     rebalancePipeline.addStage(new IntermediateStateCalcStage());
-    rebalancePipeline.addStage(new MessageGenerationPhase());
+    rebalancePipeline.addStage(new ResourceMessageGenerationPhase());
     rebalancePipeline.addStage(new MessageSelectionStage());
     rebalancePipeline.addStage(new MessageThrottleStage());
-    rebalancePipeline.addStage(new TaskAssignmentStage());
+    rebalancePipeline.addStage(new ResourceMessageDispatchStage());
 
     // round1: set node0 currentState to OFFLINE
     setCurrentState(clusterName, "localhost_0", resourceName, resourceName + "_0", "session_0",
@@ -96,7 +98,7 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
 
     runPipeline(event, dataRefresh);
     runPipeline(event, rebalancePipeline);
-    MessageSelectionStageOutput msgSelOutput =
+    MessageOutput msgSelOutput =
         event.getAttribute(AttributeName.MESSAGES_SELECTED.name());
     List<Message> messages =
         msgSelOutput.getMessages(resourceName, new Partition(resourceName + "_0"));
@@ -118,8 +120,8 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     messages = msgSelOutput.getMessages(resourceName, new Partition(resourceName + "_0"));
     Assert.assertEquals(messages.size(), 0, "Should NOT output 1 message: SLAVE-MASTER for node1");
 
+    deleteCluster(clusterName);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
   }
 
   @Test
@@ -227,8 +229,8 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     messages = accessor.getChildNames(keyBuilder.messages("localhost_0"));
     Assert.assertTrue(messages.isEmpty());
 
+    deleteCluster(clusterName);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
   }
 
   @Test
@@ -270,10 +272,10 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     rebalancePipeline.addStage(new CurrentStateComputationStage());
     rebalancePipeline.addStage(new BestPossibleStateCalcStage());
     rebalancePipeline.addStage(new IntermediateStateCalcStage());
-    rebalancePipeline.addStage(new MessageGenerationPhase());
+    rebalancePipeline.addStage(new ResourceMessageGenerationPhase());
     rebalancePipeline.addStage(new MessageSelectionStage());
     rebalancePipeline.addStage(new MessageThrottleStage());
-    rebalancePipeline.addStage(new TaskAssignmentStage());
+    rebalancePipeline.addStage(new ResourceMessageDispatchStage());
 
     // round1: set node0 currentState to OFFLINE and node1 currentState to SLAVE
     setCurrentState(clusterName, "localhost_0", resourceName, resourceName + "_0", "session_0",
@@ -281,7 +283,7 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
 
     runPipeline(event, dataRefresh);
     runPipeline(event, rebalancePipeline);
-    MessageSelectionStageOutput msgSelOutput =
+    MessageOutput msgSelOutput =
         event.getAttribute(AttributeName.MESSAGES_SELECTED.name());
     List<Message> messages =
         msgSelOutput.getMessages(resourceName, new Partition(resourceName + "_0"));
@@ -323,6 +325,7 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     Assert.assertEquals(message.getToState(), "DROPPED");
     Assert.assertEquals(message.getTgtName(), "localhost_0");
 
+    deleteCluster(clusterName);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
@@ -363,10 +366,10 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     rebalancePipeline.addStage(new CurrentStateComputationStage());
     rebalancePipeline.addStage(new BestPossibleStateCalcStage());
     rebalancePipeline.addStage(new IntermediateStateCalcStage());
-    rebalancePipeline.addStage(new MessageGenerationPhase());
+    rebalancePipeline.addStage(new ResourceMessageGenerationPhase());
     rebalancePipeline.addStage(new MessageSelectionStage());
     rebalancePipeline.addStage(new MessageThrottleStage());
-    rebalancePipeline.addStage(new TaskAssignmentStage());
+    rebalancePipeline.addStage(new ResourceMessageDispatchStage());
 
     // round1: set node1 currentState to SLAVE
     setCurrentState(clusterName, "localhost_1", resourceName, resourceName + "_0", "session_1",
@@ -374,7 +377,7 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
 
     runPipeline(event, dataRefresh);
     runPipeline(event, rebalancePipeline);
-    MessageSelectionStageOutput msgSelOutput =
+    MessageOutput msgSelOutput =
         event.getAttribute(AttributeName.MESSAGES_SELECTED.name());
     List<Message> messages =
         msgSelOutput.getMessages(resourceName, new Partition(resourceName + "_0"));
@@ -398,8 +401,8 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     messages = msgSelOutput.getMessages(resourceName, new Partition(resourceName + "_0"));
     Assert.assertEquals(messages.size(), 0, "Should NOT output 1 message: SLAVE-MASTER for node0");
 
+    deleteCluster(clusterName);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
   }
 
   @Test
@@ -439,10 +442,10 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     rebalancePipeline.addStage(new CurrentStateComputationStage());
     rebalancePipeline.addStage(new BestPossibleStateCalcStage());
     rebalancePipeline.addStage(new IntermediateStateCalcStage());
-    rebalancePipeline.addStage(new MessageGenerationPhase());
+    rebalancePipeline.addStage(new ResourceMessageGenerationPhase());
     rebalancePipeline.addStage(new MessageSelectionStage());
     rebalancePipeline.addStage(new MessageThrottleStage());
-    rebalancePipeline.addStage(new TaskAssignmentStage());
+    rebalancePipeline.addStage(new ResourceMessageDispatchStage());
 
     // set node0 currentState to SLAVE, node1 currentState to MASTER
     // Helix will try to switch the state of the two instances, but it should not be two MASTER at the same time
@@ -454,7 +457,7 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
 
     runPipeline(event, dataRefresh);
     runPipeline(event, rebalancePipeline);
-    MessageSelectionStageOutput msgSelOutput =
+    MessageOutput msgSelOutput =
         event.getAttribute(AttributeName.MESSAGES_SELECTED.name());
     List<Message> messages =
         msgSelOutput.getMessages(resourceName, new Partition(resourceName + "_0"));
@@ -464,6 +467,7 @@ public class TestRebalancePipeline extends ZkUnitTestBase {
     Assert.assertEquals(message.getToState(), "SLAVE");
     Assert.assertEquals(message.getTgtName(), "localhost_1");
 
+    deleteCluster(clusterName);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 

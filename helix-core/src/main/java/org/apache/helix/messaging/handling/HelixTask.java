@@ -31,6 +31,7 @@ import org.apache.helix.NotificationContext;
 import org.apache.helix.NotificationContext.MapKey;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyKey.Builder;
+import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.messaging.handling.MessageHandler.ErrorCode;
 import org.apache.helix.messaging.handling.MessageHandler.ErrorType;
 import org.apache.helix.model.Message;
@@ -77,7 +78,6 @@ public class HelixTask implements MessageTask {
 
     long start = System.currentTimeMillis();
     logger.info("handling task: " + getTaskId() + " begin, at: " + start);
-    HelixDataAccessor accessor = _manager.getHelixDataAccessor();
     _statusUpdateUtil.logInfo(_message, HelixTask.class, "Message handling task begin execute",
         _manager);
     _message.setExecuteStartTimeStamp(new Date().getTime());
@@ -95,6 +95,9 @@ public class HelixTask implements MessageTask {
       handlerStart = System.currentTimeMillis();
       taskResult = _handler.handleMessage();
       handlerEnd = System.currentTimeMillis();
+
+      // cancel timeout task
+      _executor.cancelTimeoutTask(this);
     } catch (InterruptedException e) {
       taskResult = new HelixTaskResult();
       taskResult.setException(e);
@@ -114,9 +117,6 @@ public class HelixTask implements MessageTask {
       logger.error(errorMessage, e);
       _statusUpdateUtil.logError(_message, HelixTask.class, e, errorMessage, _manager);
     }
-
-    // cancel timeout task
-    _executor.cancelTimeoutTask(this);
 
     Exception exception = null;
     try {
@@ -168,6 +168,7 @@ public class HelixTask implements MessageTask {
         }
       }
 
+      HelixDataAccessor accessor = _manager.getHelixDataAccessor();
       // forward relay messages attached to this message to other participants
       if (taskResult.isSuccess()) {
         try {
@@ -180,13 +181,9 @@ public class HelixTask implements MessageTask {
         }
       }
 
-      if (_message.getAttribute(Attributes.PARENT_MSG_ID) == null) {
-        removeMessageFromZk(accessor, _message);
-        reportMessageStat(_manager, _message, taskResult);
-        sendReply(accessor, _message, taskResult);
-        _executor.finishTask(this);
-      }
+      finalCleanup(taskResult);
     } catch (Exception e) {
+      finalCleanup(taskResult);
       exception = e;
       type = ErrorType.FRAMEWORK;
       code = ErrorCode.ERROR;
@@ -255,16 +252,31 @@ public class HelixTask implements MessageTask {
           if (!success) {
             logger.warn("Failed to send relay message " + msg.getId() + " to " + instance);
           } else {
-            logger.info("Send relay message " + message.getId() + " to " + instance);
+            logger.info("Send relay message " + msg.getId() + " to " + instance);
           }
         }
       }
     }
   }
 
-  private void sendReply(HelixDataAccessor accessor, Message message, HelixTaskResult taskResult) {
-    if (_message.getCorrelationId() != null
-        && !message.getMsgType().equals(MessageType.TASK_REPLY.name())) {
+  private HelixDataAccessor getSrcClusterDataAccessor(final Message message) {
+    HelixDataAccessor helixDataAccessor = _manager.getHelixDataAccessor();
+    String clusterName = message.getSrcClusterName();
+    if (clusterName != null && !clusterName.equals(_manager.getClusterName())) {
+      // for cross cluster message, create different HelixDataAccessor for replying message.
+      /*
+        TODO On frequent cross clsuter messaging request, keeping construct data accessor may cause
+        performance issue. We should consider adding cache in this class or HelixManager. --JJ
+       */
+      helixDataAccessor = new ZKHelixDataAccessor(clusterName, helixDataAccessor.getBaseDataAccessor());
+    }
+    return helixDataAccessor;
+  }
+
+  private void sendReply(HelixDataAccessor replyDataAccessor, Message message,
+      HelixTaskResult taskResult) {
+    if (message.getCorrelationId() != null && !message.getMsgType()
+        .equals(MessageType.TASK_REPLY.name())) {
       logger.info("Sending reply for message " + message.getCorrelationId());
       _statusUpdateUtil.logInfo(message, HelixTask.class, "Sending reply", _manager);
 
@@ -273,21 +285,24 @@ public class HelixTask implements MessageTask {
       if (!taskResult.isSuccess()) {
         taskResult.getTaskResultMap().put("ERRORINFO", taskResult.getMessage());
       }
-      Message replyMessage =
-          Message.createReplyMessage(_message, _manager.getInstanceName(),
-              taskResult.getTaskResultMap());
+      Message replyMessage = Message
+          .createReplyMessage(message, _manager.getInstanceName(), taskResult.getTaskResultMap());
       replyMessage.setSrcInstanceType(_manager.getInstanceType());
 
+      Builder keyBuilder = replyDataAccessor.keyBuilder();
       if (message.getSrcInstanceType() == InstanceType.PARTICIPANT) {
-        Builder keyBuilder = accessor.keyBuilder();
-        accessor.setProperty(keyBuilder.message(message.getMsgSrc(), replyMessage.getMsgId()),
-            replyMessage);
+        replyDataAccessor
+            .setProperty(keyBuilder.message(message.getMsgSrc(), replyMessage.getMsgId()),
+                replyMessage);
       } else if (message.getSrcInstanceType() == InstanceType.CONTROLLER) {
-        Builder keyBuilder = accessor.keyBuilder();
-        accessor.setProperty(keyBuilder.controllerMessage(replyMessage.getMsgId()), replyMessage);
+        replyDataAccessor
+            .setProperty(keyBuilder.controllerMessage(replyMessage.getMsgId()), replyMessage);
       }
-      _statusUpdateUtil.logInfo(message, HelixTask.class,
-          "1 msg replied to " + replyMessage.getTgtName(), _manager);
+      _statusUpdateUtil.logInfo(message, HelixTask.class, String
+          .format("1 msg replied to %s in cluster %s.", replyMessage.getTgtName(),
+              message.getSrcClusterName() == null ?
+                  _manager.getClusterName() :
+                  message.getSrcClusterName()), _manager);
     }
   }
 
@@ -357,4 +372,17 @@ public class HelixTask implements MessageTask {
     }
     _isStarted = true;
   }
-};
+
+  private void finalCleanup(HelixTaskResult taskResult) {
+    try {
+      if (_message.getAttribute(Attributes.PARENT_MSG_ID) == null) {
+        removeMessageFromZk(_manager.getHelixDataAccessor(), _message);
+        reportMessageStat(_manager, _message, taskResult);
+        sendReply(getSrcClusterDataAccessor(_message), _message, taskResult);
+        _executor.finishTask(this);
+      }
+    } catch (Exception e) {
+      logger.error(String.format("Error to final clean up for message : %s", _message.getId()));
+    }
+  }
+}

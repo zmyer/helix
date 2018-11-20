@@ -19,8 +19,8 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
+import com.google.common.collect.Sets;
 import java.util.Set;
-
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.TestHelper;
@@ -35,8 +35,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.Sets;
 
 public class TestTaskRebalancerFailover extends TaskTestBase {
   private static final Logger LOG = LoggerFactory.getLogger(TestTaskRebalancerFailover.class);
@@ -69,7 +67,7 @@ public class TestTaskRebalancerFailover extends TaskTestBase {
         accessor.getProperty(keyBuilder.externalView(WorkflowGenerator.DEFAULT_TGT_DB));
     JobContext ctx = _driver.getJobContext(namespacedJob1);
     Set<String> failOverPartitions = Sets.newHashSet();
-    for (int p = 0; p < _numParitions; p++) {
+    for (int p = 0; p < _numPartitions; p++) {
       String instanceName = ctx.getAssignedParticipant(p);
       Assert.assertNotNull(instanceName);
       String partitionName = ctx.getTargetForPartition(p);
@@ -95,7 +93,7 @@ public class TestTaskRebalancerFailover extends TaskTestBase {
     // tasks previously assigned to localhost_12918 should be re-scheduled on new master
     ctx = _driver.getJobContext(namespacedJob2);
     ev = accessor.getProperty(keyBuilder.externalView(WorkflowGenerator.DEFAULT_TGT_DB));
-    for (int p = 0; p < _numParitions; p++) {
+    for (int p = 0; p < _numPartitions; p++) {
       String partitionName = ctx.getTargetForPartition(p);
       Assert.assertNotNull(partitionName);
       if (failOverPartitions.contains(partitionName)) {

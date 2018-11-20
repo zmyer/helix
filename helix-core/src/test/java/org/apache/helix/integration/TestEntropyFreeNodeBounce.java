@@ -19,8 +19,9 @@ package org.apache.helix.integration;
  * under the License.
  */
 
+import java.util.ArrayList;
 import java.util.Date;
-
+import java.util.List;
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
@@ -95,6 +96,7 @@ public class TestEntropyFreeNodeBounce extends ZkUnitTestBase {
     BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
     HelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, baseAccessor);
     PropertyKey.Builder keyBuilder = accessor.keyBuilder();
+    List<HelixManager> participantToClose = new ArrayList<>();
 
     // do the test
     try {
@@ -106,14 +108,17 @@ public class TestEntropyFreeNodeBounce extends ZkUnitTestBase {
       Assert.assertTrue(result);
       ExternalView stableExternalView =
           accessor.getProperty(keyBuilder.externalView(RESOURCE_NAME));
-      for (HelixManager participant : participants) {
+      for (int i = 0; i < NUM_PARTICIPANTS; i++) {
         // disable the controller, bounce the node, re-enable the controller, verify assignments
         // remained the same
+        HelixManager participant = participants[i];
         helixAdmin.enableCluster(clusterName, false);
         participant.disconnect();
         Thread.sleep(1000);
         participant = createParticipant(clusterName, participant.getInstanceName());
+        participantToClose.add(participant);
         participant.connect();
+        participants[i] = participant;
         Thread.sleep(1000);
         helixAdmin.enableCluster(clusterName, true);
         Thread.sleep(1000);
@@ -125,9 +130,10 @@ public class TestEntropyFreeNodeBounce extends ZkUnitTestBase {
     } finally {
       // clean up
       controller.syncStop();
-      for (HelixManager participant : participants) {
+      for (HelixManager participant : participantToClose) {
         participant.disconnect();
       }
+      TestHelper.dropCluster(clusterName, _gZkClient);
       System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
     }
   }
@@ -182,7 +188,7 @@ public class TestEntropyFreeNodeBounce extends ZkUnitTestBase {
 
     @Override
     public ZkClient getZkClient() {
-      return _gZkClient;
+      return (ZkClient) _gZkClient;
     }
 
     @Override

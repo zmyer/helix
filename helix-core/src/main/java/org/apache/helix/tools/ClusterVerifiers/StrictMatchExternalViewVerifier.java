@@ -35,6 +35,7 @@ import org.apache.helix.PropertyKey;
 import org.apache.helix.controller.rebalancer.AbstractRebalancer;
 import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
@@ -63,7 +64,7 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
     _expectLiveInstances = expectLiveInstances;
   }
 
-  public StrictMatchExternalViewVerifier(ZkClient zkClient, String clusterName,
+  public StrictMatchExternalViewVerifier(HelixZkClient zkClient, String clusterName,
       Set<String> resources, Set<String> expectLiveInstances) {
     super(zkClient, clusterName);
     _resources = resources;
@@ -75,7 +76,7 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
     private Set<String> _resources;
     private Set<String> _expectLiveInstances;
     private String _zkAddr;
-    private ZkClient _zkClient;
+    private HelixZkClient _zkClient;
 
     public StrictMatchExternalViewVerifier build() {
       if (_clusterName == null || (_zkAddr == null && _zkClient == null)) {
@@ -125,11 +126,16 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
       return this;
     }
 
-    public ZkClient getZkClient() {
+    public HelixZkClient getHelixZkClient() {
       return _zkClient;
     }
 
-    public Builder setZkClient(ZkClient zkClient) {
+    @Deprecated
+    public ZkClient getZkClient() {
+      return (ZkClient) getHelixZkClient();
+    }
+
+    public Builder setZkClient(HelixZkClient zkClient) {
       _zkClient = zkClient;
       return this;
     }
@@ -169,11 +175,7 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
       ClusterDataCache cache = new ClusterDataCache();
       cache.refresh(_accessor);
 
-      Map<String, IdealState> idealStates = cache.getIdealStates();
-      if (idealStates == null) {
-        // ideal state is null because ideal state is dropped
-        idealStates = Collections.emptyMap();
-      }
+      Map<String, IdealState> idealStates = new HashMap<>(cache.getIdealStates());
 
       // filter out all resources that use Task state model
       Iterator<Map.Entry<String, IdealState>> it = idealStates.entrySet().iterator();

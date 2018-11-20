@@ -20,12 +20,12 @@ package org.apache.helix.controller.stages;
  */
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
 import org.apache.helix.TestHelper;
 import org.apache.helix.controller.stages.MessageSelectionStage.Bounds;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
@@ -86,7 +86,7 @@ public class TestMsgSelectionStage {
 
     List<Message> selectedMsg =
         new MessageSelectionStage().selectMessages(liveInstances, currentStates, pendingMessages,
-            messages, stateConstraints, stateTransitionPriorities,
+            messages, Collections.<Message>emptyList(), stateConstraints, stateTransitionPriorities,
             BuiltInStateModelDefinitions.MasterSlave.getStateModelDefinition(), false);
 
     Assert.assertEquals(selectedMsg.size(), 1);
@@ -124,7 +124,7 @@ public class TestMsgSelectionStage {
 
     List<Message> selectedMsg =
         new MessageSelectionStage().selectMessages(liveInstances, currentStates, pendingMessages,
-            messages, stateConstraints, stateTransitionPriorities,
+            messages, Collections.<Message>emptyList(), stateConstraints, stateTransitionPriorities,
             BuiltInStateModelDefinitions.MasterSlave.getStateModelDefinition(), false);
 
     Assert.assertEquals(selectedMsg.size(), 0);

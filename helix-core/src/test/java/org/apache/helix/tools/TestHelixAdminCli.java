@@ -21,15 +21,15 @@ package org.apache.helix.tools;
 
 import java.io.FileWriter;
 import java.io.PrintWriter;
+import java.lang.reflect.Method;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
-
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterDistributedController;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
@@ -43,9 +43,22 @@ import org.apache.helix.tools.ClusterStateVerifier;
 import org.apache.helix.tools.ClusterStateVerifier.BestPossAndExtViewZkVerifier;
 import org.apache.helix.tools.ClusterStateVerifier.MasterNbInExtViewVerifier;
 import org.testng.Assert;
+import org.testng.ITestContext;
+import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
-public class TestHelixAdminCli extends ZkIntegrationTestBase {
+public class TestHelixAdminCli extends ZkTestBase {
+  private String clusterName = TestHelper.getTestClassName();
+  String grandClusterName = clusterName + "_grand";
+
+  @AfterMethod
+  public void endTest(Method testMethod, ITestContext testContext) {
+    deleteCluster(clusterName);
+    deleteCluster(grandClusterName);
+
+    super.endTest(testMethod, testContext);
+  }
+
   @Test
   public void testAddCluster() throws Exception {
     String command = "--zkSvr localhost:2183 -addCluster clusterTest";
@@ -90,18 +103,10 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     Assert.assertFalse(_gZkClient.exists("/clusterTest"));
     Assert.assertFalse(_gZkClient.exists("/\\ClusterTest"));
     Assert.assertFalse(_gZkClient.exists("/clusterTest1"));
-
-    // System.out.println("END test");
   }
 
-  @Test
+  @Test (dependsOnMethods = "testAddCluster")
   public void testAddResource() throws Exception {
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
     String command = "-zkSvr localhost:2183 -addCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
@@ -123,18 +128,10 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     // drop resource now
     command = "-zkSvr localhost:2183 -dropResource " + clusterName + " db_11 ";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  @Test
+  @Test (dependsOnMethods = "testAddResource")
   public void testAddInstance() throws Exception {
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
     String command = "-zkSvr localhost:2183 -addCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
@@ -181,18 +178,10 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     } catch (Exception e) {
       // OK
     }
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  @Test
+  @Test (dependsOnMethods = "testAddInstance")
   public void testRebalanceResource() throws Exception {
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
     String command = "-zkSvr localhost:2183 -addCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
@@ -220,19 +209,12 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     // rebalance with key prefix
     command = "-zkSvr localhost:2183 -rebalance " + clusterName + " db_11 2 -key alias";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  @Test
+  @Test (dependsOnMethods = "testRebalanceResource")
   public void testStartCluster() throws Exception {
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-    String grandClusterName = clusterName + "_grand";
     final int n = 6;
 
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
     MockParticipantManager[] participants = new MockParticipantManager[n];
     ClusterDistributedController[] controllers = new ClusterDistributedController[2];
     setupCluster(clusterName, grandClusterName, n, participants, controllers);
@@ -310,19 +292,11 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     for (int i = 0; i < participants.length; i++) {
       participants[i].syncStop();
     }
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  @Test
+  @Test (dependsOnMethods = "testStartCluster")
   public void testDropAddResource() throws Exception {
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-    String grandClusterName = clusterName + "_grand";
     final int n = 6;
-
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
 
     MockParticipantManager[] participants = new MockParticipantManager[n];
     ClusterDistributedController[] controllers = new ClusterDistributedController[2];
@@ -375,15 +349,11 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     for (int i = 0; i < participants.length; i++) {
       participants[i].syncStop();
     }
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
-
   }
 
   private void setupCluster(String clusterName, String grandClusterName, final int n,
       MockParticipantManager[] participants, ClusterDistributedController[] controllers)
-      throws Exception,
-      InterruptedException {
+      throws Exception {
     // add cluster
     String command = "-zkSvr " + ZK_ADDR + " -addCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
@@ -428,15 +398,9 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     Thread.sleep(100);
   }
 
-  @Test
+  @Test (dependsOnMethods = "testDropAddResource")
   public void testInstanceOperations() throws Exception {
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-    String grandClusterName = clusterName + "_grand";
     final int n = 6;
-
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
 
     MockParticipantManager[] participants = new MockParticipantManager[n];
     ClusterDistributedController[] controllers = new ClusterDistributedController[2];
@@ -503,16 +467,10 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     for (int i = 0; i < participants.length; i++) {
       participants[i].syncStop();
     }
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  @Test
+  @Test (dependsOnMethods = "testInstanceOperations")
   public void testExpandCluster() throws Exception {
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-    String grandClusterName = clusterName + "_grand";
     final int n = 6;
 
     System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
@@ -560,16 +518,10 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     for (int i = 0; i < newParticipants.length; i++) {
       newParticipants[i].syncStop();
     }
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  @Test
+  @Test (dependsOnMethods = "testExpandCluster")
   public void testDeactivateCluster() throws Exception {
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-    String grandClusterName = clusterName + "_grand";
     final int n = 6;
 
     System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
@@ -590,13 +542,16 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
 
     BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
     HelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, baseAccessor);
-    String path = accessor.keyBuilder().controllerLeader().getPath();
-    for (int i = 0; i < 10; i++) {
-      Thread.sleep(1000);
-      if (!_gZkClient.exists(path)) {
-        break;
+    final String path = accessor.keyBuilder().controllerLeader().getPath();
+    TestHelper.verify(new TestHelper.Verifier() {
+      @Override public boolean verify() throws Exception {
+        if (!_gZkClient.exists(path)) {
+          return true;
+        }
+        return false;
       }
-    }
+    }, 5000);
+
     Assert.assertFalse(_gZkClient.exists(path),
         "leader should be gone after deactivate the cluster");
 
@@ -620,21 +575,12 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     }
     command = "-zkSvr localhost:2183 -dropCluster " + grandClusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  @Test
+  @Test (dependsOnMethods = "testDeactivateCluster")
   public void testInstanceGroupTags() throws Exception {
-
-    String className = TestHelper.getTestClassName();
-    String methodName = TestHelper.getTestMethodName();
-    String clusterName = className + "_" + methodName;
-
     BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
     HelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, baseAccessor);
-
-    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
 
     String command = "-zkSvr " + ZK_ADDR + " -addCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
@@ -729,7 +675,5 @@ public class TestHelixAdminCli extends ZkIntegrationTestBase {
     // rebalance with key prefix
     command = "-zkSvr " + ZK_ADDR + " -rebalance " + clusterName + " db_11 2 -key alias";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
-
-    System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 }

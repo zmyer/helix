@@ -25,36 +25,35 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import org.apache.helix.HelixAdmin;
-import org.apache.helix.integration.common.ZkIntegrationTestBase;
+import org.apache.helix.HelixManager;
+import org.apache.helix.HelixManagerFactory;
+import org.apache.helix.InstanceType;
+import org.apache.helix.NotificationContext;
+import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.ZkTestManager;
 import org.apache.helix.manager.zk.CallbackHandler;
 import org.apache.helix.manager.zk.ZKHelixAdmin;
 import org.apache.helix.manager.zk.ZKHelixManager;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.mock.participant.DummyProcess;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
-import org.apache.helix.model.OnlineOfflineSMD;
-import org.apache.helix.spectator.RoutingTableProvider;
-import org.apache.helix.tools.ClusterStateVerifier;
-import org.testng.Assert;
-import org.apache.helix.HelixManager;
-import org.apache.helix.HelixManagerFactory;
-import org.apache.helix.InstanceType;
-import org.apache.helix.NotificationContext;
 import org.apache.helix.model.Message;
 import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.participant.statemachine.StateModel;
 import org.apache.helix.participant.statemachine.StateModelFactory;
+import org.apache.helix.spectator.RoutingTableProvider;
+import org.apache.helix.tools.ClusterStateVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-public class TestResourceGroupEndtoEnd extends ZkIntegrationTestBase {
+public class TestResourceGroupEndtoEnd extends ZkTestBase {
 
   protected static final int GROUP_NODE_NR = 5;
   protected static final int START_PORT = 12918;
@@ -139,6 +138,8 @@ public class TestResourceGroupEndtoEnd extends ZkIntegrationTestBase {
 
     _controller.syncStop();
     _spectator.disconnect();
+    _routingTableProvider.shutdown();
+    deleteCluster(CLUSTER_NAME);
   }
 
   private void addInstanceGroup(String clusterName, String instanceTag, int numInstance) {
@@ -425,7 +426,7 @@ public class TestResourceGroupEndtoEnd extends ZkIntegrationTestBase {
     }
 
     @Override
-    public ZkClient getZkClient() {
+    public HelixZkClient getZkClient() {
       return _zkclient;
     }
 

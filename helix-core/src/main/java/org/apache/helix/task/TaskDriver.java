@@ -19,6 +19,14 @@ package org.apache.helix.task;
  * under the License.
  */
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.I0Itec.zkclient.DataUpdater;
 import org.apache.helix.AccessOption;
 import org.apache.helix.BaseDataAccessor;
@@ -35,7 +43,7 @@ import org.apache.helix.controller.rebalancer.util.RebalanceScheduler;
 import org.apache.helix.manager.zk.ZKHelixAdmin;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.builder.CustomModeISBuilder;
@@ -44,14 +52,6 @@ import org.apache.helix.store.zk.ZkHelixPropertyStore;
 import org.apache.helix.util.HelixUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * CLI for scheduling/canceling workflows
@@ -76,19 +76,18 @@ public class TaskDriver {
     /** Default time out for monitoring workflow or job state */
     private final static int _defaultTimeout = 3 * 60 * 1000; /* 3 mins */
 
-    // HELIX-619 This is a temporary solution for too many ZK nodes issue.
-    // Limit workflows/jobs creation to prevent the problem.
-    //
-    // Note this limitation should be smaller than ZK capacity. If current nodes count already exceeds
-    // the CAP, the verification method will not throw exception since the getChildNames() call will
-    // return empty list.
-    //
-    // TODO Implement or configure the limitation in ZK server.
-    private final static long DEFAULT_CONFIGS_LIMITATION =
-            HelixUtil.getSystemPropertyAsLong(SystemPropertyKeys.TASK_CONFIG_LIMITATION, 100000L);
-    private final static long TIMESTAMP_NOT_SET = -1L;
-    private final static String TASK_START_TIME_KEY = "START_TIME";
-    protected long _configsLimitation = DEFAULT_CONFIGS_LIMITATION;
+  // HELIX-619 This is a temporary solution for too many ZK nodes issue.
+  // Limit workflows/jobs creation to prevent the problem.
+  //
+  // Note this limitation should be smaller than ZK capacity. If current nodes count already exceeds
+  // the CAP, the verification method will not throw exception since the getChildNames() call will
+  // return empty list.
+  //
+  // TODO Implement or configure the limitation in ZK server.
+  private final static long DEFAULT_CONFIGS_LIMITATION =
+      HelixUtil.getSystemPropertyAsLong(SystemPropertyKeys.TASK_CONFIG_LIMITATION, 100000L);
+  private final static String TASK_START_TIME_KEY = "START_TIME";
+  protected long _configsLimitation = DEFAULT_CONFIGS_LIMITATION;
 
     private final HelixDataAccessor _accessor;
     private final HelixPropertyStore<ZNRecord> _propertyStore;
@@ -101,15 +100,15 @@ public class TaskDriver {
                 manager.getHelixPropertyStore(), manager.getClusterName());
     }
 
-    public TaskDriver(ZkClient client, String clusterName) {
-        this(client, new ZkBaseDataAccessor<ZNRecord>(client), clusterName);
-    }
+  public TaskDriver(HelixZkClient client, String clusterName) {
+    this(client, new ZkBaseDataAccessor<ZNRecord>(client), clusterName);
+  }
 
-    public TaskDriver(ZkClient client, ZkBaseDataAccessor<ZNRecord> baseAccessor, String clusterName) {
-        this(new ZKHelixAdmin(client), new ZKHelixDataAccessor(clusterName, baseAccessor),
-                new ZkHelixPropertyStore<ZNRecord>(baseAccessor,
-                        PropertyPathBuilder.propertyStore(clusterName), null), clusterName);
-    }
+  public TaskDriver(HelixZkClient client, ZkBaseDataAccessor<ZNRecord> baseAccessor, String clusterName) {
+    this(new ZKHelixAdmin(client), new ZKHelixDataAccessor(clusterName, baseAccessor),
+        new ZkHelixPropertyStore<>(baseAccessor,
+            PropertyPathBuilder.propertyStore(clusterName), null), clusterName);
+  }
 
     @Deprecated
     public TaskDriver(HelixAdmin admin, HelixDataAccessor accessor, ConfigAccessor cfgAccessor,
@@ -127,15 +126,13 @@ public class TaskDriver {
     }
 
 
-    /** Schedules a new workflow
-     *
-     * @param flow
-     */
-    // TODO: 2018/7/27 by zmyer
-    public void start(Workflow flow) {
-        // TODO: check that namespace for workflow is available
-        LOG.info("Starting workflow " + flow.getName());
-        flow.validate();
+  /** Schedules a new workflow
+   *
+   * @param flow
+   */
+  public void start(Workflow flow) {
+    LOG.info("Starting workflow " + flow.getName());
+    flow.validate();
 
         validateZKNodeLimitation(flow.getJobConfigs().keySet().size() + 1);
 
@@ -157,50 +154,54 @@ public class TaskDriver {
         }
         newWorkflowConfig.setJobTypes(jobTypes);
 
-        // add workflow config.
-        if (!TaskUtil.setWorkflowConfig(_accessor, flow.getName(), newWorkflowConfig)) {
-            LOG.error("Failed to add workflow configuration for workflow " + flow.getName());
+    // add workflow config.
+    if (!TaskUtil.createWorkflowConfig(_accessor, flow.getName(), newWorkflowConfig)) {
+      // workflow config creation failed; try to delete job configs back
+      Set<String> failedJobRemoval = new HashSet<>();
+      for (String job : flow.getJobConfigs().keySet()) {
+        if (!TaskUtil.removeJobConfig(_accessor, job)) {
+          failedJobRemoval.add(job);
         }
+      }
+      throw new HelixException(String.format(
+          "Failed to add workflow configuration for workflow %s. It's possible that a workflow of the same name already exists or there was a connection issue. JobConfig deletion attempted but failed for the following jobs: %s",
+          flow.getName(), failedJobRemoval));
+    }
 
         // Finally add workflow resource.
         addWorkflowResource(flow.getName());
     }
 
-    /**
-     * Update the configuration of a non-terminable workflow (queue).
-     * The terminable workflow's configuration is not allowed
-     * to change once created.
-     * Note:
-     * For recurrent workflow, the current running schedule will not be effected,
-     * the new configuration will be applied to the next scheduled runs of the workflow.
-     * For non-recurrent workflow, the new configuration may (or may not) be applied
-     * on the current running jobs, but it will be applied on the following unscheduled jobs.
-     *
-     * Example:
-     *
-     * _driver = new TaskDriver ...
-     * WorkflowConfig currentWorkflowConfig = _driver.getWorkflowCfg(_manager, workflow);
-     * WorkflowConfig.Builder configBuilder = new WorkflowConfig.Builder(currentWorkflowConfig);
-
-     * // make needed changes to the config here
-     * configBuilder.setXXX();
-     *
-     * // update workflow configuration
-     * _driver.updateWorkflow(workflow, configBuilder.build());
-     *
-     * @param workflow
-     * @param newWorkflowConfig
-     */
-    public void updateWorkflow(String workflow, WorkflowConfig newWorkflowConfig) {
-        if (newWorkflowConfig.getWorkflowId() == null || newWorkflowConfig.getWorkflowId().isEmpty()) {
-            newWorkflowConfig.getRecord()
-                    .setSimpleField(WorkflowConfig.WorkflowConfigProperty.WorkflowID.name(), workflow);
-        }
-        if (workflow == null || !workflow.equals(newWorkflowConfig.getWorkflowId())) {
-            throw new HelixException(String
-                    .format("Workflow name {%s} does not match the workflow Id from WorkflowConfig {%s}",
-                            workflow, newWorkflowConfig.getWorkflowId()));
-        }
+  /**
+   * Update the configuration of a non-terminable workflow (queue).
+   * The terminable workflow's configuration is not allowed
+   * to change once created.
+   * Note:
+   * For recurrent workflow, the current running schedule will not be effected,
+   * the new configuration will be applied to the next scheduled runs of the workflow.
+   * For non-recurrent workflow, the new configuration may (or may not) be applied
+   * on the current running jobs, but it will be applied on the following unscheduled jobs.
+   * Example:
+   * _driver = new TaskDriver ...
+   * WorkflowConfig currentWorkflowConfig = _driver.getWorkflowCfg(_manager, workflow);
+   * WorkflowConfig.Builder configBuilder = new WorkflowConfig.Builder(currentWorkflowConfig);
+   * // make needed changes to the config here
+   * configBuilder.setXXX();
+   * // update workflow configuration
+   * _driver.updateWorkflow(workflow, configBuilder.build());
+   * @param workflow
+   * @param newWorkflowConfig
+   */
+  public void updateWorkflow(String workflow, WorkflowConfig newWorkflowConfig) {
+    if (newWorkflowConfig.getWorkflowId() == null || newWorkflowConfig.getWorkflowId().isEmpty()) {
+      newWorkflowConfig.getRecord()
+          .setSimpleField(WorkflowConfig.WorkflowConfigProperty.WorkflowID.name(), workflow);
+    }
+    if (workflow == null || !workflow.equals(newWorkflowConfig.getWorkflowId())) {
+      throw new HelixException(String
+          .format("Workflow name {%s} does not match the workflow Id from WorkflowConfig {%s}",
+              workflow, newWorkflowConfig.getWorkflowId()));
+    }
 
         WorkflowConfig currentConfig =
                 TaskUtil.getWorkflowConfig(_accessor, workflow);
@@ -338,24 +339,38 @@ public class TaskDriver {
     }
 
 
-    /**
-     * Adds a new job to the end an existing named queue.
-     *
-     * @param queue
-     * @param job
-     * @param jobBuilder
-     * @throws Exception
-     */
-    public void enqueueJob(final String queue, final String job,
-            JobConfig.Builder jobBuilder) {
-        // Get the job queue config and capacity
-        WorkflowConfig workflowConfig = TaskUtil.getWorkflowConfig(_accessor, queue);
-        if (workflowConfig == null) {
-            throw new IllegalArgumentException("Queue " + queue + " config does not yet exist!");
-        }
-        if (workflowConfig.isTerminable()) {
-            throw new IllegalArgumentException(queue + " is not a queue!");
-        }
+  /**
+   * Adds a new job to the end an existing named queue.
+   *
+   * @param queue
+   * @param job
+   * @param jobBuilder
+   * @throws Exception
+   */
+  public void enqueueJob(final String queue, final String job,
+      JobConfig.Builder jobBuilder) {
+    enqueueJobs(queue, Collections.singletonList(job), Collections.singletonList(jobBuilder));
+  }
+
+  /**
+   * Batch add jobs to queues that garantee
+   *
+   * @param queue
+   * @param jobs
+   * @param jobBuilders
+   */
+  public void enqueueJobs(final String queue, final List<String> jobs,
+      final List<JobConfig.Builder> jobBuilders) {
+
+
+    // Get the job queue config and capacity
+    WorkflowConfig workflowConfig = TaskUtil.getWorkflowConfig(_accessor, queue);
+    if (workflowConfig == null) {
+      throw new IllegalArgumentException("Queue " + queue + " config does not yet exist!");
+    }
+    if (workflowConfig.isTerminable()) {
+      throw new IllegalArgumentException(queue + " is not a queue!");
+    }
 
         final int capacity = workflowConfig.getCapacity();
         int queueSize = workflowConfig.getJobDag().size();
@@ -375,73 +390,108 @@ public class TaskDriver {
             }
         }
 
-        validateZKNodeLimitation(1);
+    validateZKNodeLimitation(1);
+    final List<JobConfig> jobConfigs = new ArrayList<>();
+    final List<String> namespacedJobNames = new ArrayList<>();
+    final List<String> jobTypeList = new ArrayList<>();
 
+    try {
+      for (int i = 0; i < jobBuilders.size(); i++) {
         // Create the job to ensure that it validates
-        JobConfig jobConfig = jobBuilder.setWorkflow(queue).build();
-        final String namespacedJobName = TaskUtil.getNamespacedJobName(queue, job);
+        JobConfig jobConfig = jobBuilders.get(i).setWorkflow(queue).build();
+        String namespacedJobName = TaskUtil.getNamespacedJobName(queue, jobs.get(i));
 
         // add job config first.
         addJobConfig(namespacedJobName, jobConfig);
-        final String jobType = jobConfig.getJobType();
+        jobConfigs.add(jobConfig);
+        namespacedJobNames.add(namespacedJobName);
+        jobTypeList.add(jobConfig.getJobType());
+      }
+    } catch (HelixException e) {
+      LOG.error("Failed to add job configs {}. Remove them all!", jobs.toString());
+      for (String job : jobs) {
+        String namespacedJobName = TaskUtil.getNamespacedJobName(queue, job);
+        TaskUtil.removeJobConfig(_accessor, namespacedJobName);
+      }
+    }
 
-        // update the job dag to append the job to the end of the queue.
-        DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
-            @Override
-            public ZNRecord update(ZNRecord currentData) {
-                // Add the node to the existing DAG
-                JobDag jobDag = JobDag.fromJson(
-                        currentData.getSimpleField(WorkflowConfig.WorkflowConfigProperty.Dag.name()));
-                Set<String> allNodes = jobDag.getAllNodes();
-                if (capacity > 0 && allNodes.size() >= capacity) {
-                    throw new IllegalStateException(
-                            "Queue " + queue + " already reaches its max capacity, failed to add " + job);
-                }
-                if (allNodes.contains(namespacedJobName)) {
-                    throw new IllegalStateException(
-                            "Could not add to queue " + queue + ", job " + job + " already exists");
-                }
-                jobDag.addNode(namespacedJobName);
-
-                // Add the node to the end of the queue
-                String candidate = null;
-                for (String node : allNodes) {
-                    if (!node.equals(namespacedJobName) && jobDag.getDirectChildren(node).isEmpty()) {
-                        candidate = node;
-                        break;
-                    }
-                }
-                if (candidate != null) {
-                    jobDag.addParentToChild(candidate, namespacedJobName);
-                }
-
-                // Add job type if job type is not null
-                if (jobType != null) {
-                    Map<String, String> jobTypes =
-                            currentData.getMapField(WorkflowConfig.WorkflowConfigProperty.JobTypes.name());
-                    if (jobTypes == null) {
-                        jobTypes = new HashMap<String, String>();
-                    }
-                    jobTypes.put(queue, jobType);
-                    currentData.setMapField(WorkflowConfig.WorkflowConfigProperty.JobTypes.name(), jobTypes);
-                }
-
-                // Save the updated DAG
-                try {
-                    currentData
-                            .setSimpleField(WorkflowConfig.WorkflowConfigProperty.Dag.name(), jobDag.toJson());
-                } catch (Exception e) {
-                    throw new IllegalStateException("Could not add job " + job + " to queue " + queue,
-                            e);
-                }
-                return currentData;
-            }
-        };
-        String path = _accessor.keyBuilder().resourceConfig(queue).getPath();
-        boolean status = _accessor.getBaseDataAccessor().update(path, updater, AccessOption.PERSISTENT);
-        if (!status) {
-            throw new HelixException("Failed to enqueue job");
+    // update the job dag to append the job to the end of the queue.
+    DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
+      @Override
+      public ZNRecord update(ZNRecord currentData) {
+        // Add the node to the existing DAG
+        JobDag jobDag = JobDag.fromJson(
+            currentData.getSimpleField(WorkflowConfig.WorkflowConfigProperty.Dag.name()));
+        Set<String> allNodes = jobDag.getAllNodes();
+        if (capacity > 0 && allNodes.size() + jobConfigs.size() >= capacity) {
+          throw new IllegalStateException(String
+              .format("Queue %s already reaches its max capacity %f, failed to add %s", queue,
+                  capacity, jobs.toString()));
         }
+
+        String lastNodeName = null;
+        for (int i = 0; i < namespacedJobNames.size(); i++) {
+          String namespacedJobName = namespacedJobNames.get(i);
+          if (allNodes.contains(namespacedJobName)) {
+            throw new IllegalStateException(String
+                .format("Could not add to queue %s, job %s already exists", queue, jobs.get(i)));
+          }
+          jobDag.addNode(namespacedJobName);
+
+          // Add the node to the end of the queue
+          String candidate = null;
+          if (lastNodeName == null) {
+            for (String node : allNodes) {
+              if (!node.equals(namespacedJobName) && jobDag.getDirectChildren(node).isEmpty()) {
+                candidate = node;
+                break;
+              }
+            }
+          } else {
+            candidate = lastNodeName;
+          }
+          if (candidate != null) {
+            jobDag.addParentToChild(candidate, namespacedJobName);
+            lastNodeName = namespacedJobName;
+          }
+        }
+
+        // Add job type if job type is not null
+        Map<String, String> jobTypes =
+            currentData.getMapField(WorkflowConfig.WorkflowConfigProperty.JobTypes.name());
+        for (String jobType : jobTypeList) {
+          if (jobType != null) {
+            if (jobTypes == null) {
+              jobTypes = new HashMap<>();
+            }
+            jobTypes.put(queue, jobType);
+          }
+        }
+
+        if (jobTypes != null) {
+          currentData.setMapField(WorkflowConfig.WorkflowConfigProperty.JobTypes.name(), jobTypes);
+        }
+        // Save the updated DAG
+        try {
+          currentData
+              .setSimpleField(WorkflowConfig.WorkflowConfigProperty.Dag.name(), jobDag.toJson());
+        } catch (Exception e) {
+          throw new IllegalStateException(
+              String.format("Could not add jobs %s to queue %s", jobs.toString(), queue), e);
+        }
+        return currentData;
+      }
+    };
+
+    String path = _accessor.keyBuilder().resourceConfig(queue).getPath();
+    boolean status = _accessor.getBaseDataAccessor().update(path, updater, AccessOption.PERSISTENT);
+    if (!status) {
+      LOG.error("Failed to update WorkflowConfig, remove all jobs {}", jobs.toString());
+      for (String job : jobs) {
+        TaskUtil.removeJobConfig(_accessor, job);
+      }
+      throw new HelixException("Failed to enqueue job");
+    }
 
         // This is to make it back-compatible with old Helix task driver.
         addWorkflowResourceIfNecessary(queue);
@@ -529,27 +579,27 @@ public class TaskDriver {
         return is;
     }
 
-    /**
-     * Add new job config to cluster
-     */
-    private void addJobConfig(String job, JobConfig jobConfig) {
-        LOG.info("Add job configuration " + job);
+  /**
+   * Add new job config to cluster by way of create
+   */
+  private void addJobConfig(String job, JobConfig jobConfig) {
+    LOG.info("Add job configuration " + job);
 
-        // Set the job configuration
-        JobConfig newJobCfg = new JobConfig(job, jobConfig);
-        if (!TaskUtil.setJobConfig(_accessor, job, newJobCfg)) {
-            throw new HelixException("Failed to add job configuration for job " + job);
-        }
+    // Set the job configuration
+    JobConfig newJobCfg = new JobConfig(job, jobConfig);
+    if (!TaskUtil.createJobConfig(_accessor, job, newJobCfg)) {
+      throw new HelixException("Failed to add job configuration for job " + job
+          + ". It's possible that a job of the same name already exists or there was a connection issue");
     }
+  }
 
-    /**
-     * Public method to resume a workflow/queue.
-     *
-     * @param workflow
-     */
-    public void resume(String workflow) {
-        setWorkflowTargetState(workflow, TargetState.START);
-    }
+  /**
+   * Public method to resume a workflow/queue.
+   * @param workflow
+   */
+  public void resume(String workflow) {
+    setWorkflowTargetState(workflow, TargetState.START);
+  }
 
     /**
      * Public async method to stop a workflow/queue.
@@ -830,11 +880,12 @@ public class TaskDriver {
         } while ((ctx == null || ctx.getWorkflowState() == null || !allowedStates
                 .contains(ctx.getWorkflowState())) && System.currentTimeMillis() < st + timeout);
 
-        if (ctx == null || !allowedStates.contains(ctx.getWorkflowState())) {
-            throw new HelixException(String
-                    .format("Workflow \"%s\" context is empty or not in states: \"%s\"", workflowName,
-                            targetStates));
-        }
+    if (ctx == null || !allowedStates.contains(ctx.getWorkflowState())) {
+      throw new HelixException(String.format(
+          "Workflow \"%s\" context is empty or not in states: \"%s\", current state: \"%s\"",
+          workflowName, Arrays.asList(targetStates),
+          ctx == null ? "null" : ctx.getWorkflowState().toString()));
+    }
 
         return ctx.getWorkflowState();
     }
@@ -923,40 +974,147 @@ public class TaskDriver {
         return pollForJobState(workflowName, jobName, _defaultTimeout, states);
     }
 
-    /**
-     * This function returns the timestamp of the very last task that was scheduled. It is provided to help determine
-     * whether a given Workflow/Job/Task is stuck.
-     *
-     * @param workflowName The name of the workflow
-     * @return timestamp of the most recent job scheduled.
-     * -1L if timestamp is not set (either nothing is scheduled or no start time recorded).
-     */
-    public long getLastScheduledTaskTimestamp(String workflowName) {
-        long lastScheduledTaskTimestamp = TIMESTAMP_NOT_SET;
+  /**
+   * This function returns the timestamp of the very last task that was scheduled. It is provided to help determine
+   * whether a given Workflow/Job/Task is stuck.
+   *
+   * @param workflowName The name of the workflow
+   * @return timestamp of the most recent job scheduled.
+   * -1L if timestamp is not set (either nothing is scheduled or no start time recorded).
+   */
+  public long getLastScheduledTaskTimestamp(String workflowName) {
+    return getLastScheduledTaskExecutionInfo(workflowName).getStartTimeStamp();
+  }
 
-        WorkflowContext workflowContext = getWorkflowContext(workflowName);
-        if (workflowContext != null) {
-            Map<String, TaskState> allJobStates = workflowContext.getJobStates();
-            for (String job : allJobStates.keySet()) {
-                if (!allJobStates.get(job).equals(TaskState.NOT_STARTED)) {
-                    JobContext jobContext = getJobContext(job);
-                    if (jobContext != null) {
-                        Set<Integer> allPartitions = jobContext.getPartitionSet();
-                        for (Integer partition : allPartitions) {
-                            String startTime = jobContext.getMapField(partition).get(TASK_START_TIME_KEY);
-                            if (startTime != null) {
-                                long startTimeLong = Long.parseLong(startTime);
-                                if (startTimeLong > lastScheduledTaskTimestamp) {
-                                    lastScheduledTaskTimestamp = startTimeLong;
-                                }
-                            }
-                        }
-                    }
+  public TaskExecutionInfo getLastScheduledTaskExecutionInfo(String workflowName) {
+    long lastScheduledTaskTimestamp = TaskExecutionInfo.TIMESTAMP_NOT_SET;
+    String jobName = null;
+    Integer taskPartitionIndex = null;
+    TaskPartitionState state = null;
+
+
+    WorkflowContext workflowContext = getWorkflowContext(workflowName);
+    if (workflowContext != null) {
+      Map<String, TaskState> allJobStates = workflowContext.getJobStates();
+      for (Map.Entry<String, TaskState> jobState : allJobStates.entrySet()) {
+        if (!jobState.getValue().equals(TaskState.NOT_STARTED)) {
+          JobContext jobContext = getJobContext(jobState.getKey());
+          if (jobContext != null) {
+            Set<Integer> allPartitions = jobContext.getPartitionSet();
+            for (Integer partition : allPartitions) {
+              String startTime = jobContext.getMapField(partition).get(TASK_START_TIME_KEY);
+              if (startTime != null) {
+                long startTimeLong = Long.parseLong(startTime);
+                if (startTimeLong > lastScheduledTaskTimestamp) {
+                  lastScheduledTaskTimestamp = startTimeLong;
+                  jobName = jobState.getKey();
+                  taskPartitionIndex = partition;
+                  state = jobContext.getPartitionState(partition);
                 }
+              }
             }
+          }
         }
-        return lastScheduledTaskTimestamp;
+      }
     }
+    return new TaskExecutionInfo(jobName, taskPartitionIndex, state, lastScheduledTaskTimestamp);
+  }
+
+  /**
+   * Returns the lookup of UserContentStore by key.
+   * @param key key used at write time by a task implementing UserContentStore
+   * @param scope scope used at write time
+   * @param workflowName name of workflow. Must be supplied
+   * @param jobName name of job. Optional if scope is WORKFLOW
+   * @param taskName name of task. Optional if scope is WORKFLOW or JOB
+   * @return null if key-value pair not found or this content store does not exist. Otherwise,
+   *         return a String
+   *
+   * @deprecated use the following equivalents: {@link #getWorkflowUserContentMap(String)},
+   * {@link #getJobUserContentMap(String, String)},
+   * @{{@link #getTaskContentMap(String, String, String)}}
+   */
+  @Deprecated
+  public String getUserContent(String key, UserContentStore.Scope scope, String workflowName,
+      String jobName, String taskName) {
+    return TaskUtil.getUserContent(_propertyStore, key, scope, workflowName, jobName, taskName);
+  }
+
+  /**
+   * Return the full user content map for workflow
+   * @param workflowName workflow name
+   * @return user content map
+   */
+  public Map<String, String> getWorkflowUserContentMap(String workflowName) {
+    return TaskUtil.getWorkflowJobUserContentMap(_propertyStore, workflowName);
+  }
+
+  /**
+   * Return full user content map for job
+   * @param workflowName workflow name
+   * @param jobName Un-namespaced job name
+   * @return user content map
+   */
+  public Map<String, String> getJobUserContentMap(String workflowName, String jobName) {
+    String namespacedJobName = TaskUtil.getNamespacedJobName(workflowName, jobName);
+    return TaskUtil.getWorkflowJobUserContentMap(_propertyStore, namespacedJobName);
+  }
+
+  /**
+   * Return full user content map for task
+   * @param workflowName workflow name
+   * @param jobName Un-namespaced job name
+   * @param taskPartitionId task partition id
+   * @return user content map
+   */
+  public Map<String, String> getTaskUserContentMap(String workflowName, String jobName,
+      String taskPartitionId) {
+    String namespacedJobName = TaskUtil.getNamespacedJobName(workflowName, jobName);
+    String namespacedTaskName = TaskUtil.getNamespacedTaskName(namespacedJobName, taskPartitionId);
+    return TaskUtil.getTaskUserContentMap(_propertyStore, namespacedJobName, namespacedTaskName);
+  }
+
+  /**
+   * Add or update workflow user content with the given map - new keys will be added, and old
+   * keys will be updated
+   * @param workflowName workflow name
+   * @param contentToAddOrUpdate map containing items to add or update
+   */
+  public void addOrUpdateWorkflowUserContentMap(String workflowName,
+      final Map<String, String> contentToAddOrUpdate) {
+    TaskUtil
+        .addOrUpdateWorkflowJobUserContentMap(_propertyStore, workflowName, contentToAddOrUpdate);
+  }
+
+  /**
+   * Add or update job user content with the given map - new keys will be added, and old keys will
+   * be updated
+   * @param workflowName workflow name
+   * @param jobName Un-namespaced job name
+   * @param contentToAddOrUpdate map containing items to add or update
+   */
+  public void addOrUpdateJobUserContentMap(String workflowName, String jobName,
+      final Map<String, String> contentToAddOrUpdate) {
+    String namespacedJobName = TaskUtil.getNamespacedJobName(workflowName, jobName);
+    TaskUtil.addOrUpdateWorkflowJobUserContentMap(_propertyStore, namespacedJobName,
+        contentToAddOrUpdate);
+  }
+
+  /**
+   * Add or update task user content with the given map - new keys will be added, and old keys
+   * will be updated
+   * @param workflowName workflow name
+   * @param jobName Un-namespaced job name
+   * @param taskPartitionId task partition id
+   * @param contentToAddOrUpdate map containing items to add or update
+   */
+  public void addOrUpdateTaskUserContentMap(String workflowName, String jobName,
+      String taskPartitionId, final Map<String, String> contentToAddOrUpdate) {
+    String namespacedJobName = TaskUtil.getNamespacedJobName(workflowName, jobName);
+    String namespacedTaskName = TaskUtil.getNamespacedTaskName(namespacedJobName, taskPartitionId);
+    TaskUtil.addOrUpdateTaskUserContentMap(_propertyStore, namespacedJobName, namespacedTaskName,
+        contentToAddOrUpdate);
+  }
 
     /**
      * Throw Exception if children nodes will exceed limitation after adding newNodesCount children.

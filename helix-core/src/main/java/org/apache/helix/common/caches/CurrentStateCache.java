@@ -22,6 +22,7 @@ package org.apache.helix.common.caches;
 import com.google.common.collect.Maps;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
+import org.apache.helix.controller.LogUtil;
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.LiveInstance;
 import org.slf4j.Logger;
@@ -38,20 +39,21 @@ import java.util.Set;
 /**
  * Cache to hold all CurrentStates of a cluster.
  */
-// TODO: 2018/7/25 by zmyer
-public class CurrentStateCache {
-    private static final Logger LOG = LoggerFactory.getLogger(CurrentStateCache.class.getName());
+public class CurrentStateCache extends AbstractDataCache {
+  private static final Logger LOG = LoggerFactory.getLogger(CurrentStateCache.class.getName());
 
-    private Map<String, Map<String, Map<String, CurrentState>>> _currentStateMap;
-    private Map<PropertyKey, CurrentState> _currentStateCache = Maps.newHashMap();
+  private Map<String, Map<String, Map<String, CurrentState>>> _currentStateMap;
+  private Map<PropertyKey, CurrentState> _currentStateCache = Maps.newHashMap();
+  private String _clusterName;
+  // If the cache is already refreshed with current state data.
+  private boolean _initialized = false;
+  private CurrentStateSnapshot _snapshot;
 
-    private String _clusterName;
-
-    // TODO: 2018/7/26 by zmyer
-    public CurrentStateCache(String clusterName) {
-        _clusterName = clusterName;
-        _currentStateMap = Collections.emptyMap();
-    }
+  public CurrentStateCache(String clusterName) {
+    _clusterName = clusterName;
+    _currentStateMap = Collections.emptyMap();
+    _snapshot = new CurrentStateSnapshot(_currentStateCache);
+  }
 
     /**
      * This refreshes the CurrentStates data by re-fetching the data from zookeeper in an efficient
@@ -96,17 +98,23 @@ public class CurrentStateCache {
         }
         _currentStateMap = Collections.unmodifiableMap(allCurStateMap);
 
-        long endTime = System.currentTimeMillis();
-        LOG.info("END: CurrentStateCache.refresh() for cluster " + _clusterName + ", took " + (endTime
-                - startTime) + " ms");
-        return true;
+    long endTime = System.currentTimeMillis();
+    LogUtil.logInfo(LOG, getEventId(),
+        "END: CurrentStateCache.refresh() for cluster " + _clusterName + ", took " + (endTime
+            - startTime) + " ms");
+    if (LOG.isDebugEnabled()) {
+      LogUtil.logDebug(LOG, getEventId(),
+          String.format("Current State freshed : %s", _currentStateMap.toString()));
     }
+    return true;
+  }
 
-    // reload current states that has been changed from zk to local cache.
-    private void refreshCurrentStatesCache(HelixDataAccessor accessor,
-            Map<String, LiveInstance> liveInstanceMap) {
-        long start = System.currentTimeMillis();
-        PropertyKey.Builder keyBuilder = accessor.keyBuilder();
+  // reload current states that has been changed from zk to local cache.
+  private void refreshCurrentStatesCache(HelixDataAccessor accessor,
+      Map<String, LiveInstance> liveInstanceMap) {
+
+    long start = System.currentTimeMillis();
+    PropertyKey.Builder keyBuilder = accessor.keyBuilder();
 
         Set<PropertyKey> currentStateKeys = new HashSet<>();
         for (String instanceName : liveInstanceMap.keySet()) {
@@ -125,16 +133,27 @@ public class CurrentStateCache {
         Set<PropertyKey> cachedKeys = new HashSet<>(_currentStateCache.keySet());
         cachedKeys.retainAll(currentStateKeys);
 
-        _currentStateCache = Collections.unmodifiableMap(BasicClusterDataCache
-                .updateReloadProperties(accessor, new ArrayList<>(reloadKeys), new ArrayList<>(cachedKeys),
-                        _currentStateCache));
+    Map<PropertyKey, CurrentState> newStateCache = Collections.unmodifiableMap(
+        refreshProperties(accessor, new ArrayList<>(reloadKeys), new ArrayList<>(cachedKeys),
+            _currentStateCache));
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("# of CurrentStates reload: " + reloadKeys.size() + ", skipped:" + (
-                    currentStateKeys.size() - reloadKeys.size()) + ". took " + (System.currentTimeMillis()
-                    - start) + " ms to reload new current states for cluster: " + _clusterName);
-        }
+    // if the cache was not initialized, the previous state should not be included in the snapshot
+    if (_initialized) {
+      _snapshot = new CurrentStateSnapshot(newStateCache, _currentStateCache, reloadKeys);
+    } else {
+      _snapshot = new CurrentStateSnapshot(newStateCache);
+      _initialized = true;
     }
+
+    _currentStateCache = newStateCache;
+
+    if (LOG.isDebugEnabled()) {
+      LogUtil.logDebug(LOG, getEventId(),
+          "# of CurrentStates reload: " + reloadKeys.size() + ", skipped:" + (
+              currentStateKeys.size() - reloadKeys.size()) + ". took " + (System.currentTimeMillis()
+              - start) + " ms to reload new current states for cluster: " + _clusterName);
+    }
+  }
 
     /**
      * Return CurrentStates map for all instances.
@@ -159,21 +178,25 @@ public class CurrentStateCache {
         return Collections.unmodifiableMap(_currentStateMap.get(instance));
     }
 
-    /**
-     * Provides the current state of the node for a given session id, the sessionid can be got from
-     * LiveInstance
-     *
-     * @param instance
-     * @param clientSessionId
-     *
-     * @return
-     */
-    // TODO: 2018/7/25 by zmyer
-    public Map<String, CurrentState> getCurrentState(String instance, String clientSessionId) {
-        if (!_currentStateMap.containsKey(instance) || !_currentStateMap.get(instance)
-                .containsKey(clientSessionId)) {
-            return Collections.emptyMap();
-        }
-        return Collections.unmodifiableMap(_currentStateMap.get(instance).get(clientSessionId));
+  /**
+   * Provides the current state of the node for a given session id, the sessionid can be got from
+   * LiveInstance
+   *
+   * @param instance
+   * @param clientSessionId
+   *
+   * @return
+   */
+  public Map<String, CurrentState> getCurrentState(String instance, String clientSessionId) {
+    if (!_currentStateMap.containsKey(instance) || !_currentStateMap.get(instance)
+        .containsKey(clientSessionId)) {
+      return Collections.emptyMap();
     }
+    return Collections.unmodifiableMap(_currentStateMap.get(instance).get(clientSessionId));
+  }
+
+  @Override
+  public CurrentStateSnapshot getSnapshot() {
+    return _snapshot;
+  }
 }
