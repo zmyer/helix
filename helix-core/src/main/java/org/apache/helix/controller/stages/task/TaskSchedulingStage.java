@@ -1,10 +1,17 @@
 package org.apache.helix.controller.stages.task;
 
+import com.google.common.collect.Maps;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.Set;
+import org.apache.helix.HelixConstants;
 import org.apache.helix.HelixManager;
 import org.apache.helix.controller.LogUtil;
+import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
 import org.apache.helix.controller.rebalancer.Rebalancer;
@@ -12,7 +19,6 @@ import org.apache.helix.controller.rebalancer.SemiAutoRebalancer;
 import org.apache.helix.controller.rebalancer.internal.MappingCalculator;
 import org.apache.helix.controller.stages.AttributeName;
 import org.apache.helix.controller.stages.BestPossibleStateOutput;
-import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.controller.stages.ClusterEvent;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.IdealState;
@@ -20,18 +26,21 @@ import org.apache.helix.model.Partition;
 import org.apache.helix.model.Resource;
 import org.apache.helix.model.ResourceAssignment;
 import org.apache.helix.monitoring.mbeans.ClusterStatusMonitor;
-import org.apache.helix.task.JobContext;
-import org.apache.helix.task.JobRebalancer;
+import org.apache.helix.task.AssignableInstanceManager;
 import org.apache.helix.task.TaskConstants;
-import org.apache.helix.task.TaskDriver;
 import org.apache.helix.task.TaskRebalancer;
+import org.apache.helix.task.WorkflowConfig;
 import org.apache.helix.task.WorkflowContext;
+import org.apache.helix.task.WorkflowDispatcher;
+import org.apache.helix.task.assigner.AssignableInstance;
 import org.apache.helix.util.HelixUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class TaskSchedulingStage extends AbstractBaseStage {
   private static final Logger logger = LoggerFactory.getLogger(TaskSchedulingStage.class.getName());
+  private Map<String, PriorityQueue<WorkflowObject>> _quotaBasedWorkflowPQs = Maps.newHashMap();
+  private WorkflowDispatcher _workflowDispatcher;
 
   @Override
   public void process(ClusterEvent event) throws Exception {
@@ -40,7 +49,7 @@ public class TaskSchedulingStage extends AbstractBaseStage {
         event.getAttribute(AttributeName.CURRENT_STATE.name());
     final Map<String, Resource> resourceMap =
         event.getAttribute(AttributeName.RESOURCES_TO_REBALANCE.name());
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    WorkflowControllerDataProvider cache = event.getAttribute(AttributeName.ControllerDataProvider.name());
 
     if (currentStateOutput == null || resourceMap == null || cache == null) {
       throw new StageException(
@@ -50,36 +59,37 @@ public class TaskSchedulingStage extends AbstractBaseStage {
     // Reset current INIT/RUNNING tasks on participants for throttling
     cache.resetActiveTaskCount(currentStateOutput);
 
+    buildQuotaBasedWorkflowPQsAndInitDispatchers(cache,
+        (HelixManager) event.getAttribute(AttributeName.helixmanager.name()),
+        (ClusterStatusMonitor) event.getAttribute(AttributeName.clusterStatusMonitor.name()));
+
     final BestPossibleStateOutput bestPossibleStateOutput =
         compute(event, resourceMap, currentStateOutput);
     event.addAttribute(AttributeName.BEST_POSSIBLE_STATE.name(), bestPossibleStateOutput);
-
   }
 
   private BestPossibleStateOutput compute(ClusterEvent event, Map<String, Resource> resourceMap,
       CurrentStateOutput currentStateOutput) {
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    // After compute all workflows and jobs, there are still task resources need to be DROPPED
+    Map<String, Resource> restOfResources = new HashMap<>(resourceMap);
+    WorkflowControllerDataProvider cache = event.getAttribute(AttributeName.ControllerDataProvider.name());
     BestPossibleStateOutput output = new BestPossibleStateOutput();
-
-    PriorityQueue<TaskSchedulingStage.ResourcePriority> resourcePriorityQueue =
-        new PriorityQueue<>();
-    TaskDriver taskDriver = null;
-    HelixManager helixManager = event.getAttribute(AttributeName.helixmanager.name());
-    if (helixManager != null) {
-      taskDriver = new TaskDriver(helixManager);
-    }
-    for (Resource resource : resourceMap.values()) {
-      resourcePriorityQueue.add(new TaskSchedulingStage.ResourcePriority(resource,
-          cache.getIdealState(resource.getResourceName()), taskDriver));
+    final List<String> failureResources = new ArrayList<>();
+    // Queues only for Workflows
+    scheduleWorkflows(resourceMap, cache, restOfResources, failureResources, currentStateOutput, output);
+    for (String jobName : cache.getTaskDataCache().getDispatchedJobs()) {
+      updateResourceMap(jobName, resourceMap, output.getPartitionStateMap(jobName).partitionSet());
+      restOfResources.remove(jobName);
     }
 
-    // TODO: Replace this looping available resources with Workflow Queues
-    for (Iterator<TaskSchedulingStage.ResourcePriority> itr = resourcePriorityQueue.iterator();
-        itr.hasNext(); ) {
-      Resource resource = itr.next().getResource();
+    // Current rest of resources including: only current state left over ones
+    // Original resource map contains workflows + jobs + other invalid resources
+    // After removing workflows + jobs, only leftover ones will go over old rebalance pipeline.
+    for (Resource resource : restOfResources.values()) {
       if (!computeResourceBestPossibleState(event, cache, currentStateOutput, resource, output)) {
-        LogUtil
-            .logWarn(logger, _eventId, "Failed to assign tasks for " + resource.getResourceName());
+        failureResources.add(resource.getResourceName());
+        LogUtil.logWarn(logger, _eventId,
+            "Failed to calculate best possible states for " + resource.getResourceName());
       }
     }
 
@@ -87,7 +97,7 @@ public class TaskSchedulingStage extends AbstractBaseStage {
   }
 
 
-  private boolean computeResourceBestPossibleState(ClusterEvent event, ClusterDataCache cache,
+  private boolean computeResourceBestPossibleState(ClusterEvent event, WorkflowControllerDataProvider cache,
       CurrentStateOutput currentStateOutput, Resource resource, BestPossibleStateOutput output) {
     // for each ideal state
     // read the state model def
@@ -111,7 +121,7 @@ public class TaskSchedulingStage extends AbstractBaseStage {
     if (!idealState.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME)) {
       LogUtil.logWarn(logger, _eventId, String
           .format("Resource %s should not be processed by %s pipeline", resourceName,
-              cache.isTaskCache() ? "TASK" : "DEFAULT"));
+              cache.getPipelineName()));
       return false;
     }
 
@@ -155,15 +165,9 @@ public class TaskSchedulingStage extends AbstractBaseStage {
     try {
       HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
       rebalancer.init(manager);
-
-      // Use the internal MappingCalculator interface to compute the final assignment
-      // The next release will support rebalancers that compute the mapping from start to finish
         partitionStateAssignment = mappingCalculator
             .computeBestPossiblePartitionState(cache, idealState, resource, currentStateOutput);
-        for (Partition partition : resource.getPartitions()) {
-          Map<String, String> newStateMap = partitionStateAssignment.getReplicaMap(partition);
-          output.setState(resourceName, partition, newStateMap);
-        }
+        _workflowDispatcher.updateBestPossibleStateOutput(resource.getResourceName(), partitionStateAssignment, output);
 
         // Check if calculation is done successfully
         return true;
@@ -189,32 +193,105 @@ public class TaskSchedulingStage extends AbstractBaseStage {
     return false;
   }
 
-  class ResourcePriority implements Comparable<ResourcePriority> {
-    final Resource _resource;
-    // By default, non-job resources and new jobs are assigned lowest priority
-    Long _priority = Long.MAX_VALUE;
+  class WorkflowObject implements Comparable<WorkflowObject> {
+    String _workflowId;
+    Long _rankingValue;
 
-    Resource getResource() {
-      return _resource;
-    }
-
-    public ResourcePriority(Resource resource, IdealState idealState, TaskDriver taskDriver) {
-      _resource = resource;
-
-      if (taskDriver != null && idealState != null
-          && idealState.getRebalancerClassName() != null
-          && idealState.getRebalancerClassName().equals(JobRebalancer.class.getName())) {
-        // Update priority for job resources, note that older jobs will be processed earlier
-        JobContext jobContext = taskDriver.getJobContext(resource.getResourceName());
-        if (jobContext != null && jobContext.getStartTime() != WorkflowContext.UNSTARTED) {
-          _priority = jobContext.getStartTime();
-        }
-      }
+    public WorkflowObject(String workflowId, long rankingValue) {
+      _workflowId = workflowId;
+      _rankingValue = rankingValue;
     }
 
     @Override
-    public int compareTo(ResourcePriority otherJob) {
-      return _priority.compareTo(otherJob._priority);
+    public int compareTo(WorkflowObject o) {
+      return (int) (_rankingValue - o._rankingValue);
     }
+  }
+
+  private void buildQuotaBasedWorkflowPQsAndInitDispatchers(WorkflowControllerDataProvider cache, HelixManager manager,
+      ClusterStatusMonitor monitor) {
+    _quotaBasedWorkflowPQs.clear();
+    Map<String, String> quotaRatioMap = cache.getClusterConfig().getTaskQuotaRatioMap();
+
+    // Create quota based queues
+    if (quotaRatioMap == null || quotaRatioMap.size() == 0) {
+      _quotaBasedWorkflowPQs
+          .put(AssignableInstance.DEFAULT_QUOTA_TYPE, new PriorityQueue<WorkflowObject>());
+    } else {
+      for (String quotaType : quotaRatioMap.keySet()) {
+        _quotaBasedWorkflowPQs.put(quotaType, new PriorityQueue<WorkflowObject>());
+      }
+    }
+
+    for (String workflowId : cache.getWorkflowConfigMap().keySet()) {
+      WorkflowConfig workflowConfig = cache.getWorkflowConfig(workflowId);
+      String workflowType = getQuotaType(workflowConfig);
+      // TODO: We can support customized sorting field for user. Currently sort by creation time
+      _quotaBasedWorkflowPQs.get(workflowType)
+          .add(new WorkflowObject(workflowId, workflowConfig.getRecord().getCreationTime()));
+    }
+    if (_workflowDispatcher == null) {
+      _workflowDispatcher = new WorkflowDispatcher();
+    }
+    _workflowDispatcher.init(manager);
+    _workflowDispatcher.setClusterStatusMonitor(monitor);
+    _workflowDispatcher.updateCache(cache);
+  }
+
+  private void scheduleWorkflows(Map<String, Resource> resourceMap, WorkflowControllerDataProvider cache,
+      Map<String, Resource> restOfResources, List<String> failureResources,
+      CurrentStateOutput currentStateOutput, BestPossibleStateOutput bestPossibleOutput) {
+    AssignableInstanceManager assignableInstanceManager = cache.getAssignableInstanceManager();
+    for (PriorityQueue<WorkflowObject> quotaBasedWorkflowPQ : _quotaBasedWorkflowPQs.values()) {
+      Iterator<WorkflowObject> it = quotaBasedWorkflowPQ.iterator();
+      while (it.hasNext()) {
+        String workflowId = it.next()._workflowId;
+        Resource resource = resourceMap.get(workflowId);
+        // TODO : Resource is null could be workflow just created without any IdealState.
+        // Let's remove this check when Helix is independent from IdealState
+        if (resource != null) {
+          try {
+            WorkflowContext context = _workflowDispatcher
+                .getOrInitializeWorkflowContext(workflowId, cache.getTaskDataCache());
+            _workflowDispatcher
+                .updateWorkflowStatus(workflowId, cache.getWorkflowConfig(workflowId), context,
+                    currentStateOutput, bestPossibleOutput);
+            String quotaType = getQuotaType(cache.getWorkflowConfig(workflowId));
+            restOfResources.remove(workflowId);
+            if (assignableInstanceManager.hasGlobalCapacity(quotaType)) {
+              _workflowDispatcher.assignWorkflow(workflowId, cache.getWorkflowConfig(workflowId),
+                  context, currentStateOutput, bestPossibleOutput);
+            } else {
+              LogUtil.logInfo(logger, _eventId, String.format(
+                  "Fail to schedule new jobs assignment for Workflow %s due to quota %s is full",
+                  workflowId, quotaType));
+            }
+          } catch (Exception e) {
+            LogUtil.logError(logger, _eventId,
+                "Error computing assignment for Workflow " + workflowId + ". Skipping.", e);
+            failureResources.add(workflowId);
+          }
+        }
+      }
+    }
+  }
+
+  private void updateResourceMap(String jobName, Map<String, Resource> resourceMap,
+      Set<Partition> partitionSet) {
+    Resource resource = new Resource(jobName);
+    for (Partition partition : partitionSet) {
+      resource.addPartition(partition.getPartitionName());
+    }
+    resource.setStateModelDefRef(TaskConstants.STATE_MODEL_NAME);
+    resource.setStateModelFactoryName(HelixConstants.DEFAULT_STATE_MODEL_FACTORY);
+    resourceMap.put(jobName, resource);
+  }
+
+  private String getQuotaType(WorkflowConfig workflowConfig) {
+    String workflowType = workflowConfig.getWorkflowType();
+    if (workflowType == null || !_quotaBasedWorkflowPQs.containsKey(workflowType)) {
+      workflowType = AssignableInstance.DEFAULT_QUOTA_TYPE;
+    }
+    return workflowType;
   }
 }

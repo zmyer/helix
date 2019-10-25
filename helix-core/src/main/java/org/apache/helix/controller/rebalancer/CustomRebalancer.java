@@ -19,8 +19,11 @@ package org.apache.helix.controller.rebalancer;
  * under the License.
  */
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import org.apache.helix.HelixDefinedState;
-import org.apache.helix.controller.stages.ClusterDataCache;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.LiveInstance;
@@ -31,10 +34,6 @@ import org.apache.helix.model.StateModelDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-
 /**
  * This is a Rebalancer specific to custom mode. It is tasked with checking an existing mapping of
  * partitions against the set of live instances to mark assignment states as dropped or erroneous
@@ -44,28 +43,28 @@ import java.util.Set;
  * The output is a verified mapping based on that preference list, i.e. partition p has a replica
  * on node k with state s, where s may be a dropped or error state if necessary.
  */
-public class CustomRebalancer extends AbstractRebalancer {
-    private static final Logger LOG = LoggerFactory.getLogger(CustomRebalancer.class);
+public class CustomRebalancer extends AbstractRebalancer<ResourceControllerDataProvider> {
+  private static final Logger LOG = LoggerFactory.getLogger(CustomRebalancer.class);
 
-    @Override
-    public IdealState computeNewIdealState(String resourceName, IdealState currentIdealState,
-            CurrentStateOutput currentStateOutput, ClusterDataCache clusterData) {
-        return currentIdealState;
+  @Override
+  public IdealState computeNewIdealState(String resourceName, IdealState currentIdealState,
+      CurrentStateOutput currentStateOutput, ResourceControllerDataProvider clusterData) {
+    return currentIdealState;
+  }
+
+  @Override
+  public ResourceAssignment computeBestPossiblePartitionState(ResourceControllerDataProvider cache,
+      IdealState idealState, Resource resource, CurrentStateOutput currentStateOutput) {
+    // Looking for cached BestPossible mapping for this resource, if it is already there, do not recompute it again.
+    // The cached mapping will be cleared in ResourceControllerDataProvider if there is anything changed in cluster state that can
+    // cause the potential changes in BestPossible state.
+    ResourceAssignment partitionMapping =
+        cache.getCachedResourceAssignment(resource.getResourceName());
+    if (partitionMapping != null) {
+      return partitionMapping;
     }
 
-    @Override
-    public ResourceAssignment computeBestPossiblePartitionState(ClusterDataCache cache,
-            IdealState idealState, Resource resource, CurrentStateOutput currentStateOutput) {
-        // Looking for cached BestPossible mapping for this resource, if it is already there, do not recompute it again.
-        // The cached mapping will be cleared in ClusterDataCache if there is anything changed in cluster state that can
-        // cause the potential changes in BestPossible state.
-        ResourceAssignment partitionMapping =
-                cache.getCachedResourceAssignment(resource.getResourceName());
-        if (partitionMapping != null) {
-            return partitionMapping;
-        }
-
-        LOG.info("Computing BestPossibleMapping for " + resource.getResourceName());
+    LOG.info("Computing BestPossibleMapping for " + resource.getResourceName());
 
     String stateModelDefName = idealState.getStateModelDefRef();
     StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefName);
@@ -91,57 +90,62 @@ public class CustomRebalancer extends AbstractRebalancer {
     return partitionMapping;
   }
 
-    /**
-     * compute best state for resource in CUSTOMIZED ideal state mode
-     * @param cache
-     * @param stateModelDef
-     * @param idealStateMap
-     * @param currentStateMap
-     * @param disabledInstancesForPartition
-     * @param isResourceEnabled
-     * @return
-     */
-    private Map<String, String> computeCustomizedBestStateForPartition(ClusterDataCache cache,
-            StateModelDefinition stateModelDef, Map<String, String> idealStateMap,
-            Map<String, String> currentStateMap, Set<String> disabledInstancesForPartition,
-            boolean isResourceEnabled) {
-        Map<String, String> instanceStateMap = new HashMap<String, String>();
+  /**
+   * compute best state for resource in CUSTOMIZED ideal state mode
+   * @param cache
+   * @param stateModelDef
+   * @param idealStateMap
+   * @param currentStateMap
+   * @param disabledInstancesForPartition
+   * @param isResourceEnabled
+   * @return
+   */
+  private Map<String, String> computeCustomizedBestStateForPartition(
+      ResourceControllerDataProvider cache, StateModelDefinition stateModelDef,
+      Map<String, String> idealStateMap, Map<String, String> currentStateMap,
+      Set<String> disabledInstancesForPartition, boolean isResourceEnabled) {
+    Map<String, String> instanceStateMap = new HashMap<>();
 
-        // if the ideal state is deleted, idealStateMap will be null/empty and
-        // we should drop all resources.
-        if (currentStateMap != null) {
-            for (String instance : currentStateMap.keySet()) {
-                if ((idealStateMap == null || !idealStateMap.containsKey(instance))
-                        && !disabledInstancesForPartition.contains(instance)) {
-                    // if dropped (whether disabled or not), transit to DROPPED
-                    instanceStateMap.put(instance, HelixDefinedState.DROPPED.toString());
-                } else if ((currentStateMap.get(instance) == null || !currentStateMap.get(instance).equals(
-                        HelixDefinedState.ERROR.name()))
-                        && (!isResourceEnabled || disabledInstancesForPartition.contains(instance))) {
-                    // if disabled and not in ERROR state, transit to initial-state (e.g. OFFLINE)
-                    instanceStateMap.put(instance, stateModelDef.getInitialState());
-                }
-            }
+    // if the ideal state is deleted, idealStateMap will be null/empty and
+    // we should drop all resources.
+    if (currentStateMap != null) {
+      for (String instance : currentStateMap.keySet()) {
+        if ((idealStateMap == null || !idealStateMap.containsKey(instance))
+            && !disabledInstancesForPartition.contains(instance)) {
+          // if dropped (whether disabled or not), transit to DROPPED
+          instanceStateMap.put(instance, HelixDefinedState.DROPPED.toString());
+        } else if ((currentStateMap.get(instance) == null || !currentStateMap.get(instance).equals(
+            HelixDefinedState.ERROR.name()))
+            && (!isResourceEnabled || disabledInstancesForPartition.contains(instance))) {
+          // if disabled and not in ERROR state, transit to initial-state (e.g. OFFLINE)
+          instanceStateMap.put(instance, stateModelDef.getInitialState());
         }
-
-        // ideal state is deleted
-        if (idealStateMap == null) {
-            return instanceStateMap;
-        }
-
-        Map<String, LiveInstance> liveInstancesMap = cache.getLiveInstances();
-        for (String instance : idealStateMap.keySet()) {
-            boolean notInErrorState =
-                    currentStateMap == null || currentStateMap.get(instance) == null
-                            || !currentStateMap.get(instance).equals(HelixDefinedState.ERROR.toString());
-
-            boolean enabled = !disabledInstancesForPartition.contains(instance) && isResourceEnabled;
-
-            if (liveInstancesMap.containsKey(instance) && notInErrorState && enabled) {
-                instanceStateMap.put(instance, idealStateMap.get(instance));
-            }
-        }
-
-        return instanceStateMap;
+      }
     }
+
+    // ideal state is deleted
+    if (idealStateMap == null) {
+      return instanceStateMap;
+    }
+
+    Map<String, LiveInstance> liveInstancesMap = cache.getLiveInstances();
+    for (String instance : idealStateMap.keySet()) {
+      boolean notInErrorState = currentStateMap != null
+          && !HelixDefinedState.ERROR.toString().equals(currentStateMap.get(instance));
+      boolean enabled = !disabledInstancesForPartition.contains(instance) && isResourceEnabled;
+
+      // Note: if instance is not live, the mapping for that instance will not show up in
+      // BestPossibleMapping (and ExternalView)
+      if (liveInstancesMap.containsKey(instance) && notInErrorState) {
+        if (enabled) {
+          instanceStateMap.put(instance, idealStateMap.get(instance));
+        } else {
+          // if disabled, put it in initial state
+          instanceStateMap.put(instance, stateModelDef.getInitialState());
+        }
+      }
+    }
+
+    return instanceStateMap;
+  }
 }

@@ -1,11 +1,30 @@
 package org.apache.helix.controller.stages;
 
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import java.util.List;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.ZkUnitTestBase;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.pipeline.Pipeline;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
@@ -19,7 +38,7 @@ public class TestExternalViewStage extends ZkUnitTestBase {
     String clusterName = "CLUSTER_" + TestHelper.getTestMethodName();
 
     HelixDataAccessor accessor =
-        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<ZNRecord>(_gZkClient));
+        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<>(_gZkClient));
     HelixManager manager = new DummyClusterManager(clusterName, accessor);
 
     // ideal state: node0 is MASTER, node1 is SLAVE
@@ -35,9 +54,9 @@ public class TestExternalViewStage extends ZkUnitTestBase {
     setupStateModel(clusterName);
 
     ClusterEvent event = new ClusterEvent(ClusterEventType.Unknown);
-    ClusterDataCache cache = new ClusterDataCache(clusterName);
+    ResourceControllerDataProvider cache = new ResourceControllerDataProvider(clusterName);
     event.addAttribute(AttributeName.helixmanager.name(), manager);
-    event.addAttribute(AttributeName.ClusterDataCache.name(), cache);
+    event.addAttribute(AttributeName.ControllerDataProvider.name(), cache);
 
     ExternalViewComputeStage externalViewComputeStage = new ExternalViewComputeStage();
     Pipeline dataRefresh = new Pipeline();
@@ -60,6 +79,11 @@ public class TestExternalViewStage extends ZkUnitTestBase {
       Assert.assertEquals(oldExternalViews.get(i).getStat().getVersion(),
           newExternalViews.get(i).getStat().getVersion());
     }
-  }
 
+    if (manager.isConnected()) {
+      manager.disconnect(); // For DummyClusterManager, this is not necessary
+    }
+    deleteLiveInstances(clusterName);
+    deleteCluster(clusterName);
+  }
 }

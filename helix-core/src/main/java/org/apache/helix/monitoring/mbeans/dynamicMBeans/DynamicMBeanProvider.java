@@ -19,14 +19,33 @@ package org.apache.helix.monitoring.mbeans.dynamicMBeans;
  * under the License.
  */
 
-import org.apache.helix.HelixException;
+import javax.management.Attribute;
+import javax.management.AttributeList;
+import javax.management.AttributeNotFoundException;
+import javax.management.DynamicMBean;
+import javax.management.InvalidAttributeValueException;
+import javax.management.JMException;
+import javax.management.MBeanAttributeInfo;
+import javax.management.MBeanConstructorInfo;
+import javax.management.MBeanException;
+import javax.management.MBeanInfo;
+import javax.management.MBeanNotificationInfo;
+import javax.management.MBeanOperationInfo;
+import javax.management.ObjectName;
+import javax.management.ReflectionException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.helix.SystemPropertyKeys;
 import org.apache.helix.monitoring.SensorNameProvider;
 import org.apache.helix.monitoring.mbeans.MBeanRegistrar;
+import org.apache.helix.util.HelixUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.management.*;
-import java.util.*;
 
 /**
  * Dynamic MBean provider that reporting DynamicMetric attributes
@@ -40,39 +59,33 @@ public abstract class DynamicMBeanProvider implements DynamicMBean, SensorNamePr
 
   // Attribute name to the DynamicMetric object mapping
   private final Map<String, DynamicMetric> _attributeMap = new HashMap<>();
-  private ObjectName _objectName;
+  private ObjectName _objectName = null;
   private MBeanInfo _mBeanInfo;
 
   /**
    * Instantiates a new Dynamic MBean provider.
-   *
    * @param dynamicMetrics Dynamic Metrics that are exposed by this provider
-   * @param description    the MBean description
-   * @param domain         the MBean domain name
-   * @param keyValuePairs  the MBean object name components
+   * @param description the MBean description
+   * @param domain the MBean domain name
+   * @param keyValuePairs the MBean object name components
    */
   protected synchronized boolean doRegister(Collection<DynamicMetric<?, ?>> dynamicMetrics,
       String description, String domain, String... keyValuePairs) throws JMException {
-    if (_objectName != null) {
-      _logger.warn("Mbean has been registered before. Please create new object for new registration.");
-      return false;
-    }
-    updateAttributtInfos(dynamicMetrics, description);
-    _objectName = MBeanRegistrar.register(this, domain, keyValuePairs);
-    return true;
+    return doRegister(dynamicMetrics, description,
+        MBeanRegistrar.buildObjectName(domain, keyValuePairs));
   }
 
   /**
    * Instantiates a new Dynamic MBean provider.
-   *
    * @param dynamicMetrics Dynamic Metrics that are exposed by this provider
-   * @param description    the MBean description
-   * @param objectName     the proposed MBean ObjectName
+   * @param description the MBean description
+   * @param objectName the proposed MBean ObjectName
    */
   protected synchronized boolean doRegister(Collection<DynamicMetric<?, ?>> dynamicMetrics,
       String description, ObjectName objectName) throws JMException {
     if (_objectName != null) {
-      _logger.warn("Mbean has been registered before. Please create new object for new registration.");
+      _logger.debug("Mbean {} has already been registered. Ignore register request.",
+          objectName.getCanonicalName());
       return false;
     }
     updateAttributtInfos(dynamicMetrics, description);
@@ -87,8 +100,7 @@ public abstract class DynamicMBeanProvider implements DynamicMBean, SensorNamePr
 
   /**
    * Update the Dynamic MBean provider with new metric list.
-   *
-   * @param description    description of the MBean
+   * @param description description of the MBean
    * @param dynamicMetrics the DynamicMetrics
    */
   private void updateAttributtInfos(Collection<DynamicMetric<?, ?>> dynamicMetrics,
@@ -126,8 +138,9 @@ public abstract class DynamicMBeanProvider implements DynamicMBean, SensorNamePr
     }
 
     _mBeanInfo = new MBeanInfo(getClass().getName(), description, attributeInfos,
-        new MBeanConstructorInfo[] { constructorInfo }, new MBeanOperationInfo[0],
-        new MBeanNotificationInfo[0]);
+        new MBeanConstructorInfo[] {
+            constructorInfo
+        }, new MBeanOperationInfo[0], new MBeanNotificationInfo[0]);
   }
 
   /**
@@ -136,10 +149,12 @@ public abstract class DynamicMBeanProvider implements DynamicMBean, SensorNamePr
   public abstract DynamicMBeanProvider register() throws JMException;
 
   /**
-   * After unregistered, the MBean can't be registered again, a new monitor has to be created.
+   * Unregister the MBean and clean up object name record.
+   * Note that all the metric data is kept even after unregister.
    */
   public synchronized void unregister() {
     MBeanRegistrar.unregister(_objectName);
+    _objectName = null;
   }
 
   @Override
@@ -176,9 +191,8 @@ public abstract class DynamicMBeanProvider implements DynamicMBean, SensorNamePr
   }
 
   @Override
-  public void setAttribute(Attribute attribute)
-      throws AttributeNotFoundException, InvalidAttributeValueException, MBeanException,
-             ReflectionException {
+  public void setAttribute(Attribute attribute) throws AttributeNotFoundException,
+      InvalidAttributeValueException, MBeanException, ReflectionException {
     // All MBeans are readonly
     return;
   }
@@ -194,5 +208,30 @@ public abstract class DynamicMBeanProvider implements DynamicMBean, SensorNamePr
       throws MBeanException, ReflectionException {
     // No operation supported
     return null;
+  }
+
+  /**
+   * NOTE: This method is not thread-safe nor atomic.
+   * Increment the value of a given SimpleDynamicMetric by 1.
+   */
+  protected void incrementSimpleDynamicMetric(SimpleDynamicMetric<Long> metric) {
+    incrementSimpleDynamicMetric(metric, 1);
+  }
+
+  /**
+   * NOTE: This method is not thread-safe nor atomic.
+   * Increment the value of a given SimpleDynamicMetric with input value.
+   */
+  protected void incrementSimpleDynamicMetric(SimpleDynamicMetric<Long> metric, long value) {
+    metric.updateValue(metric.getValue() + value);
+  }
+
+  /**
+   * Return the interval length for the underlying reservoir used by the MBean metric configured
+   * in the system env variables. If not found, use default value.
+   */
+  protected Long getResetIntervalInMs() {
+    return HelixUtil.getSystemPropertyAsLong(SystemPropertyKeys.HELIX_MONITOR_TIME_WINDOW_LENGTH_MS,
+        DEFAULT_RESET_INTERVAL_MS);
   }
 }

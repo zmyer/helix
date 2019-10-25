@@ -1,5 +1,24 @@
 package org.apache.helix.integration;
 
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -9,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import org.I0Itec.zkclient.ZkServer;
+import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.SystemPropertyKeys;
 import org.apache.helix.TestHelper;
@@ -18,6 +38,7 @@ import org.apache.helix.integration.task.MockTask;
 import org.apache.helix.integration.task.TaskTestBase;
 import org.apache.helix.integration.task.TaskTestUtil;
 import org.apache.helix.integration.task.WorkflowGenerator;
+import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
 import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.manager.zk.client.SharedZkClientFactory;
@@ -41,8 +62,8 @@ public class TestZkConnectionLost extends TaskTestBase {
   private final AtomicReference<ZkServer> _zkServerRef = new AtomicReference<>();
 
   private String _zkAddr = "localhost:21893";
-  ClusterSetup _setupTool;
-  HelixZkClient _zkClient;
+  private ClusterSetup _setupTool;
+  private HelixZkClient _zkClient;
 
   @BeforeClass
   public void beforeClass() throws Exception {
@@ -77,9 +98,7 @@ public class TestZkConnectionLost extends TaskTestBase {
       _manager.disconnect();
     }
     stopParticipants();
-
     TestHelper.dropCluster(CLUSTER_NAME, _zkClient, _setupTool);
-
     _zkClient.close();
     TestHelper.stopZkServer(_zkServerRef.get());
   }
@@ -90,28 +109,45 @@ public class TestZkConnectionLost extends TaskTestBase {
     System.setProperty(SystemPropertyKeys.ZK_SESSION_TIMEOUT, "1000");
     try {
       String queueName = TestHelper.getTestMethodName();
-
       startParticipants(_zkAddr);
+      HelixDataAccessor accessor = new ZKHelixDataAccessor(CLUSTER_NAME, _baseAccessor);
+      TestHelper.verify(() -> {
+        List<String> liveInstances = accessor.getChildNames(accessor.keyBuilder().liveInstances());
+        for (MockParticipantManager participant : _participants) {
+          if (!liveInstances.contains(participant.getInstanceName())
+              || !participant.isConnected()) {
+            return false;
+          }
+        }
+        return true;
+      }, TestHelper.WAIT_DURATION);
 
       // Create a queue
       LOG.info("Starting job-queue: " + queueName);
-      JobQueue.Builder queueBuild = TaskTestUtil.buildRecurrentJobQueue(queueName, 0, 6000);
+      JobQueue.Builder queueBuild = TaskTestUtil.buildRecurrentJobQueue(queueName, 0, 60);
       createAndEnqueueJob(queueBuild, 3);
-
       _driver.start(queueBuild.build());
-
       restartZkServer();
-
-      WorkflowContext wCtx = TaskTestUtil.pollForWorkflowContext(_driver, queueName);
-      String scheduledQueue = wCtx.getLastScheduledSingleWorkflow();
-      _driver.pollForWorkflowState(scheduledQueue, 30000, TaskState.COMPLETED);
+      try {
+        WorkflowContext wCtx = TaskTestUtil.pollForWorkflowContext(_driver, queueName);
+        String scheduledQueue = wCtx.getLastScheduledSingleWorkflow();
+        _driver.pollForWorkflowState(scheduledQueue, 30000, TaskState.COMPLETED);
+      } catch (Exception e) {
+        // 2nd try because ZK connection problem might prevent the first recurrent workflow to get
+        // scheduled
+        WorkflowContext wCtx = TaskTestUtil.pollForWorkflowContext(_driver, queueName);
+        String scheduledQueue = wCtx.getLastScheduledSingleWorkflow();
+        _driver.pollForWorkflowState(scheduledQueue, 30000, TaskState.COMPLETED);
+      }
     } finally {
       System.clearProperty(SystemPropertyKeys.ZK_WAIT_CONNECTED_TIMEOUT);
       System.clearProperty(SystemPropertyKeys.ZK_SESSION_TIMEOUT);
     }
   }
 
-  @Test(dependsOnMethods = { "testLostZkConnection" }, enabled = false)
+  @Test(dependsOnMethods = {
+      "testLostZkConnection"
+  }, enabled = false)
   public void testLostZkConnectionNegative() throws Exception {
     System.setProperty(SystemPropertyKeys.ZK_WAIT_CONNECTED_TIMEOUT, "10");
     System.setProperty(SystemPropertyKeys.ZK_SESSION_TIMEOUT, "1000");
@@ -138,7 +174,7 @@ public class TestZkConnectionLost extends TaskTestBase {
         _driver.pollForWorkflowState(scheduledQueue, 30000, TaskState.COMPLETED);
         Assert.fail("Test failure!");
       } catch (HelixException ex) {
-        // test succeed
+        // test succeeded
       }
     } finally {
       System.clearProperty(SystemPropertyKeys.ZK_WAIT_CONNECTED_TIMEOUT);
@@ -149,33 +185,30 @@ public class TestZkConnectionLost extends TaskTestBase {
   private void restartZkServer() throws ExecutionException, InterruptedException {
     // shutdown and restart zk for a couple of times
     for (int i = 0; i < 4; i++) {
-      Executors.newSingleThreadExecutor().submit(new Runnable() {
-        @Override public void run() {
-          try {
-            Thread.sleep(300);
-            System.out.println(System.currentTimeMillis() + ": Shutdown ZK server.");
-            TestHelper.stopZkServer(_zkServerRef.get());
-            Thread.sleep(300);
-            System.out.println("Restart ZK server");
-            _zkServerRef.set(TestHelper.startZkServer(_zkAddr, null, false));
-          } catch (Exception e) {
-            LOG.error(e.getMessage(), e);
-          }
+      Executors.newSingleThreadExecutor().submit(() -> {
+        try {
+          Thread.sleep(300);
+          System.out.println(System.currentTimeMillis() + ": Shutdown ZK server.");
+          TestHelper.stopZkServer(_zkServerRef.get());
+          Thread.sleep(300);
+          System.out.println("Restart ZK server");
+          _zkServerRef.set(TestHelper.startZkServer(_zkAddr, null, false));
+        } catch (Exception e) {
+          LOG.error(e.getMessage(), e);
         }
       }).get();
     }
   }
 
   private List<String> createAndEnqueueJob(JobQueue.Builder queueBuild, int jobCount) {
-    List<String> currentJobNames = new ArrayList<String>();
+    List<String> currentJobNames = new ArrayList<>();
     for (int i = 0; i < jobCount; i++) {
       String targetPartition = (i == 0) ? "MASTER" : "SLAVE";
 
-      JobConfig.Builder jobConfig =
-          new JobConfig.Builder().setCommand(MockTask.TASK_COMMAND)
-              .setTargetResource(WorkflowGenerator.DEFAULT_TGT_DB)
-              .setTargetPartitionStates(Sets.newHashSet(targetPartition))
-              .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "100"));
+      JobConfig.Builder jobConfig = new JobConfig.Builder().setCommand(MockTask.TASK_COMMAND)
+          .setTargetResource(WorkflowGenerator.DEFAULT_TGT_DB)
+          .setTargetPartitionStates(Sets.newHashSet(targetPartition))
+          .setJobCommandConfigMap(ImmutableMap.of(MockTask.JOB_DELAY, "100"));
       String jobName = targetPartition.toLowerCase() + "Job" + i;
       queueBuild.enqueueJob(jobName, jobConfig);
       currentJobNames.add(jobName);
@@ -184,5 +217,3 @@ public class TestZkConnectionLost extends TaskTestBase {
     return currentJobNames;
   }
 }
-
-

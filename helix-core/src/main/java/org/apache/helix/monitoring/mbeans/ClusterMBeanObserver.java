@@ -26,7 +26,6 @@ import javax.management.InstanceNotFoundException;
 import javax.management.MBeanServerConnection;
 import javax.management.MBeanServerDelegate;
 import javax.management.MBeanServerNotification;
-import javax.management.MalformedObjectNameException;
 import javax.management.Notification;
 import javax.management.NotificationListener;
 import javax.management.relation.MBeanServerNotificationFilter;
@@ -43,8 +42,7 @@ public abstract class ClusterMBeanObserver implements NotificationListener {
   protected MBeanServerConnection _server;
   private static final Logger _logger = LoggerFactory.getLogger(ClusterMBeanObserver.class);
 
-  public ClusterMBeanObserver(String domain) throws InstanceNotFoundException, IOException,
-      MalformedObjectNameException, NullPointerException {
+  public ClusterMBeanObserver(String domain) throws IOException, InstanceNotFoundException {
     // Get a reference to the target MBeanServer
     _domain = domain;
     _server = ManagementFactory.getPlatformMBeanServer();

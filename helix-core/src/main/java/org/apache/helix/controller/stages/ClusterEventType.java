@@ -19,21 +19,21 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
-// TODO: 2018/6/15 by zmyer
 public enum ClusterEventType {
-    IdealStateChange,
-    CurrentStateChange,
-    ConfigChange,
-    ClusterConfigChange,
-    ResourceConfigChange,
-    InstanceConfigChange,
-    LiveInstanceChange,
-    MessageChange,
-    ExternalViewChange,
-    TargetExternalViewChange,
-    Resume,
-    PeriodicalRebalance,
-    RetryRebalance,
-    StateVerifier,
-    Unknown
+  IdealStateChange,
+  CurrentStateChange,
+  ConfigChange,
+  ClusterConfigChange,
+  ResourceConfigChange,
+  InstanceConfigChange,
+  LiveInstanceChange,
+  MessageChange,
+  ExternalViewChange,
+  TargetExternalViewChange,
+  Resume,
+  PeriodicalRebalance,
+  OnDemandRebalance,
+  RetryRebalance,
+  StateVerifier,
+  Unknown
 }

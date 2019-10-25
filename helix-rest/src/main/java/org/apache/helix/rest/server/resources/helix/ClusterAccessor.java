@@ -24,33 +24,46 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
-import javax.ws.rs.DefaultValue;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Response;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.helix.AccessOption;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.PropertyKey;
+import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.manager.zk.ZKUtil;
 import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.ClusterConfig;
+import org.apache.helix.model.ControllerHistory;
 import org.apache.helix.model.HelixConfigScope;
-import org.apache.helix.model.LeaderHistory;
 import org.apache.helix.model.LiveInstance;
+import org.apache.helix.model.MaintenanceSignal;
 import org.apache.helix.model.Message;
 import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.model.builder.HelixConfigScopeBuilder;
+import org.apache.helix.rest.server.json.cluster.ClusterTopology;
+import org.apache.helix.rest.server.service.ClusterService;
+import org.apache.helix.rest.server.service.ClusterServiceImpl;
 import org.apache.helix.tools.ClusterSetup;
+import org.codehaus.jackson.type.TypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
 
 @Path("/clusters")
 public class ClusterAccessor extends AbstractHelixResource {
@@ -65,7 +78,10 @@ public class ClusterAccessor extends AbstractHelixResource {
     maintenance,
     messages,
     stateModelDefinitions,
-    clusters
+    clusters,
+    maintenanceSignal,
+    maintenanceHistory,
+    clusterName
   }
 
   @GET
@@ -82,7 +98,7 @@ public class ClusterAccessor extends AbstractHelixResource {
   @GET
   @Path("{clusterId}")
   public Response getClusterInfo(@PathParam("clusterId") String clusterId) {
-    if (!isClusterExist(clusterId)) {
+    if (!doesClusterExist(clusterId)) {
       return notFound();
     }
 
@@ -99,10 +115,9 @@ public class ClusterAccessor extends AbstractHelixResource {
       clusterInfo.put(ClusterProperties.controller.name(), "No Lead Controller!");
     }
 
-    boolean paused = (dataAccessor.getProperty(keyBuilder.pause()) == null ? false : true);
+    boolean paused = dataAccessor.getBaseDataAccessor().exists(keyBuilder.pause().getPath(), AccessOption.PERSISTENT);
     clusterInfo.put(ClusterProperties.paused.name(), paused);
-    boolean maintenance =
-        (dataAccessor.getProperty(keyBuilder.maintenance()) == null ? false : true);
+    boolean maintenance = getHelixAdmin().isInMaintenanceMode(clusterId);
     clusterInfo.put(ClusterProperties.maintenance.name(), maintenance);
 
     List<String> idealStates = dataAccessor.getChildNames(keyBuilder.idealStates());
@@ -206,29 +221,32 @@ public class ClusterAccessor extends AbstractHelixResource {
         return serverError(ex);
       }
       break;
+
     case enableMaintenanceMode:
-      try {
-        helixAdmin.enableMaintenanceMode(clusterId, true, content);
-      } catch (Exception ex) {
-        _logger.error("Failed to enable maintenance mode " + clusterId);
-        return serverError(ex);
-      }
-      break;
     case disableMaintenanceMode:
+      // Try to parse the content string. If parseable, use it as a KV mapping. Otherwise, treat it
+      // as a REASON String
+      Map<String, String> customFieldsMap = null;
       try {
-        helixAdmin.enableMaintenanceMode(clusterId, false);
-      } catch (Exception ex) {
-        _logger.error("Failed to disable maintenance mode " + clusterId);
-        return serverError(ex);
+        // Try to parse content
+        customFieldsMap =
+            OBJECT_MAPPER.readValue(content, new TypeReference<HashMap<String, String>>() {
+            });
+        // content is given as a KV mapping. Nullify content
+        content = null;
+      } catch (Exception e) {
+        // NOP
       }
+      helixAdmin.manuallyEnableMaintenanceMode(clusterId, command == Command.enableMaintenanceMode,
+          content, customFieldsMap);
       break;
+
     default:
       return badRequest("Unsupported command " + command);
     }
 
     return OK();
   }
-
 
   @GET
   @Path("{clusterId}/configs")
@@ -249,6 +267,17 @@ public class ClusterAccessor extends AbstractHelixResource {
       return notFound();
     }
     return JSONRepresentation(config.getRecord());
+  }
+
+  @GET
+  @Path("{clusterId}/topology")
+  public Response getClusterTopology(@PathParam("clusterId") String clusterId) throws IOException {
+    //TODO reduce the GC by dependency injection
+    ClusterService clusterService = new ClusterServiceImpl(getDataAccssor(clusterId), getConfigAccessor());
+    ObjectMapper objectMapper = new ObjectMapper();
+    ClusterTopology clusterTopology = clusterService.getClusterTopology(clusterId);
+
+    return OK(objectMapper.writeValueAsString(clusterTopology));
   }
 
   @POST
@@ -324,20 +353,30 @@ public class ClusterAccessor extends AbstractHelixResource {
 
   @GET
   @Path("{clusterId}/controller/history")
-  public Response getClusterControllerHistory(@PathParam("clusterId") String clusterId) {
+  public Response getClusterControllerLeadershipHistory(@PathParam("clusterId") String clusterId) {
+    return JSONRepresentation(getControllerHistory(clusterId,
+        ControllerHistory.HistoryType.CONTROLLER_LEADERSHIP));
+  }
+
+  @GET
+  @Path("{clusterId}/controller/maintenanceHistory")
+  public Response getClusterMaintenanceHistory(@PathParam("clusterId") String clusterId) {
+    return JSONRepresentation(
+        getControllerHistory(clusterId, ControllerHistory.HistoryType.MAINTENANCE));
+  }
+
+  @GET
+  @Path("{clusterId}/controller/maintenanceSignal")
+  public Response getClusterMaintenanceSignal(@PathParam("clusterId") String clusterId) {
     HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
-    Map<String, Object> controllerHistory = new HashMap<>();
-    controllerHistory.put(Properties.id.name(), clusterId);
-
-    LeaderHistory history =
-        dataAccessor.getProperty(dataAccessor.keyBuilder().controllerLeaderHistory());
-    if (history != null) {
-      controllerHistory.put(Properties.history.name(), history.getHistoryList());
-    } else {
-      controllerHistory.put(Properties.history.name(), Collections.emptyList());
+    MaintenanceSignal maintenanceSignal =
+        dataAccessor.getProperty(dataAccessor.keyBuilder().maintenance());
+    if (maintenanceSignal != null) {
+      Map<String, String> maintenanceInfo = maintenanceSignal.getRecord().getSimpleFields();
+      maintenanceInfo.put(ClusterProperties.clusterName.name(), clusterId);
+      return JSONRepresentation(maintenanceInfo);
     }
-
-    return JSONRepresentation(controllerHistory);
+    return notFound(String.format("Cluster %s is not in maintenance mode!", clusterId));
   }
 
   @GET
@@ -384,17 +423,126 @@ public class ClusterAccessor extends AbstractHelixResource {
   public Response getClusterStateModelDefinition(@PathParam("clusterId") String clusterId,
       @PathParam("statemodel") String statemodel) {
     HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
-    StateModelDefinition stateModelDef =
-        dataAccessor.getProperty(dataAccessor.keyBuilder().stateModelDef(statemodel));
+    StateModelDefinition stateModelDef = dataAccessor.getProperty(dataAccessor.keyBuilder().stateModelDef(statemodel));
 
+    if (stateModelDef == null) {
+      return badRequest("Statemodel not found!");
+    }
     return JSONRepresentation(stateModelDef.getRecord());
   }
 
-  private boolean isClusterExist(String cluster) {
-    HelixZkClient zkClient = getHelixZkClient();
-    if (ZKUtil.isClusterSetup(cluster, zkClient)) {
-      return true;
+  @PUT
+  @Path("{clusterId}/statemodeldefs/{statemodel}")
+  public Response createClusterStateModelDefinition(@PathParam("clusterId") String clusterId,
+      @PathParam("statemodel") String statemodel, String content) {
+    ZNRecord record;
+    try {
+      record = toZNRecord(content);
+    } catch (IOException e) {
+      _logger.error("Failed to deserialize user's input " + content + ", Exception: " + e);
+      return badRequest("Input is not a valid ZNRecord!");
     }
-    return false;
+    HelixZkClient zkClient = getHelixZkClient();
+    String path = PropertyPathBuilder.stateModelDef(clusterId);
+    try {
+      ZKUtil.createChildren(zkClient, path, record);
+    } catch (Exception e) {
+      _logger.error("Failed to create zk node with path " + path + ", Exception:" + e);
+      return badRequest("Failed to create a Znode for stateModel! " + e);
+    }
+
+    return OK();
+  }
+
+  @POST
+  @Path("{clusterId}/statemodeldefs/{statemodel}")
+  public Response setClusterStateModelDefinition(@PathParam("clusterId") String clusterId,
+      @PathParam("statemodel") String statemodel, String content) {
+    ZNRecord record;
+    try {
+      record = toZNRecord(content);
+    } catch (IOException e) {
+      _logger.error("Failed to deserialize user's input " + content + ", Exception: " + e);
+      return badRequest("Input is not a valid ZNRecord!");
+    }
+
+    StateModelDefinition stateModelDefinition = new StateModelDefinition(record);
+    HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
+
+    PropertyKey key = dataAccessor.keyBuilder().stateModelDef(stateModelDefinition.getId());
+    boolean retcode = true;
+    try {
+      retcode = dataAccessor.setProperty(key, stateModelDefinition);
+    } catch (Exception e) {
+      _logger.error("Failed to set StateModelDefinition key:" + key + ", Exception: " + e);
+      return badRequest("Failed to set the content " + content);
+    }
+
+    return OK();
+  }
+
+  @DELETE
+  @Path("{clusterId}/statemodeldefs/{statemodel}")
+  public Response removeClusterStateModelDefinition(@PathParam("clusterId") String clusterId,
+      @PathParam("statemodel") String statemodel) {
+    //Shall we validate the statemodel string not having special character such as ../ etc?
+    if (!StringUtils.isAlphanumeric(statemodel)) {
+      return badRequest("Invalid statemodel name!");
+    }
+
+    HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
+    PropertyKey key = dataAccessor.keyBuilder().stateModelDef(statemodel);
+    boolean retcode = true;
+    try {
+      retcode = dataAccessor.removeProperty(key);
+    } catch (Exception e) {
+      _logger.error("Failed to remove StateModelDefinition key:" + key + ", Exception: " + e);
+      retcode = false;
+    }
+    if (!retcode) {
+      return badRequest("Failed to remove!");
+    }
+    return OK();
+  }
+
+  @GET
+  @Path("{clusterId}/maintenance")
+  public Response getClusterMaintenanceMode(@PathParam("clusterId") String clusterId) {
+    return JSONRepresentation(
+        ImmutableMap.of(ClusterProperties.maintenance.name(), getHelixAdmin().isInMaintenanceMode(clusterId)));
+  }
+  private boolean doesClusterExist(String cluster) {
+    HelixZkClient zkClient = getHelixZkClient();
+    return ZKUtil.isClusterSetup(cluster, zkClient);
+  }
+
+  /**
+   * Reads HISTORY ZNode from the metadata store and generates a Map object that contains the
+   * pertinent history entries depending on the history type.
+   * @param clusterId
+   * @param historyType
+   * @return
+   */
+  private Map<String, Object> getControllerHistory(String clusterId,
+      ControllerHistory.HistoryType historyType) {
+    HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
+    Map<String, Object> history = new HashMap<>();
+    history.put(Properties.id.name(), clusterId);
+
+    ControllerHistory historyRecord =
+        dataAccessor.getProperty(dataAccessor.keyBuilder().controllerLeaderHistory());
+
+    switch (historyType) {
+    case CONTROLLER_LEADERSHIP:
+      history.put(Properties.history.name(),
+          historyRecord != null ? historyRecord.getHistoryList() : Collections.emptyList());
+      break;
+    case MAINTENANCE:
+      history.put(ClusterProperties.maintenanceHistory.name(),
+          historyRecord != null ? historyRecord.getMaintenanceHistoryList()
+              : Collections.emptyList());
+      break;
+    }
+    return history;
   }
 }

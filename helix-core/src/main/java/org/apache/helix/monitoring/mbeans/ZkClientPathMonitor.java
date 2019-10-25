@@ -40,7 +40,7 @@ public class ZkClientPathMonitor extends DynamicMBeanProvider {
   private final String _instanceName;
   private final PredefinedPath _path;
 
-  protected enum PredefinedPath {
+  public enum PredefinedPath {
     IdealStates(".*/IDEALSTATES/.*"),
     Instances(".*/INSTANCES/.*"),
     Configs(".*/CONFIGS/.*"),
@@ -63,6 +63,31 @@ public class ZkClientPathMonitor extends DynamicMBeanProvider {
     }
   }
 
+  public enum PredefinedMetricDomains {
+    WriteTotalLatencyCounter,
+    ReadTotalLatencyCounter,
+    WriteFailureCounter,
+    ReadFailureCounter,
+    WriteBytesCounter,
+    ReadBytesCounter,
+    WriteCounter,
+    ReadCounter,
+    ReadLatencyGauge,
+    WriteLatencyGauge,
+    ReadBytesGauge,
+    WriteBytesGauge,
+    /*
+     * The latency between a ZK data change happening on the server side and the client side.
+     */
+    DataPropagationLatencyGauge,
+    /**
+     * @deprecated
+     * This domain name has a typo. Keep it in case its historical metric data is being used.
+     */
+    @Deprecated
+    DataPropagationLatencyGuage
+  }
+
   private SimpleDynamicMetric<Long> _readCounter;
   private SimpleDynamicMetric<Long> _writeCounter;
   private SimpleDynamicMetric<Long> _readBytesCounter;
@@ -76,6 +101,14 @@ public class ZkClientPathMonitor extends DynamicMBeanProvider {
   private HistogramDynamicMetric _writeLatencyGauge;
   private HistogramDynamicMetric _readBytesGauge;
   private HistogramDynamicMetric _writeBytesGauge;
+  private HistogramDynamicMetric _dataPropagationLatencyGauge;
+
+  /**
+   * @deprecated
+   * Keep it for backward-compatibility purpose.
+   */
+  @Deprecated
+  private HistogramDynamicMetric _dataPropagationLatencyGuage;
 
   @Override
   public String getSensorName() {
@@ -92,23 +125,43 @@ public class ZkClientPathMonitor extends DynamicMBeanProvider {
         .format("%s.%s.%s.%s", MonitorDomainNames.HelixZkClient.name(), monitorType, monitorKey,
             path.name());
 
-    _writeTotalLatencyCounter = new SimpleDynamicMetric("WriteTotalLatencyCounter", 0l);
-    _readTotalLatencyCounter = new SimpleDynamicMetric("ReadTotalLatencyCounter", 0l);
-    _writeFailureCounter = new SimpleDynamicMetric("WriteFailureCounter", 0l);
-    _readFailureCounter = new SimpleDynamicMetric("ReadFailureCounter", 0l);
-    _writeBytesCounter = new SimpleDynamicMetric("WriteBytesCounter", 0l);
-    _readBytesCounter = new SimpleDynamicMetric("ReadBytesCounter", 0l);
-    _writeCounter = new SimpleDynamicMetric("WriteCounter", 0l);
-    _readCounter = new SimpleDynamicMetric("ReadCounter", 0l);
+    _writeTotalLatencyCounter =
+        new SimpleDynamicMetric(PredefinedMetricDomains.WriteTotalLatencyCounter.name(), 0l);
+    _readTotalLatencyCounter =
+        new SimpleDynamicMetric(PredefinedMetricDomains.ReadTotalLatencyCounter.name(), 0l);
+    _writeFailureCounter =
+        new SimpleDynamicMetric(PredefinedMetricDomains.WriteFailureCounter.name(), 0l);
+    _readFailureCounter =
+        new SimpleDynamicMetric(PredefinedMetricDomains.ReadFailureCounter.name(), 0l);
+    _writeBytesCounter =
+        new SimpleDynamicMetric(PredefinedMetricDomains.WriteBytesCounter.name(), 0l);
+    _readBytesCounter =
+        new SimpleDynamicMetric(PredefinedMetricDomains.ReadBytesCounter.name(), 0l);
+    _writeCounter = new SimpleDynamicMetric(PredefinedMetricDomains.WriteCounter.name(), 0l);
+    _readCounter = new SimpleDynamicMetric(PredefinedMetricDomains.ReadCounter.name(), 0l);
 
-    _readLatencyGauge = new HistogramDynamicMetric("ReadLatencyGauge", new Histogram(
-        new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
-    _writeLatencyGauge = new HistogramDynamicMetric("WriteLatencyGauge", new Histogram(
-        new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
-    _readBytesGauge = new HistogramDynamicMetric("ReadBytesGauge", new Histogram(
-        new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
-    _writeBytesGauge = new HistogramDynamicMetric("WriteBytesGauge", new Histogram(
-        new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+    _readLatencyGauge = new HistogramDynamicMetric(PredefinedMetricDomains.ReadLatencyGauge.name(),
+        new Histogram(
+            new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
+    _writeLatencyGauge =
+        new HistogramDynamicMetric(PredefinedMetricDomains.WriteLatencyGauge.name(), new Histogram(
+            new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
+    _readBytesGauge = new HistogramDynamicMetric(PredefinedMetricDomains.ReadBytesGauge.name(),
+        new Histogram(
+            new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
+    _writeBytesGauge = new HistogramDynamicMetric(PredefinedMetricDomains.WriteBytesGauge.name(),
+        new Histogram(
+            new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
+    _dataPropagationLatencyGauge =
+        new HistogramDynamicMetric(PredefinedMetricDomains.DataPropagationLatencyGauge.name(),
+            new Histogram(new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(),
+                TimeUnit.MILLISECONDS)));
+
+    // This is deprecated and keep it for backward-compatibility purpose.
+    _dataPropagationLatencyGuage =
+        new HistogramDynamicMetric(PredefinedMetricDomains.DataPropagationLatencyGuage.name(),
+            new Histogram(new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(),
+                TimeUnit.MILLISECONDS)));
   }
 
   public ZkClientPathMonitor register() throws JMException {
@@ -125,6 +178,9 @@ public class ZkClientPathMonitor extends DynamicMBeanProvider {
     attributeList.add(_writeLatencyGauge);
     attributeList.add(_readBytesGauge);
     attributeList.add(_writeBytesGauge);
+    attributeList.add(_dataPropagationLatencyGauge);
+    // This is deprecated and keep it for backward-compatibility purpose.
+    attributeList.add(_dataPropagationLatencyGuage);
 
     ObjectName objectName = new ObjectName(String
         .format("%s,%s=%s", ZkClientMonitor.getObjectName(_type, _key, _instanceName).toString(),
@@ -145,6 +201,11 @@ public class ZkClientPathMonitor extends DynamicMBeanProvider {
         increaseBytesCounter(isRead, bytes);
       }
     }
+  }
+
+  public void recordDataPropagationLatency(long latency) {
+    _dataPropagationLatencyGauge.updateValue(latency);
+    _dataPropagationLatencyGuage.updateValue(latency);
   }
 
   private void increaseFailureCounter(boolean isRead) {

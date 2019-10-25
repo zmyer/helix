@@ -24,6 +24,7 @@ import javax.management.MBeanAttributeInfo;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -57,8 +58,8 @@ public class ZkClientMonitor extends DynamicMBeanProvider {
 
   private ZkThreadMetric _zkEventThreadMetric;
 
-    private Map<ZkClientPathMonitor.PredefinedPath, ZkClientPathMonitor> _zkClientPathMonitorMap =
-            new ConcurrentHashMap<>();
+  private Map<ZkClientPathMonitor.PredefinedPath, ZkClientPathMonitor> _zkClientPathMonitorMap =
+      new ConcurrentHashMap<>();
 
   public ZkClientMonitor(String monitorType, String monitorKey, String monitorInstanceName,
       boolean monitorRootOnly, ZkEventThread zkEventThread) {
@@ -82,13 +83,13 @@ public class ZkClientMonitor extends DynamicMBeanProvider {
     }
   }
 
-    protected static ObjectName getObjectName(String monitorType, String monitorKey,
-            String monitorInstanceName) throws MalformedObjectNameException {
-        return MBeanRegistrar
-                .buildObjectName(MonitorDomainNames.HelixZkClient.name(), MONITOR_TYPE, monitorType,
-                        MONITOR_KEY,
-                        (monitorKey + (monitorInstanceName == null ? "" : "." + monitorInstanceName)));
-    }
+  protected static ObjectName getObjectName(String monitorType, String monitorKey,
+      String monitorInstanceName) throws MalformedObjectNameException {
+    return MBeanRegistrar
+        .buildObjectName(MonitorDomainNames.HelixZkClient.name(), MONITOR_TYPE, monitorType,
+            MONITOR_KEY,
+            (monitorKey + (monitorInstanceName == null ? "" : "." + monitorInstanceName)));
+  }
 
   @Override
   public DynamicMBeanProvider register() throws JMException {
@@ -123,10 +124,10 @@ public class ZkClientMonitor extends DynamicMBeanProvider {
     }
   }
 
-    @Override
-    public String getSensorName() {
-        return _sensorName;
-    }
+  @Override
+  public String getSensorName() {
+    return _sensorName;
+  }
 
   public void increaseStateChangeEventCounter() {
     synchronized (_stateChangeEventCounter) {
@@ -152,18 +153,34 @@ public class ZkClientMonitor extends DynamicMBeanProvider {
     }
   }
 
-    private void record(String path, int bytes, long latencyMilliSec, boolean isFailure,
-            boolean isRead) {
-        for (ZkClientPathMonitor.PredefinedPath predefinedPath : ZkClientPathMonitor.PredefinedPath
-                .values()) {
-            if (predefinedPath.match(path)) {
-                ZkClientPathMonitor zkClientPathMonitor = _zkClientPathMonitorMap.get(predefinedPath);
-                if (zkClientPathMonitor != null) {
-                    zkClientPathMonitor.record(bytes, latencyMilliSec, isFailure, isRead);
-                }
-            }
-        }
+  public void recordDataPropagationLatency(String path, long latencyMilliSec) {
+    if (null == path) {
+      return;
     }
+    Arrays.stream(ZkClientPathMonitor.PredefinedPath.values())
+        .filter(predefinedPath -> predefinedPath.match(path))
+        .forEach(predefinedPath -> {
+      ZkClientPathMonitor zkClientPathMonitor = _zkClientPathMonitorMap.get(predefinedPath);
+      if (zkClientPathMonitor != null) {
+        zkClientPathMonitor.recordDataPropagationLatency(latencyMilliSec);
+      }
+    });
+  }
+
+  private void record(String path, int bytes, long latencyMilliSec, boolean isFailure,
+      boolean isRead) {
+    if (null == path) {
+      return;
+    }
+    Arrays.stream(ZkClientPathMonitor.PredefinedPath.values())
+        .filter(predefinedPath -> predefinedPath.match(path))
+        .forEach(predefinedPath -> {
+      ZkClientPathMonitor zkClientPathMonitor = _zkClientPathMonitorMap.get(predefinedPath);
+      if (zkClientPathMonitor != null) {
+        zkClientPathMonitor.record(bytes, latencyMilliSec, isFailure, isRead);
+      }
+    });
+  }
 
   public void record(String path, int dataSize, long startTimeMilliSec, AccessType accessType) {
     switch (accessType) {

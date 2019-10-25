@@ -32,11 +32,11 @@ import com.google.common.base.Predicates;
 import org.apache.helix.HelixException;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.controller.LogUtil;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.rebalancer.strategy.crushMapping.CRUSHPlacementAlgorithm;
 import org.apache.helix.controller.rebalancer.topology.InstanceNode;
 import org.apache.helix.controller.rebalancer.topology.Node;
 import org.apache.helix.controller.rebalancer.topology.Topology;
-import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.util.JenkinsHash;
 import org.slf4j.Logger;
@@ -45,7 +45,7 @@ import org.slf4j.LoggerFactory;
 /**
  * CRUSH-based partition mapping strategy.
  */
-public class CrushRebalanceStrategy implements RebalanceStrategy {
+public class CrushRebalanceStrategy implements RebalanceStrategy<ResourceControllerDataProvider> {
   private static final Logger Log = LoggerFactory.getLogger(CrushRebalanceStrategy.class.getName());
 
   private String _resourceName;
@@ -74,14 +74,14 @@ public class CrushRebalanceStrategy implements RebalanceStrategy {
   @Override
   public ZNRecord computePartitionAssignment(final List<String> allNodes,
       final List<String> liveNodes, final Map<String, Map<String, String>> currentMapping,
-      ClusterDataCache clusterData) throws HelixException {
+      ResourceControllerDataProvider clusterData) throws HelixException {
     Map<String, InstanceConfig> instanceConfigMap = clusterData.getInstanceConfigMap();
     _clusterTopo =
         new Topology(allNodes, liveNodes, instanceConfigMap, clusterData.getClusterConfig());
     Node topNode = _clusterTopo.getRootNode();
 
     // for log only
-    String eventId = clusterData.getEventId();
+    String eventId = clusterData.getClusterEventId();
 
     Map<String, List<String>> newPreferences = new HashMap<>();
     for (int i = 0; i < _partitions.size(); i++) {
@@ -89,7 +89,15 @@ public class CrushRebalanceStrategy implements RebalanceStrategy {
       long data = partitionName.hashCode();
 
       // apply the placement rules
-      List<Node> selected = select(topNode, data, _replicas, eventId);
+      List<Node> selected;
+      try {
+        selected = select(topNode, data, _replicas, eventId);
+      } catch (IllegalStateException e) {
+        String errorMessage = String
+            .format("Could not select enough number of nodes. %s partition %s, required %d",
+                _resourceName, partitionName, _replicas);
+        throw new HelixException(errorMessage, e);
+      }
 
       if (selected.size() < _replicas) {
         LogUtil.logError(Log, eventId, String

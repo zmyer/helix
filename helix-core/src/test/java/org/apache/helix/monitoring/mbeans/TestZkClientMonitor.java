@@ -19,10 +19,12 @@ package org.apache.helix.monitoring.mbeans;
  * under the License.
  */
 
+import javax.management.JMException;
+import javax.management.MBeanServer;
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectName;
 import java.lang.management.ManagementFactory;
-import javax.management.*;
 
-import org.apache.helix.manager.zk.zookeeper.ZkEventThread;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -138,5 +140,45 @@ public class TestZkClientMonitor {
         .assertTrue((long) _beanServer.getAttribute(instancesName, "WriteLatencyGauge.Max") >= 10);
     Assert.assertTrue(
         (long) _beanServer.getAttribute(instancesName, "WriteTotalLatencyCounter") >= 10);
+
+    monitor.recordDataPropagationLatency("TEST/INSTANCES/node_1/CURRENTSTATES/session_1/Resource",
+        5);
+    String dataPropagationLatencyGaugeAttr =
+        ZkClientPathMonitor.PredefinedMetricDomains.DataPropagationLatencyGauge.name() + ".Max";
+    Assert.assertEquals((long) _beanServer.getAttribute(rootName, dataPropagationLatencyGaugeAttr),
+        5);
+    Assert.assertEquals(
+        (long) _beanServer.getAttribute(currentStateName, dataPropagationLatencyGaugeAttr), 5);
+    Assert.assertEquals(
+        (long) _beanServer.getAttribute(idealStateName, dataPropagationLatencyGaugeAttr), 0);
+  }
+
+  @Test
+  public void testCustomizedResetInterval() throws JMException, InterruptedException {
+    // Use a customized reservoir sliding length of 1 ms.
+    System.setProperty("helix.monitor.slidingTimeWindow.ms", "1");
+    final String TEST_TAG = "test_tag_x";
+    final String TEST_KEY = "test_key_x";
+    final String TEST_INSTANCE = "test_instance_x";
+    String dataPropagationLatencyGaugeAttr =
+        ZkClientPathMonitor.PredefinedMetricDomains.DataPropagationLatencyGauge.name() + ".Max";
+
+    ZkClientMonitor monitor = new ZkClientMonitor(TEST_TAG, TEST_KEY, TEST_INSTANCE, false, null);
+    monitor.register();
+
+    ObjectName rootName = buildPathMonitorObjectName(TEST_TAG, TEST_KEY, TEST_INSTANCE,
+        ZkClientPathMonitor.PredefinedPath.Root.name());
+    monitor
+        .recordDataPropagationLatency("TEST/INSTANCES/node_1/CURRENTSTATES/session_1/Resource", 5);
+    Assert
+        .assertEquals((long) _beanServer.getAttribute(rootName, dataPropagationLatencyGaugeAttr),
+            5);
+    // The reservoir length is 10 ms, so the prev max of 5 is not valid anymore.
+    Thread.sleep(10);
+    monitor
+        .recordDataPropagationLatency("TEST/INSTANCES/node_1/CURRENTSTATES/session_1/Resource", 4);
+    Assert
+        .assertEquals((long) _beanServer.getAttribute(rootName, dataPropagationLatencyGaugeAttr),
+            4);
   }
 }

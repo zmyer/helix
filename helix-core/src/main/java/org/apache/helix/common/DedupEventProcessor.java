@@ -11,28 +11,27 @@ import org.slf4j.LoggerFactory;
  * T -- Type of the event.
  * E -- The event itself.
  */
-// TODO: 2018/6/4 by zmyer
 public abstract class DedupEventProcessor<T, E> extends Thread {
-    private static final Logger logger = LoggerFactory.getLogger(DedupEventProcessor.class);
+  private static final Logger logger = LoggerFactory.getLogger(DedupEventProcessor.class);
 
-    protected final DedupEventBlockingQueue<T, E> _eventQueue;
-    protected final String _clusterName;
-    protected final String _processorName;
+  protected final DedupEventBlockingQueue<T, E> _eventQueue;
+  protected final String _clusterName;
+  protected final String _processorName;
 
-    public DedupEventProcessor(String processorName) {
-        this(new String(), processorName);
-    }
+  public DedupEventProcessor(String processorName) {
+    this(new String(), processorName);
+  }
 
-    public DedupEventProcessor(String clusterName, String processorName) {
-        super(processorName + "-" + clusterName);
-        _processorName = processorName;
-        _eventQueue = new DedupEventBlockingQueue<>();
-        _clusterName = clusterName;
-    }
+  public DedupEventProcessor(String clusterName, String processorName) {
+    super(processorName + "-" + clusterName);
+    _processorName = processorName;
+    _eventQueue = new DedupEventBlockingQueue<>();
+    _clusterName = clusterName;
+  }
 
-    public DedupEventProcessor() {
-        this(new String(), "Default-DedupEventProcessor");
-    }
+  public DedupEventProcessor() {
+    this(new String(), "Default-DedupEventProcessor");
+  }
 
   @Override
   public void run() {
@@ -56,7 +55,7 @@ public abstract class DedupEventProcessor<T, E> extends Thread {
     logger.info("END " + _processorName + " thread for cluster " + _clusterName);
   }
 
-    protected abstract void handleEvent(E event);
+  protected abstract void handleEvent(E event);
 
   public void queueEvent(T eventType, E event) {
     if (isInterrupted()) {
@@ -65,8 +64,12 @@ public abstract class DedupEventProcessor<T, E> extends Thread {
     _eventQueue.put(eventType, event);
   }
 
-    public void shutdown() {
-        this.interrupt();
-        _eventQueue.clear();
-    }
+  public void resetEventQueue() {
+    _eventQueue.clear();
+  }
+
+  public void shutdown() {
+    this.interrupt();
+    _eventQueue.clear();
+  }
 }

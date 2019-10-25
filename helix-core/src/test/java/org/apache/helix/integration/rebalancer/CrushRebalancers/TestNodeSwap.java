@@ -39,7 +39,6 @@ import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
-import org.apache.helix.model.Partition;
 import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
 import org.apache.helix.tools.ClusterVerifiers.StrictMatchExternalViewVerifier;
 import org.testng.Assert;
@@ -61,7 +60,8 @@ public class TestNodeSwap extends ZkTestBase {
   Set<String> _allDBs = new HashSet<>();
   int _replica = 3;
 
-  String[] _testModels = { BuiltInStateModelDefinitions.OnlineOffline.name(),
+  String[] _testModels = {
+      BuiltInStateModelDefinitions.OnlineOffline.name(),
       BuiltInStateModelDefinitions.MasterSlave.name(),
       BuiltInStateModelDefinitions.LeaderStandby.name()
   };
@@ -88,15 +88,14 @@ public class TestNodeSwap extends ZkTestBase {
       InstanceConfig instanceConfig =
           configAccessor.getInstanceConfig(CLUSTER_NAME, storageNodeName);
       instanceConfig.setDomain(domain);
-      _gSetupTool.getClusterManagementTool()
-          .setInstanceConfig(CLUSTER_NAME, storageNodeName, instanceConfig);
+      _gSetupTool.getClusterManagementTool().setInstanceConfig(CLUSTER_NAME, storageNodeName,
+          instanceConfig);
       nodes.add(storageNodeName);
     }
 
     // start dummy participants
     for (String node : nodes) {
-      MockParticipantManager participant =
-          new MockParticipantManager(ZK_ADDR, CLUSTER_NAME, node);
+      MockParticipantManager participant = new MockParticipantManager(ZK_ADDR, CLUSTER_NAME, node);
       participant.syncStart();
       _participants.add(participant);
     }
@@ -114,25 +113,27 @@ public class TestNodeSwap extends ZkTestBase {
   public void afterClass() throws Exception {
     _controller.syncStop();
     for (MockParticipantManager p : _participants) {
-      if (p.isConnected()) {
-        p.syncStop();
-      }
+      p.syncStop();
     }
     deleteCluster(CLUSTER_NAME);
   }
 
   @DataProvider(name = "rebalanceStrategies")
-  public static Object [][] rebalanceStrategies() {
-    return new String[][] { {"CrushRebalanceStrategy", CrushRebalanceStrategy.class.getName()},
-        {"MultiRoundCrushRebalanceStrategy", MultiRoundCrushRebalanceStrategy.class.getName()},
-        {"CrushEdRebalanceStrategy", CrushEdRebalanceStrategy.class.getName()}
+  public static Object[][] rebalanceStrategies() {
+    return new String[][] {
+        {
+            "CrushRebalanceStrategy", CrushRebalanceStrategy.class.getName()
+        }, {
+            "MultiRoundCrushRebalanceStrategy", MultiRoundCrushRebalanceStrategy.class.getName()
+        }, {
+            "CrushEdRebalanceStrategy", CrushEdRebalanceStrategy.class.getName()
+        }
     };
   }
 
-
   @Test(dataProvider = "rebalanceStrategies")
-  public void testNodeSwap(String rebalanceStrategyName,
-      String rebalanceStrategyClass) throws Exception {
+  public void testNodeSwap(String rebalanceStrategyName, String rebalanceStrategyClass)
+      throws Exception {
     System.out.println("Test testNodeSwap for " + rebalanceStrategyName);
 
     int i = 0;
@@ -143,7 +144,7 @@ public class TestNodeSwap extends ZkTestBase {
       _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, db, _replica);
       _allDBs.add(db);
     }
-    Thread.sleep(300);
+    Thread.sleep(1000);
 
     HelixClusterVerifier _clusterVerifier =
         new StrictMatchExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR)
@@ -151,7 +152,6 @@ public class TestNodeSwap extends ZkTestBase {
     Assert.assertTrue(_clusterVerifier.verify(5000));
 
     Map<String, ExternalView> record = new HashMap<>();
-
     for (String db : _allDBs) {
       record.put(db,
           _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db));
@@ -163,38 +163,43 @@ public class TestNodeSwap extends ZkTestBase {
     // 1. disable and remove an old node
     MockParticipantManager oldParticipant = _participants.get(0);
     String oldParticipantName = oldParticipant.getInstanceName();
-    oldParticipant.syncStop();
-    InstanceConfig instanceConfig =
+
+    final InstanceConfig instanceConfig =
         _gSetupTool.getClusterManagementTool().getInstanceConfig(CLUSTER_NAME, oldParticipantName);
     // disable the node first
     instanceConfig.setInstanceEnabled(false);
-    _gSetupTool.getClusterManagementTool().setInstanceConfig(CLUSTER_NAME, oldParticipantName, instanceConfig);
+    _gSetupTool.getClusterManagementTool().setInstanceConfig(CLUSTER_NAME, oldParticipantName,
+        instanceConfig);
     Assert.assertTrue(_clusterVerifier.verify(10000));
+
     // then remove it from topology
+    oldParticipant.syncStop();
+    Thread.sleep(2000);
     _gSetupTool.getClusterManagementTool().dropInstance(CLUSTER_NAME, instanceConfig);
 
     // 2. create new participant with same topology
     String newParticipantName = "RandomParticipant-" + rebalanceStrategyName + "_" + START_PORT;
     _gSetupTool.addInstanceToCluster(CLUSTER_NAME, newParticipantName);
-    InstanceConfig newConfig =
-        configAccessor.getInstanceConfig(CLUSTER_NAME, newParticipantName);
-    newConfig.setDomain(instanceConfig.getDomain());
-    _gSetupTool.getClusterManagementTool()
-        .setInstanceConfig(CLUSTER_NAME, newParticipantName, newConfig);
+    InstanceConfig newConfig = configAccessor.getInstanceConfig(CLUSTER_NAME, newParticipantName);
+    newConfig.setDomain(instanceConfig.getDomainAsString());
+    _gSetupTool.getClusterManagementTool().setInstanceConfig(CLUSTER_NAME, newParticipantName,
+        newConfig);
 
     MockParticipantManager participant =
         new MockParticipantManager(ZK_ADDR, CLUSTER_NAME, newParticipantName);
     participant.syncStart();
     _participants.add(0, participant);
-    Thread.sleep(300);
+    Thread.sleep(2000);
 
+    _clusterVerifier = new StrictMatchExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR)
+        .setResources(_allDBs).build();
     Assert.assertTrue(_clusterVerifier.verify(5000));
 
     for (String db : _allDBs) {
       ExternalView ev =
           _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
       ExternalView oldEv = record.get(db);
-      for(String partition : ev.getPartitionSet()) {
+      for (String partition : ev.getPartitionSet()) {
         Map<String, String> stateMap = ev.getStateMap(partition);
         Map<String, String> oldStateMap = oldEv.getStateMap(partition);
         Assert.assertTrue(oldStateMap != null && stateMap != null);
@@ -203,9 +208,7 @@ public class TestNodeSwap extends ZkTestBase {
           if (instance.equals(newParticipantName)) {
             topoName = oldParticipantName;
           }
-          if (!stateMap.get(instance).equals(oldStateMap.get(topoName))) {
-            Assert.fail("test");
-          }
+          Assert.assertEquals(stateMap.get(instance), oldStateMap.get(topoName));
         }
       }
     }

@@ -1,5 +1,24 @@
 package org.apache.helix.task;
 
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import java.util.ArrayList;
@@ -14,20 +33,25 @@ import java.util.TreeSet;
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.HelixManager;
 import org.apache.helix.common.caches.TaskDataCache;
+import org.apache.helix.controller.dataproviders.BaseControllerDataProvider;
+import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
+import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.rebalancer.util.RebalanceScheduler;
-import org.apache.helix.controller.stages.ClusterDataCache;
+import org.apache.helix.controller.stages.BestPossibleStateOutput;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.Message;
 import org.apache.helix.model.Partition;
 import org.apache.helix.model.ResourceAssignment;
 import org.apache.helix.monitoring.mbeans.ClusterStatusMonitor;
+import org.apache.helix.monitoring.mbeans.JobMonitor;
 import org.apache.helix.task.assigner.AssignableInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class AbstractTaskDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(AbstractTaskDispatcher.class);
+  private static final String TASK_LATENCY_TAG = "Latency";
 
   // For connection management
   protected HelixManager _manager;
@@ -44,28 +68,51 @@ public abstract class AbstractTaskDispatcher {
       Map<String, SortedSet<Integer>> prevInstanceToTaskAssignments, Set<String> excludedInstances,
       String jobResource, CurrentStateOutput currStateOutput, JobContext jobCtx, JobConfig jobCfg,
       ResourceAssignment prevTaskToInstanceStateAssignment, TaskState jobState,
-      Set<Integer> assignedPartitions, Set<Integer> partitionsToDropFromIs,
+      Map<String, Set<Integer>> assignedPartitions, Set<Integer> partitionsToDropFromIs,
       Map<Integer, PartitionAssignment> paMap, TargetState jobTgtState,
-      Set<Integer> skippedPartitions, ClusterDataCache cache) {
+      Set<Integer> skippedPartitions, WorkflowControllerDataProvider cache,
+      Map<String, Set<Integer>> tasksToDrop) {
 
     // Get AssignableInstanceMap for releasing resources for tasks in terminal states
-    Map<String, AssignableInstance> assignableInstanceMap =
-        cache.getAssignableInstanceManager().getAssignableInstanceMap();
+    AssignableInstanceManager assignableInstanceManager = cache.getAssignableInstanceManager();
 
     // Iterate through all instances
     for (String instance : prevInstanceToTaskAssignments.keySet()) {
+      assignedPartitions.put(instance, new HashSet<>());
+
+      // Set all dropping transitions first. These are tasks coming from Participant disconnects
+      // that have some active current state (INIT or RUNNING) and the requestedState of DROPPED.
+      // These need to be prioritized over any other state transitions because of the race condition
+      // with the same pId (task) running on other instances. This is because in paMap, we can only
+      // define one transition per pId
+      if (tasksToDrop.containsKey(instance)) {
+        for (int pIdToDrop : tasksToDrop.get(instance)) {
+          paMap.put(pIdToDrop,
+              new PartitionAssignment(instance, TaskPartitionState.DROPPED.name()));
+          assignedPartitions.get(instance).add(pIdToDrop);
+        }
+      }
+
       if (excludedInstances.contains(instance)) {
         continue;
       }
 
+      // If not an excluded instance, we must instantiate its entry in assignedPartitions
       Set<Integer> pSet = prevInstanceToTaskAssignments.get(instance);
+
+      // We need to remove all task pId's to be dropped because we already made an assignment in
+      // paMap above for them to be dropped. The following does this.
+      if (tasksToDrop.containsKey(instance)) {
+        pSet.removeAll(tasksToDrop.get(instance));
+      }
+
       // Used to keep track of partitions that are in one of the final states: COMPLETED, TIMED_OUT,
       // TASK_ERROR, ERROR.
       Set<Integer> donePartitions = new TreeSet<>();
       for (int pId : pSet) {
         final String pName = pName(jobResource, pId);
         TaskPartitionState currState = updateJobContextAndGetTaskCurrentState(currStateOutput,
-            jobResource, pId, pName, instance, jobCtx);
+            jobResource, pId, pName, instance, jobCtx, jobTgtState);
 
         // This avoids a race condition in the case that although currentState is in the following
         // error condition, the pending message (INIT->RUNNNING) might still be present.
@@ -74,7 +121,9 @@ public abstract class AbstractTaskDispatcher {
         if (currState == TaskPartitionState.ERROR || currState == TaskPartitionState.TASK_ERROR
             || currState == TaskPartitionState.TIMED_OUT
             || currState == TaskPartitionState.TASK_ABORTED) {
-          markPartitionError(jobCtx, pId, currState, true);
+          // Do not increment the task attempt count here - it will be incremented at scheduling
+          // time
+          markPartitionError(jobCtx, pId, currState);
         }
 
         // Check for pending state transitions on this (partition, instance). If there is a pending
@@ -93,7 +142,6 @@ public abstract class AbstractTaskDispatcher {
 
         // Get AssignableInstance for this instance and TaskConfig for releasing resources
         String quotaType = jobCfg.getJobType();
-        AssignableInstance assignableInstance = assignableInstanceMap.get(instance);
         String taskId;
         if (TaskUtil.isGenericTaskJob(jobCfg)) {
           taskId = jobCtx.getTaskIdForPartition(pId);
@@ -118,12 +166,19 @@ public abstract class AbstractTaskDispatcher {
           // transition and make it a NOP
           if (currState == TaskPartitionState.STOPPED && jobTgtState == TargetState.STOP) {
             // This task is STOPPED and not going to be re-run, so release this task
-            assignableInstance.release(taskConfig, quotaType);
+            assignableInstanceManager.release(instance, taskConfig, quotaType);
             continue;
           }
 
-          paMap.put(pId, new PartitionAssignment(instance, requestedState.name()));
-          assignedPartitions.add(pId);
+          // This contains check is necessary because we have already traversed pIdsToDrop at the
+          // beginning of this method. If we already have a dropping transition, we do not want to
+          // overwrite it. Any other requestedState transitions (for example, INIT to RUNNING or
+          // RUNNING to COMPLETE, can wait without affecting correctness - they will be picked up
+          // in ensuing runs of the Task pipeline)
+          if (!paMap.containsKey(pId)) {
+            paMap.put(pId, new PartitionAssignment(instance, requestedState.name()));
+          }
+          assignedPartitions.get(instance).add(pId);
           if (LOG.isDebugEnabled()) {
             LOG.debug(
                 String.format("Instance %s requested a state transition to %s for partition %s.",
@@ -147,7 +202,7 @@ public abstract class AbstractTaskDispatcher {
           }
 
           paMap.put(pId, new PartitionAssignment(instance, nextState.name()));
-          assignedPartitions.add(pId);
+          assignedPartitions.get(instance).add(pId);
           if (LOG.isDebugEnabled()) {
             LOG.debug(String.format("Setting task partition %s state to %s on instance %s.", pName,
                 nextState, instance));
@@ -168,10 +223,10 @@ public abstract class AbstractTaskDispatcher {
           } else {
             nextState = TaskPartitionState.STOPPED;
             // This task is STOPPED and not going to be re-run, so release this task
-            assignableInstance.release(taskConfig, quotaType);
+            assignableInstanceManager.release(instance, taskConfig, quotaType);
           }
           paMap.put(pId, new JobRebalancer.PartitionAssignment(instance, nextState.name()));
-          assignedPartitions.add(pId);
+          assignedPartitions.get(instance).add(pId);
 
           if (LOG.isDebugEnabled()) {
             LOG.debug(String.format("Setting task partition %s state to %s on instance %s.", pName,
@@ -191,7 +246,7 @@ public abstract class AbstractTaskDispatcher {
           markPartitionCompleted(jobCtx, pId);
 
           // This task is COMPLETED, so release this task
-          assignableInstance.release(taskConfig, quotaType);
+          assignableInstanceManager.release(instance, taskConfig, quotaType);
         }
           break;
         case TIMED_OUT:
@@ -227,7 +282,7 @@ public abstract class AbstractTaskDispatcher {
             }
           }
           // Release this task
-          assignableInstance.release(taskConfig, quotaType);
+          assignableInstanceManager.release(instance, taskConfig, quotaType);
         }
           break;
         case INIT: {
@@ -247,13 +302,13 @@ public abstract class AbstractTaskDispatcher {
             partitionsToDropFromIs.add(pId);
 
             // Also release resources for these tasks
-            assignableInstance.release(taskConfig, quotaType);
+            assignableInstanceManager.release(instance, taskConfig, quotaType);
           } else if (jobState == TaskState.IN_PROGRESS
               && (jobTgtState != TargetState.STOP && jobTgtState != TargetState.DELETE)) {
             // Job is in progress, implying that tasks are being re-tried, so set it to RUNNING
             paMap.put(pId,
                 new JobRebalancer.PartitionAssignment(instance, TaskPartitionState.RUNNING.name()));
-            assignedPartitions.add(pId);
+            assignedPartitions.get(instance).add(pId);
           }
         }
 
@@ -267,7 +322,7 @@ public abstract class AbstractTaskDispatcher {
           }
           // If it's DROPPED, release this task. If INIT, do not release
           if (currState == TaskPartitionState.DROPPED) {
-            assignableInstance.release(taskConfig, quotaType);
+            assignableInstanceManager.release(instance, taskConfig, quotaType);
           }
         }
           break;
@@ -303,12 +358,25 @@ public abstract class AbstractTaskDispatcher {
 
   private TaskPartitionState updateJobContextAndGetTaskCurrentState(
       CurrentStateOutput currentStateOutput, String jobResource, Integer pId, String pName,
-      String instance, JobContext jobCtx) {
+      String instance, JobContext jobCtx, TargetState jobTgtState) {
     String currentStateString =
         currentStateOutput.getCurrentState(jobResource, new Partition(pName), instance);
     if (currentStateString == null) {
       // Task state is either DROPPED or INIT
       TaskPartitionState stateFromContext = jobCtx.getPartitionState(pId);
+      // If jobTgtState is START: Since currentstate is null, this function will return INIT to
+      // start the task or it will return the stateFromContext (the current context) and there is no
+      // need to update the context.
+      // If jobTgtState is DELETE: JobDispatcher handles this case and this part of the code will
+      // not be triggered.
+      // If jobTgtState is STOP:
+      // If context is equal to INIT or RUNNING: Here context is set to be STOPPED.
+      // Other states don't need special handling and context can remain unchanged.
+      if (jobTgtState == TargetState.STOP && (stateFromContext == TaskPartitionState.RUNNING
+          || stateFromContext == TaskPartitionState.INIT)) {
+        jobCtx.setPartitionState(pId, TaskPartitionState.STOPPED);
+        return TaskPartitionState.STOPPED;
+      }
       return stateFromContext == null ? TaskPartitionState.INIT : stateFromContext;
     }
     TaskPartitionState currentState = TaskPartitionState.valueOf(currentStateString);
@@ -336,7 +404,7 @@ public abstract class AbstractTaskDispatcher {
   private void processTaskWithPendingMessage(ResourceAssignment prevAssignment, Integer pId,
       String pName, String instance, Message pendingMessage, TaskState jobState,
       TaskPartitionState currState, Map<Integer, PartitionAssignment> paMap,
-      Set<Integer> assignedPartitions) {
+      Map<String, Set<Integer>> assignedPartitions) {
 
     // stateMap is a mapping of Instance -> TaskPartitionState (String)
     Map<String, String> stateMap = prevAssignment.getReplicaMap(new Partition(pName));
@@ -353,10 +421,10 @@ public abstract class AbstractTaskDispatcher {
         // While job is timing out, if the task is pending on INIT->RUNNING, set it back to INIT,
         // so that Helix will cancel the transition.
         paMap.put(pId, new PartitionAssignment(instance, TaskPartitionState.INIT.name()));
-        assignedPartitions.add(pId);
+        assignedPartitions.get(instance).add(pId);
         if (LOG.isDebugEnabled()) {
           LOG.debug(String.format(
-              "Task partition %s has a pending state transition on instance %s INIT->RUNNING. "
+              "Task partition %s has a pending state transition on instance %s INIT->RUNNING. Previous state %s"
                   + "Setting it back to INIT so that Helix can cancel the transition(if enabled).",
               pName, instance, prevState));
         }
@@ -364,7 +432,7 @@ public abstract class AbstractTaskDispatcher {
         // Otherwise, Just copy forward
         // the state assignment from the previous ideal state.
         paMap.put(pId, new PartitionAssignment(instance, prevState));
-        assignedPartitions.add(pId);
+        assignedPartitions.get(instance).add(pId);
         if (LOG.isDebugEnabled()) {
           LOG.debug(String.format(
               "Task partition %s has a pending state transition on instance %s. Using the previous ideal state which was %s.",
@@ -377,22 +445,16 @@ public abstract class AbstractTaskDispatcher {
   protected static void markPartitionCompleted(JobContext ctx, int pId) {
     ctx.setPartitionState(pId, TaskPartitionState.COMPLETED);
     ctx.setPartitionFinishTime(pId, System.currentTimeMillis());
-    ctx.incrementNumAttempts(pId);
   }
 
-  protected static void markPartitionError(JobContext ctx, int pId, TaskPartitionState state,
-      boolean incrementAttempts) {
+  protected static void markPartitionError(JobContext ctx, int pId, TaskPartitionState state) {
     ctx.setPartitionState(pId, state);
     ctx.setPartitionFinishTime(pId, System.currentTimeMillis());
-    if (incrementAttempts) {
-      ctx.incrementNumAttempts(pId);
-    }
   }
 
-  protected static void markAllPartitionsError(JobContext ctx, TaskPartitionState state,
-      boolean incrementAttempts) {
+  protected static void markAllPartitionsError(JobContext ctx) {
     for (int pId : ctx.getPartitionSet()) {
-      markPartitionError(ctx, pId, state, incrementAttempts);
+      markPartitionError(ctx, pId, TaskPartitionState.ERROR);
     }
   }
 
@@ -422,9 +484,9 @@ public abstract class AbstractTaskDispatcher {
 
   protected void failJob(String jobName, WorkflowContext workflowContext, JobContext jobContext,
       WorkflowConfig workflowConfig, Map<String, JobConfig> jobConfigMap,
-      ClusterDataCache clusterDataCache) {
-    markJobFailed(jobName, jobContext, workflowConfig, workflowContext, jobConfigMap,
-        clusterDataCache.getTaskDataCache());
+      WorkflowControllerDataProvider dataProvider) {
+    markJobFailed(jobName, jobContext, workflowConfig, workflowContext, jobConfigMap, dataProvider);
+
     // Mark all INIT task to TASK_ABORTED
     for (int pId : jobContext.getPartitionSet()) {
       if (jobContext.getPartitionState(pId) == TaskPartitionState.INIT) {
@@ -440,12 +502,13 @@ public abstract class AbstractTaskDispatcher {
   // This is the actual assigning part
   protected void handleAdditionalTaskAssignment(
       Map<String, SortedSet<Integer>> prevInstanceToTaskAssignments, Set<String> excludedInstances,
-      String jobResource, CurrentStateOutput currStateOutput, JobContext jobCtx, JobConfig jobCfg,
-      WorkflowConfig workflowConfig, WorkflowContext workflowCtx, ClusterDataCache cache,
-      ResourceAssignment prevTaskToInstanceStateAssignment, Set<Integer> assignedPartitions,
-      Map<Integer, PartitionAssignment> paMap, Set<Integer> skippedPartitions,
-      TaskAssignmentCalculator taskAssignmentCal, Set<Integer> allPartitions, long currentTime,
-      Collection<String> liveInstances) {
+      String jobResource, CurrentStateOutput currStateOutput, JobContext jobCtx,
+      final JobConfig jobCfg, final WorkflowConfig workflowConfig, WorkflowContext workflowCtx,
+      final WorkflowControllerDataProvider cache,
+      ResourceAssignment prevTaskToInstanceStateAssignment,
+      Map<String, Set<Integer>> assignedPartitions, Map<Integer, PartitionAssignment> paMap,
+      Set<Integer> skippedPartitions, TaskAssignmentCalculator taskAssignmentCal,
+      Set<Integer> allPartitions, final long currentTime, Collection<String> liveInstances) {
 
     // See if there was LiveInstance change and cache LiveInstances from this iteration of pipeline
     boolean existsLiveInstanceOrCurrentStateChange =
@@ -454,7 +517,11 @@ public abstract class AbstractTaskDispatcher {
     // The excludeSet contains the set of task partitions that must be excluded from consideration
     // when making any new assignments.
     // This includes all completed, failed, delayed, and already assigned partitions.
-    Set<Integer> excludeSet = Sets.newTreeSet(assignedPartitions);
+    Set<Integer> excludeSet = Sets.newTreeSet();
+    // Add all assigned partitions to excludeSet
+    for (Set<Integer> assignedSet : assignedPartitions.values()) {
+      excludeSet.addAll(assignedSet);
+    }
     addCompletedTasks(excludeSet, jobCtx, allPartitions);
     addGiveupPartitions(excludeSet, jobCtx, allPartitions, jobCfg);
     excludeSet.addAll(skippedPartitions);
@@ -529,21 +596,20 @@ public abstract class AbstractTaskDispatcher {
             .containsKey(instance)) {
           continue; // This should not happen; skip!
         }
-        AssignableInstance assignableInstance =
-            cache.getAssignableInstanceManager().getAssignableInstanceMap().get(instance);
+        AssignableInstanceManager assignableInstanceManager = cache.getAssignableInstanceManager();
         String quotaType = jobCfg.getJobType();
         for (int partitionNum : tgtPartitionAssignments.get(instance)) {
           // Get the TaskConfig for this partitionNumber
           String taskId = getTaskId(jobCfg, jobCtx, partitionNum);
           TaskConfig taskConfig = jobCfg.getTaskConfig(taskId);
-          assignableInstance.release(taskConfig, quotaType);
+          assignableInstanceManager.release(instance, taskConfig, quotaType);
         }
         continue;
       }
       // 1. throttled by job configuration
       // Contains the set of task partitions currently assigned to the instance.
-      Set<Integer> pSet = entry.getValue();
-      int jobCfgLimitation = jobCfg.getNumConcurrentTasksPerInstance() - pSet.size();
+      int jobCfgLimitation =
+          jobCfg.getNumConcurrentTasksPerInstance() - assignedPartitions.get(instance).size();
       // 2. throttled by participant capacity
       int participantCapacity = cache.getInstanceConfigMap().get(instance).getMaxConcurrentTask();
       if (participantCapacity == InstanceConfig.MAX_CONCURRENT_TASK_NOT_SET) {
@@ -564,12 +630,22 @@ public abstract class AbstractTaskDispatcher {
         List<Integer> nextPartitions = getNextPartitions(tgtPartitionAssignments.get(instance),
             excludeSet, throttledSet, numToAssign);
         for (Integer pId : nextPartitions) {
+          // The following is the actual scheduling of the tasks
           String pName = pName(jobResource, pId);
           paMap.put(pId, new PartitionAssignment(instance, TaskPartitionState.RUNNING.name()));
           excludeSet.add(pId);
           jobCtx.setAssignedParticipant(pId, instance);
           jobCtx.setPartitionState(pId, TaskPartitionState.INIT);
-          jobCtx.setPartitionStartTime(pId, System.currentTimeMillis());
+          final long currentTimestamp = System.currentTimeMillis();
+          jobCtx.setPartitionStartTime(pId, currentTimestamp);
+          if (jobCtx.getExecutionStartTime() == WorkflowContext.NOT_STARTED) {
+            // This means this is the very first task scheduled for this job
+            jobCtx.setExecutionStartTime(currentTimestamp);
+            reportSubmissionToScheduleDelay(cache, _clusterStatusMonitor, workflowConfig, jobCfg,
+                currentTimestamp);
+          }
+          // Increment the task attempt count at schedule time
+          jobCtx.incrementNumAttempts(pId);
           if (LOG.isDebugEnabled()) {
             LOG.debug(String.format("Setting task partition %s state to %s on instance %s.", pName,
                 TaskPartitionState.RUNNING, instance));
@@ -593,14 +669,13 @@ public abstract class AbstractTaskDispatcher {
             .containsKey(instance)) {
           continue;
         }
-        AssignableInstance assignableInstance =
-            cache.getAssignableInstanceManager().getAssignableInstanceMap().get(instance);
+        AssignableInstanceManager assignableInstanceManager = cache.getAssignableInstanceManager();
         String quotaType = jobCfg.getJobType();
         for (int partitionNum : throttledSet) {
           // Get the TaskConfig for this partitionNumber
           String taskId = getTaskId(jobCfg, jobCtx, partitionNum);
           TaskConfig taskConfig = jobCfg.getTaskConfig(taskId);
-          assignableInstance.release(taskConfig, quotaType);
+          assignableInstanceManager.release(instance, taskConfig, quotaType);
         }
         LOG.debug(
             throttledSet.size() + "tasks are ready but throttled when assigned to participant.");
@@ -645,7 +720,7 @@ public abstract class AbstractTaskDispatcher {
 
   private static List<Integer> getNextPartitions(SortedSet<Integer> candidatePartitions,
       Set<Integer> excluded, Set<Integer> throttled, int n) {
-    List<Integer> result = new ArrayList<Integer>();
+    List<Integer> result = new ArrayList<>();
     for (Integer pId : candidatePartitions) {
       if (!excluded.contains(pId)) {
         if (result.size() < n) {
@@ -760,22 +835,34 @@ public abstract class AbstractTaskDispatcher {
     }
   }
 
-  protected void markJobComplete(String jobName, JobContext jobContext,
-      WorkflowConfig workflowConfig, WorkflowContext workflowContext,
-      Map<String, JobConfig> jobConfigMap, ClusterDataCache clusterDataCache) {
-    long currentTime = System.currentTimeMillis();
+  protected void markJobComplete(final String jobName, final JobContext jobContext,
+      final WorkflowConfig workflowConfig, WorkflowContext workflowContext,
+      final Map<String, JobConfig> jobConfigMap,
+      final WorkflowControllerDataProvider dataProvider) {
+    finishJobInRuntimeJobDag(dataProvider.getTaskDataCache(), workflowConfig.getWorkflowId(),
+        jobName);
+    final long currentTime = System.currentTimeMillis();
     workflowContext.setJobState(jobName, TaskState.COMPLETED);
     jobContext.setFinishTime(currentTime);
-    if (isWorkflowFinished(workflowContext, workflowConfig, jobConfigMap, clusterDataCache.getTaskDataCache())) {
+    if (isWorkflowFinished(workflowContext, workflowConfig, jobConfigMap, dataProvider)) {
       workflowContext.setFinishTime(currentTime);
       updateWorkflowMonitor(workflowContext, workflowConfig);
     }
     scheduleJobCleanUp(jobConfigMap.get(jobName), workflowConfig, currentTime);
+
+    // Job has completed successfully so report ControllerInducedDelay
+    JobConfig jobConfig = jobConfigMap.get(jobName);
+    if (jobConfig != null) {
+      reportControllerInducedDelay(dataProvider, _clusterStatusMonitor, workflowConfig, jobConfig,
+          currentTime);
+    }
   }
 
   protected void markJobFailed(String jobName, JobContext jobContext, WorkflowConfig workflowConfig,
       WorkflowContext workflowContext, Map<String, JobConfig> jobConfigMap,
-      TaskDataCache clusterDataCache) {
+      WorkflowControllerDataProvider clusterDataCache) {
+    finishJobInRuntimeJobDag(clusterDataCache.getTaskDataCache(), workflowConfig.getWorkflowId(),
+        jobName);
     long currentTime = System.currentTimeMillis();
     workflowContext.setJobState(jobName, TaskState.FAILED);
     if (jobContext != null) {
@@ -813,7 +900,7 @@ public abstract class AbstractTaskDispatcher {
    *         returns false otherwise.
    */
   protected boolean isWorkflowFinished(WorkflowContext ctx, WorkflowConfig cfg,
-      Map<String, JobConfig> jobConfigMap, TaskDataCache clusterDataCache) {
+      Map<String, JobConfig> jobConfigMap, WorkflowControllerDataProvider clusterDataCache) {
     boolean incomplete = false;
 
     TaskState workflowState = ctx.getWorkflowState();
@@ -846,16 +933,18 @@ public abstract class AbstractTaskDispatcher {
               // Since the job is aborted, release resources occupied by it
               // Otherwise, we run the risk of resource leak
               if (clusterDataCache != null) {
-                Iterable<AssignableInstance> assignableInstances = clusterDataCache
-                    .getAssignableInstanceManager().getAssignableInstanceMap().values();
+                AssignableInstanceManager assignableInstanceManager =
+                    clusterDataCache.getAssignableInstanceManager();
                 JobConfig jobConfig = jobConfigMap.get(jobToFail);
                 String quotaType = jobConfig.getJobType();
                 Map<String, TaskConfig> taskConfigMap = jobConfig.getTaskConfigMap();
                 // Iterate over all tasks and release them
                 for (Map.Entry<String, TaskConfig> taskEntry : taskConfigMap.entrySet()) {
                   TaskConfig taskConfig = taskEntry.getValue();
-                  for (AssignableInstance assignableInstance : assignableInstances) {
-                    assignableInstance.release(taskConfig, quotaType);
+                  for (String assignableInstanceName : assignableInstanceManager
+                      .getAssignableInstanceNames()) {
+                    assignableInstanceManager.release(assignableInstanceName, taskConfig,
+                        quotaType);
                   }
                 }
               }
@@ -886,7 +975,7 @@ public abstract class AbstractTaskDispatcher {
   // Common methods
 
   protected Set<String> getExcludedInstances(String currentJobName, WorkflowConfig workflowCfg,
-      WorkflowContext workflowContext, ClusterDataCache cache) {
+      WorkflowContext workflowContext, WorkflowControllerDataProvider cache) {
     Set<String> ret = new HashSet<>();
 
     if (!workflowCfg.isAllowOverlapJobAssignment()) {
@@ -980,11 +1069,16 @@ public abstract class AbstractTaskDispatcher {
 
   /**
    * Checks if the workflow has been stopped.
+   * In the case of a recurrent workflow template, we look at its TargetState.
    * @param ctx Workflow context containing task states
    * @param cfg Workflow config containing set of tasks
    * @return returns true if all tasks are {@link TaskState#STOPPED}, false otherwise.
    */
   protected boolean isWorkflowStopped(WorkflowContext ctx, WorkflowConfig cfg) {
+    if (cfg.isRecurring()) {
+      return cfg.getTargetState() == TargetState.STOP;
+    }
+
     for (String job : cfg.getJobDag().getAllNodes()) {
       TaskState jobState = ctx.getJobState(job);
       if (jobState != null
@@ -1019,10 +1113,29 @@ public abstract class AbstractTaskDispatcher {
    */
   protected boolean isJobReadyToSchedule(String job, WorkflowConfig workflowCfg,
       WorkflowContext workflowCtx, int incompleteAllCount, Map<String, JobConfig> jobConfigMap,
-      TaskDataCache clusterDataCache) {
+      WorkflowControllerDataProvider clusterDataCache,
+      AssignableInstanceManager assignableInstanceManager) {
     int notStartedCount = 0;
     int failedOrTimeoutCount = 0;
     int incompleteParentCount = 0;
+    JobConfig jobConfig = jobConfigMap.get(job);
+
+    if (jobConfig == null) {
+      LOG.error(String.format("The job config is missing for job %s", job));
+      return false;
+    }
+
+    String quotaType = TaskAssignmentCalculator.getQuotaType(workflowCfg, jobConfig);
+    if (quotaType == null || !assignableInstanceManager.hasQuotaType(quotaType)) {
+      quotaType = AssignableInstance.DEFAULT_QUOTA_TYPE;
+    }
+
+    if (!assignableInstanceManager.hasGlobalCapacity(quotaType)) {
+      LOG.info(String.format(
+          "Job %s not ready to schedule due to not having enough quota for quota type %s", job,
+          quotaType));
+      return false;
+    }
 
     for (String parent : workflowCfg.getJobDag().getDirectParents(job)) {
       TaskState jobState = workflowCtx.getJobState(parent);
@@ -1046,11 +1159,6 @@ public abstract class AbstractTaskDispatcher {
 
     // If there is parent job failed, schedule the job only when ignore dependent
     // job failure enabled
-    JobConfig jobConfig = jobConfigMap.get(job);
-    if (jobConfig == null) {
-      LOG.error(String.format("The job config is missing for job %s", job));
-      return false;
-    }
     if (failedOrTimeoutCount > 0 && !jobConfig.isIgnoreDependentJobFailure()) {
       markJobFailed(job, null, workflowCfg, workflowCtx, jobConfigMap, clusterDataCache);
       if (LOG.isDebugEnabled()) {
@@ -1093,5 +1201,120 @@ public abstract class AbstractTaskDispatcher {
     Date startTime = workflowCfg.getStartTime();
     // Workflow with non-scheduled config or passed start time is ready to schedule.
     return (startTime == null || startTime.getTime() <= System.currentTimeMillis());
+  }
+
+  public void updateBestPossibleStateOutput(String resource,
+      ResourceAssignment partitionStateAssignment, BestPossibleStateOutput output) {
+    // Use the internal MappingCalculator interface to compute the final assignment
+    // The next release will support rebalancers that compute the mapping from start to finish
+    for (Partition partition : partitionStateAssignment.getMappedPartitions()) {
+      Map<String, String> newStateMap = partitionStateAssignment.getReplicaMap(partition);
+      output.setState(resource, partition, newStateMap);
+    }
+  }
+
+  protected void finishJobInRuntimeJobDag(TaskDataCache clusterDataCache, String workflowName,
+      String jobName) {
+    RuntimeJobDag runtimeJobDag = clusterDataCache.getRuntimeJobDag(workflowName);
+    if (runtimeJobDag != null) {
+      runtimeJobDag.finishJob(jobName);
+      LOG.debug(
+          String.format("Finish job %s of workflow %s for runtime job DAG", jobName, workflowName));
+    } else {
+      LOG.warn(String.format("Failed to find runtime job DAG for workflow %s and job %s",
+          workflowName, jobName));
+    }
+  }
+
+  /**
+   * TODO: Move this logic to Task Framework metrics class for refactoring.
+   * Computes and passes on submissionToProcessDelay to the dynamic metric.
+   * @param dataProvider
+   * @param clusterStatusMonitor
+   * @param workflowConfig
+   * @param jobConfig
+   * @param currentTimestamp
+   */
+  protected static void reportSubmissionToProcessDelay(BaseControllerDataProvider dataProvider,
+      final ClusterStatusMonitor clusterStatusMonitor, final WorkflowConfig workflowConfig,
+      final JobConfig jobConfig, final long currentTimestamp) {
+    AbstractBaseStage.asyncExecute(dataProvider.getAsyncTasksThreadPool(), () -> {
+      // Asynchronously update the appropriate JobMonitor
+      JobMonitor jobMonitor = clusterStatusMonitor
+          .getJobMonitor(TaskAssignmentCalculator.getQuotaType(workflowConfig, jobConfig));
+      if (jobMonitor == null) {
+        return null;
+      }
+
+      // Compute SubmissionToProcessDelay
+      long submissionToProcessDelay = currentTimestamp - jobConfig.getStat().getCreationTime();
+      jobMonitor.updateSubmissionToProcessDelayGauge(submissionToProcessDelay);
+      return null;
+    });
+  }
+
+  /**
+   * TODO: Move this logic to Task Framework metrics class for refactoring.
+   * Computes and passes on submissionToScheduleDelay to the dynamic metric.
+   * @param dataProvider
+   * @param clusterStatusMonitor
+   * @param workflowConfig
+   * @param jobConfig
+   * @param currentTimestamp
+   */
+  private static void reportSubmissionToScheduleDelay(BaseControllerDataProvider dataProvider,
+      final ClusterStatusMonitor clusterStatusMonitor, final WorkflowConfig workflowConfig,
+      final JobConfig jobConfig, final long currentTimestamp) {
+    AbstractBaseStage.asyncExecute(dataProvider.getAsyncTasksThreadPool(), () -> {
+      // Asynchronously update the appropriate JobMonitor
+      JobMonitor jobMonitor = clusterStatusMonitor
+          .getJobMonitor(TaskAssignmentCalculator.getQuotaType(workflowConfig, jobConfig));
+      if (jobMonitor == null) {
+        return null;
+      }
+
+      // Compute SubmissionToScheduleDelay
+      long submissionToStartDelay = currentTimestamp - jobConfig.getStat().getCreationTime();
+      jobMonitor.updateSubmissionToScheduleDelayGauge(submissionToStartDelay);
+      return null;
+    });
+  }
+
+  /**
+   * TODO: Move this logic to Task Framework metrics class for refactoring.
+   * Computes and passes on controllerInducedDelay to the dynamic metric.
+   * @param dataProvider
+   * @param clusterStatusMonitor
+   * @param workflowConfig
+   * @param jobConfig
+   * @param currentTimestamp
+   */
+  private static void reportControllerInducedDelay(BaseControllerDataProvider dataProvider,
+      final ClusterStatusMonitor clusterStatusMonitor, final WorkflowConfig workflowConfig,
+      final JobConfig jobConfig, final long currentTimestamp) {
+    AbstractBaseStage.asyncExecute(dataProvider.getAsyncTasksThreadPool(), () -> {
+      // Asynchronously update the appropriate JobMonitor
+      JobMonitor jobMonitor = clusterStatusMonitor
+          .getJobMonitor(TaskAssignmentCalculator.getQuotaType(workflowConfig, jobConfig));
+      if (jobMonitor == null) {
+        return null;
+      }
+
+      // Compute ControllerInducedDelay only if the workload is a test load
+      // NOTE: this metric cannot be computed for general user-submitted workloads because
+      // the actual runtime of the tasks vary, and there could exist multiple tasks per
+      // job
+      // NOTE: a test workload will have the "latency" field in the mapField of the
+      // JobConfig (taskConfig)
+      String firstTask = jobConfig.getTaskConfigMap().keySet().iterator().next();
+      if (jobConfig.getTaskConfig(firstTask).getConfigMap().containsKey(TASK_LATENCY_TAG)) {
+        long taskDuration =
+            Long.valueOf(jobConfig.getTaskConfig(firstTask).getConfigMap().get(TASK_LATENCY_TAG));
+        long controllerInducedDelay =
+            currentTimestamp - jobConfig.getStat().getCreationTime() - taskDuration;
+        jobMonitor.updateControllerInducedDelayGauge(controllerInducedDelay);
+      }
+      return null;
+    });
   }
 }

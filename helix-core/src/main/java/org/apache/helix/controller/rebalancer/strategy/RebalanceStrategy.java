@@ -19,40 +19,38 @@ package org.apache.helix.controller.rebalancer.strategy;
  * under the License.
  */
 
-import org.apache.helix.ZNRecord;
-import org.apache.helix.controller.stages.ClusterDataCache;
-
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.helix.ZNRecord;
+import org.apache.helix.controller.dataproviders.BaseControllerDataProvider;
 
 /**
  * Assignment strategy interface that computes the assignment of partition->instance.
  */
-// TODO: 2018/6/4 by zmyer
-public interface RebalanceStrategy {
-    String DEFAULT_REBALANCE_STRATEGY = "DEFAULT";
+public interface RebalanceStrategy<T extends BaseControllerDataProvider> {
+  String DEFAULT_REBALANCE_STRATEGY = "DEFAULT";
 
-    /**
-     * Perform the necessary initialization for the rebalance strategy object.
-     *
-     * @param resourceName
-     * @param partitions
-     * @param states
-     * @param maximumPerNode
-     */
-    void init(String resourceName, final List<String> partitions,
-            final LinkedHashMap<String, Integer> states, int maximumPerNode);
+  /**
+   * Perform the necessary initialization for the rebalance strategy object.
+   *
+   * @param resourceName
+   * @param partitions
+   * @param states
+   * @param maximumPerNode
+   */
+  void init(String resourceName, final List<String> partitions,
+      final LinkedHashMap<String, Integer> states, int maximumPerNode);
 
-    /**
-     * Compute the preference lists and (optional partition-state mapping) for the given resource.
-     *
-     * @param liveNodes
-     * @param currentMapping
-     * @param allNodes
-     * @return
-     */
-    ZNRecord computePartitionAssignment(final List<String> allNodes,
-            final List<String> liveNodes, final Map<String, Map<String, String>> currentMapping,
-            ClusterDataCache clusterData);
+  /**
+   * Compute the preference lists and (optional partition-state mapping) for the given resource.
+   *
+   * @param liveNodes
+   * @param currentMapping
+   * @param allNodes
+   * @return
+   */
+  ZNRecord computePartitionAssignment(final List<String> allNodes, final List<String> liveNodes,
+      final Map<String, Map<String, String>> currentMapping,
+      T clusterData);
 }

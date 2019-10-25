@@ -21,13 +21,13 @@ package org.apache.helix.tools.ClusterVerifiers;
 
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.PropertyKey;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.common.PartitionStateMap;
 import org.apache.helix.controller.pipeline.Stage;
 import org.apache.helix.controller.pipeline.StageContext;
 import org.apache.helix.controller.stages.AttributeName;
 import org.apache.helix.controller.stages.BestPossibleStateCalcStage;
 import org.apache.helix.controller.stages.BestPossibleStateOutput;
-import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.controller.stages.ClusterEvent;
 import org.apache.helix.controller.stages.ClusterEventType;
 import org.apache.helix.controller.stages.CurrentStateComputationStage;
@@ -63,7 +63,7 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
   private final Map<String, Map<String, String>> _errStates;
   private final Set<String> _resources;
   private final Set<String> _expectLiveInstances;
-  private final ClusterDataCache _clusterDataCache;
+  private final ResourceControllerDataProvider _dataProvider;
 
   public BestPossibleExternalViewVerifier(String zkAddr, String clusterName, Set<String> resources,
       Map<String, Map<String, String>> errStates, Set<String> expectLiveInstances) {
@@ -71,7 +71,7 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     _errStates = errStates;
     _resources = resources;
     _expectLiveInstances = expectLiveInstances;
-    _clusterDataCache = new ClusterDataCache();
+    _dataProvider = new ResourceControllerDataProvider();
   }
 
   public BestPossibleExternalViewVerifier(HelixZkClient zkClient, String clusterName,
@@ -81,7 +81,7 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     _errStates = errStates;
     _resources = resources;
     _expectLiveInstances = expectLiveInstances;
-    _clusterDataCache = new ClusterDataCache();
+    _dataProvider = new ResourceControllerDataProvider();
   }
 
   public static class Builder {
@@ -194,23 +194,19 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     try {
       PropertyKey.Builder keyBuilder = _accessor.keyBuilder();
 
-      _clusterDataCache.requireFullRefresh();
-      _clusterDataCache.refresh(_accessor);
+      _dataProvider.requireFullRefresh();
+      _dataProvider.refresh(_accessor);
+      _dataProvider.setClusterEventId("ClusterStateVerifier");
 
-      Map<String, IdealState> idealStates = new HashMap<>(_clusterDataCache.getIdealStates());
+      Map<String, IdealState> idealStates = new HashMap<>(_dataProvider.getIdealStates());
 
       // filter out all resources that use Task state model
-      Iterator<Map.Entry<String, IdealState>> it = idealStates.entrySet().iterator();
-      while (it.hasNext()) {
-        Map.Entry<String, IdealState> pair = it.next();
-        if (pair.getValue().getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME)) {
-          it.remove();
-        }
-      }
+      idealStates.entrySet()
+          .removeIf(pair -> pair.getValue().getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME));
 
       // verify live instances.
       if (_expectLiveInstances != null && !_expectLiveInstances.isEmpty()) {
-        Set<String> actualLiveNodes = _clusterDataCache.getLiveInstances().keySet();
+        Set<String> actualLiveNodes = _dataProvider.getLiveInstances().keySet();
         if (!_expectLiveInstances.equals(actualLiveNodes)) {
           LOG.warn("Live instances are not as expected. Actual live nodes: " + actualLiveNodes.toString());
           return false;
@@ -240,7 +236,7 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
       }
 
       // calculate best possible state
-      BestPossibleStateOutput bestPossOutput = calcBestPossState(_clusterDataCache, _resources);
+      BestPossibleStateOutput bestPossOutput = calcBestPossState(_dataProvider, _resources);
       Map<String, Map<Partition, Map<String, String>>> bestPossStateMap =
           bestPossOutput.getStateMap();
 
@@ -280,7 +276,7 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
         PartitionStateMap bpStateMap =
             bestPossOutput.getPartitionStateMap(resourceName);
 
-        StateModelDefinition stateModelDef = _clusterDataCache.getStateModelDef(is.getStateModelDefRef());
+        StateModelDefinition stateModelDef = _dataProvider.getStateModelDef(is.getStateModelDefRef());
         if (stateModelDef == null) {
           LOG.error(
               "State model definition " + is.getStateModelDefRef() + " for resource not found!" + is
@@ -329,17 +325,16 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     while (partitionInstanceStateMapIter.hasNext()) {
       Map.Entry<String, Map<String, String>> entry = partitionInstanceStateMapIter.next();
       Map<String, String> instanceStateMap = entry.getValue();
+      // remove instances with DROPPED and OFFLINE state
+      Iterator<Map.Entry<String, String>> insIter = instanceStateMap.entrySet().iterator();
+      while (insIter.hasNext()) {
+        String state = insIter.next().getValue();
+        if (ignoredStates.contains(state)) {
+          insIter.remove();
+        }
+      }
       if (instanceStateMap.isEmpty()) {
         partitionInstanceStateMapIter.remove();
-      } else {
-        // remove instances with DROPPED and OFFLINE state
-        Iterator<Map.Entry<String, String>> insIter = instanceStateMap.entrySet().iterator();
-        while (insIter.hasNext()) {
-          String state = insIter.next().getValue();
-          if (ignoredStates.contains(state)) {
-            insIter.remove();
-          }
-        }
       }
     }
   }
@@ -362,10 +357,10 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
    * @return
    * @throws Exception
    */
-  private BestPossibleStateOutput calcBestPossState(ClusterDataCache cache, Set<String> resources)
+  private BestPossibleStateOutput calcBestPossState(ResourceControllerDataProvider cache, Set<String> resources)
       throws Exception {
     ClusterEvent event = new ClusterEvent(ClusterEventType.StateVerifier);
-    event.addAttribute(AttributeName.ClusterDataCache.name(), cache);
+    event.addAttribute(AttributeName.ControllerDataProvider.name(), cache);
 
     runStage(event, new ResourceComputationStage());
 

@@ -19,9 +19,23 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
+import com.google.common.collect.Sets;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.Timer;
+import java.util.concurrent.TimeUnit;
+import javax.management.JMException;
 import org.I0Itec.zkclient.IZkStateListener;
 import org.I0Itec.zkclient.exception.ZkInterruptedException;
-import org.apache.helix.*;
+import org.apache.helix.BaseDataAccessor;
+import org.apache.helix.ClusterMessagingService;
+import org.apache.helix.ConfigAccessor;
+import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixConstants.ChangeType;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
@@ -33,6 +47,10 @@ import org.apache.helix.LiveInstanceInfoProvider;
 import org.apache.helix.PreConnectCallback;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyKey.Builder;
+import org.apache.helix.PropertyPathBuilder;
+import org.apache.helix.PropertyType;
+import org.apache.helix.SystemPropertyKeys;
+import org.apache.helix.ZNRecord;
 import org.apache.helix.api.listeners.ClusterConfigChangeListener;
 import org.apache.helix.api.listeners.ConfigChangeListener;
 import org.apache.helix.api.listeners.ControllerChangeListener;
@@ -45,6 +63,7 @@ import org.apache.helix.api.listeners.MessageListener;
 import org.apache.helix.api.listeners.ResourceConfigChangeListener;
 import org.apache.helix.api.listeners.ScopedConfigChangeListener;
 import org.apache.helix.controller.GenericHelixController;
+import org.apache.helix.controller.pipeline.Pipeline;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollector;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollectorImpl;
 import org.apache.helix.healthcheck.ParticipantHealthReportTask;
@@ -57,6 +76,7 @@ import org.apache.helix.model.HelixConfigScope.ConfigScopeProperty;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.monitoring.ZKPathDataDumpTask;
 import org.apache.helix.monitoring.mbeans.HelixCallbackMonitor;
+import org.apache.helix.monitoring.mbeans.MonitorLevel;
 import org.apache.helix.participant.HelixStateMachineEngine;
 import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.store.zk.AutoFallbackPropertyStore;
@@ -67,18 +87,8 @@ import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.management.JMException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Timer;
-import java.util.concurrent.TimeUnit;
-
 public class ZKHelixManager implements HelixManager, IZkStateListener {
-    private static Logger LOG = LoggerFactory.getLogger(ZKHelixManager.class);
+  private static Logger LOG = LoggerFactory.getLogger(ZKHelixManager.class);
 
   public static final String ALLOW_PARTICIPANT_AUTO_JOIN = "allowParticipantAutoJoin";
   private static final int FLAPPING_TIME_WINDOW = 300000; // Default to 300 sec
@@ -97,145 +107,148 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   private final HelixManagerProperties _properties;
   private final HelixManagerStateListener _stateListener;
 
-    /**
-     * helix version#
-     */
-    private final String _version;
-    private int _reportLatency;
+  /**
+   * helix version#
+   */
+  private final String _version;
+  private int _reportLatency;
 
   protected HelixZkClient _zkclient = null;
   private final DefaultMessagingService _messagingService;
   private Map<ChangeType, HelixCallbackMonitor> _callbackMonitors;
 
-    private BaseDataAccessor<ZNRecord> _baseDataAccessor;
-    private ZKHelixDataAccessor _dataAccessor;
-    private final Builder _keyBuilder;
-    private ConfigAccessor _configAccessor;
-    private ZkHelixPropertyStore<ZNRecord> _helixPropertyStore;
-    protected LiveInstanceInfoProvider _liveInstanceInfoProvider = null;
+  private final MonitorLevel _monitorLevel;
 
-    private volatile String _sessionId;
+  private BaseDataAccessor<ZNRecord> _baseDataAccessor;
+  private ZKHelixDataAccessor _dataAccessor;
+  private final Builder _keyBuilder;
+  private ConfigAccessor _configAccessor;
+  private ZkHelixPropertyStore<ZNRecord> _helixPropertyStore;
+  protected LiveInstanceInfoProvider _liveInstanceInfoProvider = null;
 
-    /**
-     * Keep track of timestamps that zk State has become Disconnected If in a _timeWindowLengthMs
-     * window zk State has become Disconnected for more than_maxDisconnectThreshold times disconnect
-     * the zkHelixManager
-     */
-    private final List<Long> _disconnectTimeHistory = new ArrayList<Long>();
-    private final int _flappingTimeWindowMs;
-    private final int _maxDisconnectThreshold;
+  private volatile String _sessionId;
 
-    /**
-     * participant fields
-     */
-    private final StateMachineEngine _stateMachineEngine;
-    private final List<HelixTimerTask> _timerTasks = new ArrayList<>();
+  /**
+   * Keep track of timestamps that zk State has become Disconnected If in a _timeWindowLengthMs
+   * window zk State has become Disconnected for more than_maxDisconnectThreshold times disconnect
+   * the zkHelixManager
+   */
+  private final List<Long> _disconnectTimeHistory = new ArrayList<Long>();
+  private final int _flappingTimeWindowMs;
+  private final int _maxDisconnectThreshold;
 
-    private final ParticipantHealthReportCollectorImpl _participantHealthInfoCollector;
-    private Long _sessionStartTime;
-    private ParticipantManager _participantManager;
+  /**
+   * participant fields
+   */
+  private final StateMachineEngine _stateMachineEngine;
+  private final List<HelixTimerTask> _timerTasks = new ArrayList<>();
 
-    /**
-     * controller fields
-     */
-    private GenericHelixController _controller;
-    private CallbackHandler _leaderElectionHandler = null;
-    protected final List<HelixTimerTask> _controllerTimerTasks = new ArrayList<>();
+  private final ParticipantHealthReportCollectorImpl _participantHealthInfoCollector;
+  private Long _sessionStartTime;
+  private ParticipantManager _participantManager;
 
-    /**
-     * status dump timer-task
-     */
-    // TODO: 2018/6/15 by zmyer
-    static class StatusDumpTask extends HelixTimerTask {
-        Timer _timer = null;
-        final HelixManager helixController;
+  /**
+   * controller fields
+   */
+  private GenericHelixController _controller;
+  private Set<Pipeline.Type> _enabledPipelineTypes;
+  private CallbackHandler _leaderElectionHandler = null;
+  protected final List<HelixTimerTask> _controllerTimerTasks = new ArrayList<>();
 
-        public StatusDumpTask(HelixManager helixController) {
-            this.helixController = helixController;
-        }
+  /**
+   * status dump timer-task
+   */
+  static class StatusDumpTask extends HelixTimerTask {
+    Timer _timer = null;
+    final HelixManager helixController;
 
-        @Override
-        public void start() {
-            long initialDelay = 0;
-            long period = 15 * 60 * 1000;
-            long timeThresholdNoChangeForStatusUpdates = 15 * 60 * 1000; // 15 minutes
-            long timeThresholdNoChangeForErrors = 24 * 60 * 60 * 1000; // 1 day
-            int maximumNumberOfLeafNodesAllowed = 100;
-
-            if (_timer == null) {
-                LOG.info("Start StatusDumpTask");
-                _timer = new Timer("StatusDumpTimerTask", true);
-                _timer.scheduleAtFixedRate(
-                        new ZKPathDataDumpTask(helixController, timeThresholdNoChangeForStatusUpdates,
-                                timeThresholdNoChangeForErrors, maximumNumberOfLeafNodesAllowed), initialDelay,
-                        period);
-            }
-        }
-
-        @Override
-        public void stop() {
-            if (_timer != null) {
-                LOG.info("Stop StatusDumpTask");
-                _timer.cancel();
-                _timer = null;
-            }
-        }
+    public StatusDumpTask(HelixManager helixController) {
+      this.helixController = helixController;
     }
 
-    // TODO: 2018/6/4 by zmyer
-    public ZKHelixManager(String clusterName, String instanceName, InstanceType instanceType,
-            String zkAddress) {
-        this(clusterName, instanceName, instanceType, zkAddress, null);
+    @Override
+    public synchronized void start() {
+      long initialDelay = 0;
+      long period = 15 * 60 * 1000;
+      long timeThresholdNoChangeForStatusUpdates = 15 * 60 * 1000; // 15 minutes
+      long timeThresholdNoChangeForErrors = 24 * 60 * 60 * 1000; // 1 day
+      int maximumNumberOfLeafNodesAllowed = 100;
+
+      if (_timer == null) {
+        LOG.info("Start StatusDumpTask");
+        _timer = new Timer("StatusDumpTimerTask", true);
+        _timer.scheduleAtFixedRate(
+            new ZKPathDataDumpTask(helixController, timeThresholdNoChangeForStatusUpdates,
+                timeThresholdNoChangeForErrors, maximumNumberOfLeafNodesAllowed), initialDelay,
+            period);
+      }
     }
 
-    // TODO: 2018/6/4 by zmyer
-    public ZKHelixManager(String clusterName, String instanceName, InstanceType instanceType,
-            String zkAddress, HelixManagerStateListener stateListener) {
+    @Override
+    public synchronized void stop() {
+      if (_timer != null) {
+        LOG.info("Stop StatusDumpTask");
+        _timer.cancel();
+        _timer = null;
+      }
+    }
+  }
 
-        LOG.info("Create a zk-based cluster manager. zkSvr: " + zkAddress + ", clusterName: " + clusterName +
-                ", instanceName: " + instanceName + ", type: " + instanceType);
+  public ZKHelixManager(String clusterName, String instanceName, InstanceType instanceType,
+      String zkAddress) {
+    this(clusterName, instanceName, instanceType, zkAddress, null);
+  }
 
-        _zkAddress = zkAddress;
-        _clusterName = clusterName;
-        _instanceType = instanceType;
+  public ZKHelixManager(String clusterName, String instanceName, InstanceType instanceType,
+      String zkAddress, HelixManagerStateListener stateListener) {
 
-        if (instanceName == null) {
-            try {
-                instanceName = InetAddress.getLocalHost().getCanonicalHostName() + "-" + instanceType.toString();
-            } catch (UnknownHostException e) {
-                // can ignore it
-                LOG.info("Unable to get host name. Will set it to UNKNOWN, mostly ignorable", e);
-                instanceName = "UNKNOWN";
-            }
-        }
+    LOG.info(
+        "Create a zk-based cluster manager. zkSvr: " + zkAddress + ", clusterName: " + clusterName + ", instanceName: " + instanceName + ", type: " + instanceType);
 
-        _instanceName = instanceName;
-        _preConnectCallbacks = new ArrayList<>();
-        _handlers = new ArrayList<>();
-        _properties = new HelixManagerProperties(SystemPropertyKeys.CLUSTER_MANAGER_VERSION);
-        _version = _properties.getVersion();
+    _zkAddress = zkAddress;
+    _clusterName = clusterName;
+    _instanceType = instanceType;
 
-        _keyBuilder = new Builder(clusterName);
-        _messagingService = new DefaultMessagingService(this);
-        try {
-            _callbackMonitors = new HashMap<>();
-            for (ChangeType changeType : ChangeType.values()) {
-                HelixCallbackMonitor callbackMonitor =
-                        new HelixCallbackMonitor(instanceType, clusterName, instanceName, changeType);
-                callbackMonitor.register();
-                _callbackMonitors.put(changeType, callbackMonitor);
-            }
-        } catch (JMException e) {
-            LOG.error("Error in creating callback monitor.", e);
-        }
+    if (instanceName == null) {
+      try {
+        instanceName =
+            InetAddress.getLocalHost().getCanonicalHostName() + "-" + instanceType.toString();
+      } catch (UnknownHostException e) {
+        // can ignore it
+        LOG.info("Unable to get host name. Will set it to UNKNOWN, mostly ignorable", e);
+        instanceName = "UNKNOWN";
+      }
+    }
 
-        _stateListener = stateListener;
+    _instanceName = instanceName;
+    _enabledPipelineTypes =
+        Sets.newHashSet(Pipeline.Type.DEFAULT, Pipeline.Type.TASK);
+    _preConnectCallbacks = new ArrayList<>();
+    _handlers = new ArrayList<>();
+    _properties = new HelixManagerProperties(SystemPropertyKeys.CLUSTER_MANAGER_VERSION);
+    _version = _properties.getVersion();
 
-        /**
-         * use system property if available
-         */
-        _flappingTimeWindowMs = HelixUtil.getSystemPropertyAsInt(SystemPropertyKeys.FLAPPING_TIME_WINDOW,
-                ZKHelixManager.FLAPPING_TIME_WINDOW);
+    _keyBuilder = new Builder(clusterName);
+    _messagingService = new DefaultMessagingService(this);
+    try {
+      _callbackMonitors = new HashMap<>();
+      for (ChangeType changeType : ChangeType.values()) {
+        HelixCallbackMonitor callbackMonitor =
+            new HelixCallbackMonitor(instanceType, clusterName, instanceName, changeType);
+        callbackMonitor.register();
+        _callbackMonitors.put(changeType, callbackMonitor);
+      }
+    } catch (JMException e) {
+      LOG.error("Error in creating callback monitor.", e);
+    }
+
+    _stateListener = stateListener;
+
+    /**
+     * use system property if available
+     */
+    _flappingTimeWindowMs = HelixUtil.getSystemPropertyAsInt(SystemPropertyKeys.FLAPPING_TIME_WINDOW,
+        ZKHelixManager.FLAPPING_TIME_WINDOW);
 
     _maxDisconnectThreshold = HelixUtil
         .getSystemPropertyAsInt(SystemPropertyKeys.MAX_DISCONNECT_THRESHOLD,
@@ -248,79 +261,96 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         .getSystemPropertyAsInt(SystemPropertyKeys.ZK_CONNECTION_TIMEOUT,
             HelixZkClient.DEFAULT_CONNECTION_TIMEOUT);
 
-        _waitForConnectedTimeout = HelixUtil
-                .getSystemPropertyAsInt(SystemPropertyKeys.ZK_WAIT_CONNECTED_TIMEOUT,
-                        DEFAULT_WAIT_CONNECTED_TIMEOUT);
+    _waitForConnectedTimeout = HelixUtil
+        .getSystemPropertyAsInt(SystemPropertyKeys.ZK_WAIT_CONNECTED_TIMEOUT,
+            DEFAULT_WAIT_CONNECTED_TIMEOUT);
 
-        _reportLatency = HelixUtil
-                .getSystemPropertyAsInt(SystemPropertyKeys.PARTICIPANT_HEALTH_REPORT_LATENCY,
-                        ParticipantHealthReportTask.DEFAULT_REPORT_LATENCY);
+    _reportLatency = HelixUtil
+        .getSystemPropertyAsInt(SystemPropertyKeys.PARTICIPANT_HEALTH_REPORT_LATENCY,
+            ParticipantHealthReportTask.DEFAULT_REPORT_LATENCY);
 
-        /**
-         * instance type specific init
-         */
-        switch (instanceType) {
-        case PARTICIPANT:
-            _stateMachineEngine = new HelixStateMachineEngine(this);
-            _participantHealthInfoCollector =
-                    new ParticipantHealthReportCollectorImpl(this, _instanceName);
-            _timerTasks
-                    .add(new ParticipantHealthReportTask(_participantHealthInfoCollector, _reportLatency));
-            break;
-        case CONTROLLER:
-            _stateMachineEngine = null;
-            _participantHealthInfoCollector = null;
-            _controllerTimerTasks.add(new StatusDumpTask(this));
+    MonitorLevel configuredMonitorLevel;
+    try {
+      configuredMonitorLevel = MonitorLevel.valueOf(
+          System.getProperty(SystemPropertyKeys.MONITOR_LEVEL, MonitorLevel.DEFAULT.name()));
+    } catch (IllegalArgumentException ex) {
+      LOG.warn("Unrecognizable Monitor Level configuration. Use DEFAULT monitor level.", ex);
+      configuredMonitorLevel = MonitorLevel.DEFAULT;
+    }
+    _monitorLevel = configuredMonitorLevel;
 
-            break;
-        case CONTROLLER_PARTICIPANT:
-            _stateMachineEngine = new HelixStateMachineEngine(this);
-            _participantHealthInfoCollector =
-                    new ParticipantHealthReportCollectorImpl(this, _instanceName);
+    /**
+     * instance type specific init
+     */
+    switch (instanceType) {
+    case PARTICIPANT:
+      _stateMachineEngine = new HelixStateMachineEngine(this);
+      _participantHealthInfoCollector =
+          new ParticipantHealthReportCollectorImpl(this, _instanceName);
+      _timerTasks
+          .add(new ParticipantHealthReportTask(_participantHealthInfoCollector, _reportLatency));
+      break;
+    case CONTROLLER:
+      _stateMachineEngine = null;
+      _participantHealthInfoCollector = null;
+      _controllerTimerTasks.add(new StatusDumpTask(this));
 
-            _timerTasks
-                    .add(new ParticipantHealthReportTask(_participantHealthInfoCollector, _reportLatency));
-            _controllerTimerTasks.add(new StatusDumpTask(this));
-            break;
-        case ADMINISTRATOR:
-        case SPECTATOR:
-            _stateMachineEngine = null;
-            _participantHealthInfoCollector = null;
-            break;
-        default:
-            throw new IllegalArgumentException("unrecognized type: " + instanceType);
+      break;
+    case CONTROLLER_PARTICIPANT:
+      _stateMachineEngine = new HelixStateMachineEngine(this);
+      _participantHealthInfoCollector =
+          new ParticipantHealthReportCollectorImpl(this, _instanceName);
+
+      _timerTasks
+          .add(new ParticipantHealthReportTask(_participantHealthInfoCollector, _reportLatency));
+      _controllerTimerTasks.add(new StatusDumpTask(this));
+      break;
+    case ADMINISTRATOR:
+    case SPECTATOR:
+      _stateMachineEngine = null;
+      _participantHealthInfoCollector = null;
+      break;
+    default:
+      throw new IllegalArgumentException("unrecognized type: " + instanceType);
+    }
+  }
+
+  public void setEnabledControlPipelineTypes(Set<Pipeline.Type> types) {
+    if (!InstanceType.CONTROLLER.equals(_instanceType) && !InstanceType.CONTROLLER_PARTICIPANT
+        .equals(_instanceType)) {
+      throw new IllegalStateException(
+          String.format("Cannot enable control pipeline for instance type %s", _instanceType));
+    }
+    _enabledPipelineTypes = types;
+  }
+
+  @Override public boolean removeListener(PropertyKey key, Object listener) {
+    LOG.info("Removing listener: " + listener + " on path: " + key.getPath() + " from cluster: "
+        + _clusterName + " by instance: " + _instanceName);
+
+    synchronized (this) {
+      List<CallbackHandler> toRemove = new ArrayList<>();
+      for (CallbackHandler handler : _handlers) {
+        // compare property-key path and listener reference
+        if (handler.getPath().equals(key.getPath()) && handler.getListener().equals(listener)) {
+          toRemove.add(handler);
         }
+      }
+
+      _handlers.removeAll(toRemove);
+
+      // handler.reset() may modify the handlers list, so do it outside the iteration
+      for (CallbackHandler handler : toRemove) {
+        handler.reset(true);
+      }
     }
 
-    // TODO: 2018/7/25 by zmyer
-    @Override
-    public boolean removeListener(PropertyKey key, Object listener) {
-        LOG.info("Removing listener: " + listener + " on path: " + key.getPath() + " from cluster: "
-                + _clusterName + " by instance: " + _instanceName);
+    return true;
+  }
 
-        synchronized (this) {
-            List<CallbackHandler> toRemove = new ArrayList<>();
-            for (CallbackHandler handler : _handlers) {
-                // compare property-key path and listener reference
-                if (handler.getPath().equals(key.getPath()) && handler.getListener().equals(listener)) {
-                    toRemove.add(handler);
-                }
-            }
-
-            _handlers.removeAll(toRemove);
-
-            // handler.reset() may modify the handlers list, so do it outside the iteration
-            for (CallbackHandler handler : toRemove) {
-                handler.reset();
-            }
-        }
-
-        return true;
-    }
-
-    void checkConnected() {
-        checkConnected(-1);
-    }
+  void checkConnected() {
+    checkConnected(-1);
+  }
 
   /**
    * Check if HelixManager is connected, if it is not connected,
@@ -334,257 +364,246 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
           "HelixManager (ZkClient) is not connected. Call HelixManager#connect()");
     }
 
-        boolean isConnected = isConnected();
-        if (!isConnected && timeout > 0) {
-            LOG.warn(
-                    "zkClient to " + _zkAddress + " is not connected, wait for " + _waitForConnectedTimeout
-                            + "ms.");
-            isConnected = _zkclient.waitUntilConnected(_waitForConnectedTimeout, TimeUnit.MILLISECONDS);
+    boolean isConnected = isConnected();
+    if (!isConnected && timeout > 0) {
+      LOG.warn(
+          "zkClient to " + _zkAddress + " is not connected, wait for " + _waitForConnectedTimeout
+              + "ms.");
+      isConnected = _zkclient.waitUntilConnected(_waitForConnectedTimeout, TimeUnit.MILLISECONDS);
+    }
+
+    if (!isConnected) {
+      LOG.error("zkClient is not connected after waiting " + timeout + "ms."
+          + ", clusterName: " + _clusterName + ", zkAddress: " + _zkAddress);
+      throw new HelixException(
+          "HelixManager is not connected within retry timeout for cluster " + _clusterName);
+    }
+  }
+
+  void addListener(Object listener, PropertyKey propertyKey, ChangeType changeType,
+      EventType[] eventType) {
+    checkConnected(_waitForConnectedTimeout);
+
+    PropertyType type = propertyKey.getType();
+
+    synchronized (this) {
+      for (CallbackHandler handler : _handlers) {
+        // compare property-key path and listener reference
+        if (handler.getPath().equals(propertyKey.getPath())
+            && handler.getListener().equals(listener)) {
+          LOG.info("Listener: " + listener + " on path: " + propertyKey.getPath()
+              + " already exists. skip add");
+
+          return;
         }
+      }
 
-        if (!isConnected) {
-            LOG.error("zkClient is not connected after waiting " + timeout + "ms."
-                    + ", clusterName: " + _clusterName + ", zkAddress: " + _zkAddress);
-            throw new HelixException(
-                    "HelixManager is not connected within retry timeout for cluster " + _clusterName);
-        }
+      CallbackHandler newHandler =
+          new CallbackHandler(this, _zkclient, propertyKey, listener, eventType, changeType,
+              _callbackMonitors.get(changeType));
+
+      _handlers.add(newHandler);
+      LOG.info("Added listener: " + listener + " for type: " + type + " to path: "
+          + newHandler.getPath());
+    }
+  }
+
+  @Override
+  public void addIdealStateChangeListener(final IdealStateChangeListener listener) throws Exception {
+    addListener(listener, new Builder(_clusterName).idealStates(), ChangeType.IDEAL_STATE,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
+
+  @Deprecated
+  @Override
+  public void addIdealStateChangeListener(final org.apache.helix.IdealStateChangeListener listener)
+      throws Exception {
+    addListener(listener, new Builder(_clusterName).idealStates(), ChangeType.IDEAL_STATE,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
+
+  @Override
+  public void addLiveInstanceChangeListener(LiveInstanceChangeListener listener) throws Exception {
+    addListener(listener, new Builder(_clusterName).liveInstances(), ChangeType.LIVE_INSTANCE,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
+
+  @Deprecated
+  @Override
+  public void addLiveInstanceChangeListener(org.apache.helix.LiveInstanceChangeListener listener)
+      throws Exception {
+    addListener(listener, new Builder(_clusterName).liveInstances(), ChangeType.LIVE_INSTANCE,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
+
+  @Override
+  public void addConfigChangeListener(ConfigChangeListener listener) throws Exception {
+    addListener(listener, new Builder(_clusterName).instanceConfigs(), ChangeType.INSTANCE_CONFIG,
+        new EventType[] { EventType.NodeChildrenChanged
+        });
+  }
+
+  @Override
+  public void addInstanceConfigChangeListener(InstanceConfigChangeListener listener)
+      throws Exception {
+    addListener(listener, new Builder(_clusterName).instanceConfigs(), ChangeType.INSTANCE_CONFIG,
+        new EventType[] { EventType.NodeChildrenChanged
+        });
+  }
+
+  @Deprecated
+  @Override
+  public void addInstanceConfigChangeListener(org.apache.helix.InstanceConfigChangeListener listener)
+      throws Exception {
+    addListener(listener, new Builder(_clusterName).instanceConfigs(), ChangeType.INSTANCE_CONFIG,
+        new EventType[] { EventType.NodeChildrenChanged
+        });
+  }
+
+  @Override
+  public void addResourceConfigChangeListener(ResourceConfigChangeListener listener) throws Exception{
+    addListener(listener, new Builder(_clusterName).resourceConfigs(), ChangeType.RESOURCE_CONFIG,
+        new EventType[] { EventType.NodeChildrenChanged
+        });
+  }
+
+  @Override
+  public void addClusterfigChangeListener(ClusterConfigChangeListener listener) throws Exception{
+    addListener(listener, new Builder(_clusterName).clusterConfig(), ChangeType.CLUSTER_CONFIG,
+        new EventType[] { EventType.NodeDataChanged
+        });
+  }
+
+  @Override
+  public void addConfigChangeListener(ScopedConfigChangeListener listener, ConfigScopeProperty scope)
+      throws Exception {
+    Builder keyBuilder = new Builder(_clusterName);
+
+    PropertyKey propertyKey = null;
+    switch (scope) {
+    case CLUSTER:
+      propertyKey = keyBuilder.clusterConfigs();
+      break;
+    case PARTICIPANT:
+      propertyKey = keyBuilder.instanceConfigs();
+      break;
+    case RESOURCE:
+      propertyKey = keyBuilder.resourceConfigs();
+      break;
+    default:
+      break;
     }
 
-    // TODO: 2018/7/27 by zmyer
-    void addListener(Object listener, PropertyKey propertyKey, ChangeType changeType,
-            EventType[] eventType) {
-        checkConnected(_waitForConnectedTimeout);
-
-        PropertyType type = propertyKey.getType();
-
-        synchronized (this) {
-            for (CallbackHandler handler : _handlers) {
-                // compare property-key path and listener reference
-                if (handler.getPath().equals(propertyKey.getPath())
-                        && handler.getListener().equals(listener)) {
-                    LOG.info("Listener: " + listener + " on path: " + propertyKey.getPath()
-                            + " already exists. skip add");
-
-                    return;
-                }
-            }
-
-            final CallbackHandler newHandler =
-                    new CallbackHandler(this, _zkclient, propertyKey, listener, eventType, changeType,
-                            _callbackMonitors.get(changeType));
-
-            _handlers.add(newHandler);
-            LOG.info("Added listener: " + listener + " for type: " + type + " to path: "
-                    + newHandler.getPath());
-        }
+    if (propertyKey != null) {
+      addListener(listener, propertyKey, ChangeType.CONFIG, new EventType[] {
+        EventType.NodeChildrenChanged
+      });
+    } else {
+      LOG.error("Can't add listener to config scope: " + scope);
     }
-
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public void addIdealStateChangeListener(final IdealStateChangeListener listener) throws Exception {
-        addListener(listener, new Builder(_clusterName).idealStates(), ChangeType.IDEAL_STATE,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
-
-    @Deprecated
-    @Override
-    public void addIdealStateChangeListener(final org.apache.helix.IdealStateChangeListener listener)
-            throws Exception {
-        addListener(listener, new Builder(_clusterName).idealStates(), ChangeType.IDEAL_STATE,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
-
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public void addLiveInstanceChangeListener(LiveInstanceChangeListener listener) throws Exception {
-        addListener(listener, new Builder(_clusterName).liveInstances(), ChangeType.LIVE_INSTANCE,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
-
-    @Deprecated
-    @Override
-    public void addLiveInstanceChangeListener(org.apache.helix.LiveInstanceChangeListener listener)
-            throws Exception {
-        addListener(listener, new Builder(_clusterName).liveInstances(), ChangeType.LIVE_INSTANCE,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
-
-    @Override
-    public void addConfigChangeListener(ConfigChangeListener listener) throws Exception {
-        addListener(listener, new Builder(_clusterName).instanceConfigs(), ChangeType.INSTANCE_CONFIG,
-                new EventType[]{ EventType.NodeChildrenChanged
-                });
-    }
-
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public void addInstanceConfigChangeListener(InstanceConfigChangeListener listener)
-            throws Exception {
-        addListener(listener, new Builder(_clusterName).instanceConfigs(), ChangeType.INSTANCE_CONFIG,
-                new EventType[]{ EventType.NodeChildrenChanged
-                });
-    }
-
-    @Deprecated
-    @Override
-    public void addInstanceConfigChangeListener(org.apache.helix.InstanceConfigChangeListener listener)
-            throws Exception {
-        addListener(listener, new Builder(_clusterName).instanceConfigs(), ChangeType.INSTANCE_CONFIG,
-                new EventType[]{ EventType.NodeChildrenChanged
-                });
-    }
-
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public void addResourceConfigChangeListener(ResourceConfigChangeListener listener) throws Exception {
-        addListener(listener, new Builder(_clusterName).resourceConfigs(), ChangeType.RESOURCE_CONFIG,
-                new EventType[]{ EventType.NodeChildrenChanged
-                });
-    }
-
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public void addClusterfigChangeListener(ClusterConfigChangeListener listener) throws Exception {
-        addListener(listener, new Builder(_clusterName).clusterConfig(), ChangeType.CLUSTER_CONFIG,
-                new EventType[]{ EventType.NodeDataChanged
-                });
-    }
-
-    @Override
-    public void addConfigChangeListener(ScopedConfigChangeListener listener, ConfigScopeProperty scope)
-            throws Exception {
-        Builder keyBuilder = new Builder(_clusterName);
-
-        PropertyKey propertyKey = null;
-        switch (scope) {
-        case CLUSTER:
-            propertyKey = keyBuilder.clusterConfigs();
-            break;
-        case PARTICIPANT:
-            propertyKey = keyBuilder.instanceConfigs();
-            break;
-        case RESOURCE:
-            propertyKey = keyBuilder.resourceConfigs();
-            break;
-        default:
-            break;
-        }
-
-        if (propertyKey != null) {
-            addListener(listener, propertyKey, ChangeType.CONFIG, new EventType[]{
-                    EventType.NodeChildrenChanged
-            });
-        } else {
-            LOG.error("Can't add listener to config scope: " + scope);
-        }
-    }
+  }
 
 
-    @Deprecated
-    @Override
-    public void addConfigChangeListener(org.apache.helix.ScopedConfigChangeListener listener, ConfigScopeProperty scope)
-            throws Exception {
-        addConfigChangeListener((ScopedConfigChangeListener) listener, scope);
-    }
+  @Deprecated
+  @Override
+  public void addConfigChangeListener(org.apache.helix.ScopedConfigChangeListener listener, ConfigScopeProperty scope)
+      throws Exception {
+    addConfigChangeListener((ScopedConfigChangeListener) listener, scope);
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    // TODO: Decide if do we still need this since we are exposing
-    // ClusterMessagingService
-    @Override
-    public void addMessageListener(MessageListener listener, String instanceName) {
-        addListener(listener, new Builder(_clusterName).messages(instanceName), ChangeType.MESSAGE,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  // TODO: Decide if do we still need this since we are exposing
+  // ClusterMessagingService
+  @Override
+  public void addMessageListener(MessageListener listener, String instanceName) {
+    addListener(listener, new Builder(_clusterName).messages(instanceName), ChangeType.MESSAGE,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    @Deprecated
-    @Override
-    public void addMessageListener(org.apache.helix.MessageListener listener, String instanceName) {
-        addListener(listener, new Builder(_clusterName).messages(instanceName), ChangeType.MESSAGE,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  @Deprecated
+  @Override
+  public void addMessageListener(org.apache.helix.MessageListener listener, String instanceName) {
+    addListener(listener, new Builder(_clusterName).messages(instanceName), ChangeType.MESSAGE,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public void addControllerMessageListener(MessageListener listener) {
-        addListener(listener, new Builder(_clusterName).controllerMessages(),
-                ChangeType.MESSAGES_CONTROLLER, new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  @Override
+  public void addControllerMessageListener(MessageListener listener) {
+    addListener(listener, new Builder(_clusterName).controllerMessages(),
+        ChangeType.MESSAGES_CONTROLLER, new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    @Deprecated
-    @Override
-    public void addControllerMessageListener(org.apache.helix.MessageListener listener) {
-        addListener(listener, new Builder(_clusterName).controllerMessages(),
-                ChangeType.MESSAGES_CONTROLLER, new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  @Deprecated
+  @Override
+  public void addControllerMessageListener(org.apache.helix.MessageListener listener) {
+    addListener(listener, new Builder(_clusterName).controllerMessages(),
+        ChangeType.MESSAGES_CONTROLLER, new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    // TODO: 2018/7/25 by zmyer
-    @Override
-    public void addCurrentStateChangeListener(CurrentStateChangeListener listener,
-            String instanceName, String sessionId) throws Exception {
-        addListener(listener, new Builder(_clusterName).currentStates(instanceName, sessionId),
-                ChangeType.CURRENT_STATE, new EventType[]{ EventType.NodeChildrenChanged
-                });
-    }
+  @Override
+  public void addCurrentStateChangeListener(CurrentStateChangeListener listener,
+      String instanceName, String sessionId) throws Exception {
+    addListener(listener, new Builder(_clusterName).currentStates(instanceName, sessionId),
+        ChangeType.CURRENT_STATE, new EventType[] { EventType.NodeChildrenChanged
+        });
+  }
 
-    @Deprecated
-    @Override
-    public void addCurrentStateChangeListener(org.apache.helix.CurrentStateChangeListener listener,
-            String instanceName, String sessionId) throws Exception {
-        addListener(listener, new Builder(_clusterName).currentStates(instanceName, sessionId),
-                ChangeType.CURRENT_STATE, new EventType[]{ EventType.NodeChildrenChanged
-                });
-    }
+  @Deprecated
+  @Override
+  public void addCurrentStateChangeListener(org.apache.helix.CurrentStateChangeListener listener,
+      String instanceName, String sessionId) throws Exception {
+    addListener(listener, new Builder(_clusterName).currentStates(instanceName, sessionId),
+        ChangeType.CURRENT_STATE, new EventType[] { EventType.NodeChildrenChanged
+        });
+  }
 
-    @Override
-    public void addExternalViewChangeListener(ExternalViewChangeListener listener) throws Exception {
-        addListener(listener, new Builder(_clusterName).externalViews(), ChangeType.EXTERNAL_VIEW,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  @Override
+  public void addExternalViewChangeListener(ExternalViewChangeListener listener) throws Exception {
+    addListener(listener, new Builder(_clusterName).externalViews(), ChangeType.EXTERNAL_VIEW,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    @Override
-    public void addTargetExternalViewChangeListener(ExternalViewChangeListener listener) throws Exception {
-        addListener(listener, new Builder(_clusterName).externalViews(), ChangeType.TARGET_EXTERNAL_VIEW,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  @Override
+  public void addTargetExternalViewChangeListener(ExternalViewChangeListener listener) throws Exception {
+    addListener(listener, new Builder(_clusterName).externalViews(), ChangeType.TARGET_EXTERNAL_VIEW,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    @Deprecated
-    @Override
-    public void addExternalViewChangeListener(org.apache.helix.ExternalViewChangeListener listener) throws Exception {
-        addListener(listener, new Builder(_clusterName).externalViews(), ChangeType.EXTERNAL_VIEW,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  @Deprecated
+  @Override
+  public void addExternalViewChangeListener(org.apache.helix.ExternalViewChangeListener listener) throws Exception {
+    addListener(listener, new Builder(_clusterName).externalViews(), ChangeType.EXTERNAL_VIEW,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public void addControllerListener(ControllerChangeListener listener) {
-        addListener(listener, new Builder(_clusterName).controller(), ChangeType.CONTROLLER,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  @Override
+  public void addControllerListener(ControllerChangeListener listener) {
+    addListener(listener, new Builder(_clusterName).controller(), ChangeType.CONTROLLER,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    @Deprecated
-    @Override
-    public void addControllerListener(org.apache.helix.ControllerChangeListener listener) {
-        addListener(listener, new Builder(_clusterName).controller(), ChangeType.CONTROLLER,
-                new EventType[]{ EventType.NodeChildrenChanged });
-    }
+  @Deprecated
+  @Override
+  public void addControllerListener(org.apache.helix.ControllerChangeListener listener) {
+    addListener(listener, new Builder(_clusterName).controller(), ChangeType.CONTROLLER,
+        new EventType[] { EventType.NodeChildrenChanged });
+  }
 
-    // TODO: 2018/6/15 by zmyer
-    @Override
-    public HelixDataAccessor getHelixDataAccessor() {
-        checkConnected(_waitForConnectedTimeout);
-        return _dataAccessor;
-    }
+  @Override
+  public HelixDataAccessor getHelixDataAccessor() {
+    checkConnected(_waitForConnectedTimeout);
+    return _dataAccessor;
+  }
 
-    @Override
-    public ConfigAccessor getConfigAccessor() {
-        checkConnected(_waitForConnectedTimeout);
-        return _configAccessor;
-    }
+  @Override
+  public ConfigAccessor getConfigAccessor() {
+    checkConnected(_waitForConnectedTimeout);
+    return _configAccessor;
+  }
 
-    @Override
-    public String getClusterName() {
-        return _clusterName;
-    }
+  @Override
+  public String getClusterName() {
+    return _clusterName;
+  }
 
   /**
    * Returns a string that can be used to connect to metadata store for this HelixManager instance
@@ -606,16 +625,28 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     return baseDataAccessor;
   }
 
-    /**
-     * Add Helix built-in state model definitions if not exist
-     */
-    // TODO: 2018/6/15 by zmyer
-    private void addBuiltInStateModelDefinitions() {
-        for (BuiltInStateModelDefinitions def : BuiltInStateModelDefinitions.values()) {
-            // creation succeeds only if not exist
-            _dataAccessor.createStateModelDef(def.getStateModelDefinition());
-        }
+  /**
+   * Add Helix built-in state model definitions if not exist
+   */
+  private void addBuiltInStateModelDefinitions() {
+    for (BuiltInStateModelDefinitions def : BuiltInStateModelDefinitions.values()) {
+      // creation succeeds only if not exist
+      _dataAccessor.createStateModelDef(def.getStateModelDefinition());
     }
+  }
+
+  private boolean isMonitorRootPathOnly() {
+    switch (_monitorLevel) {
+    case ALL:
+      return false;
+    case AGGREGATED_ONLY:
+      return true;
+    default:
+      // Otherwise, apply the default policy. Emitting full metrics for controllers only.
+      return !_instanceType.equals(InstanceType.CONTROLLER) && !_instanceType
+          .equals(InstanceType.CONTROLLER_PARTICIPANT);
+    }
+  }
 
   void createClient() throws Exception {
     PathBasedZkSerializer zkSerializer =
@@ -630,8 +661,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         .setMonitorType(_instanceType.name())
         .setMonitorKey(_clusterName)
         .setMonitorInstanceName(_instanceName)
-        .setMonitorRootPathOnly(!_instanceType.equals(InstanceType.CONTROLLER) && !_instanceType
-            .equals(InstanceType.CONTROLLER_PARTICIPANT));
+        .setMonitorRootPathOnly(isMonitorRootPathOnly());
 
     HelixZkClient newClient;
     switch (_instanceType) {
@@ -683,27 +713,26 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     }
   }
 
-    // TODO: 2018/6/15 by zmyer
-    @Override
-    public void connect() throws Exception {
-        LOG.info("ClusterManager.connect()");
-        if (isConnected()) {
-            LOG.warn("Cluster manager: " + _instanceName + " for cluster: " + _clusterName
-                    + " already connected. skip connect");
-            return;
-        }
+  @Override
+  public void connect() throws Exception {
+    LOG.info("ClusterManager.connect()");
+    if (isConnected()) {
+      LOG.warn("Cluster manager: " + _instanceName + " for cluster: " + _clusterName
+          + " already connected. skip connect");
+      return;
+    }
 
-        switch (_instanceType) {
-        case CONTROLLER:
-        case CONTROLLER_PARTICIPANT:
-            if (_controller == null) {
-                _controller = new GenericHelixController(_clusterName);
-                _messagingService.getExecutor().setController(_controller);
-            }
-            break;
-        default:
-            break;
-        }
+    switch (_instanceType) {
+    case CONTROLLER:
+    case CONTROLLER_PARTICIPANT:
+      if (_controller == null) {
+        _controller = new GenericHelixController(_clusterName, _enabledPipelineTypes);
+        _messagingService.getExecutor().setController(_controller);
+      }
+      break;
+    default:
+      break;
+    }
 
     try {
       createClient();
@@ -726,28 +755,28 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
       return;
     }
 
-        LOG.info("disconnect " + _instanceName + "(" + _instanceType + ") from " + _clusterName);
+    LOG.info("disconnect " + _instanceName + "(" + _instanceType + ") from " + _clusterName);
 
-        try {
-            /**
-             * stop all timer tasks
-             */
-            stopTimerTasks();
+    try {
+      /**
+       * stop all timer tasks
+       */
+      stopTimerTasks();
 
-            /**
-             * shutdown thread pool first to avoid reset() being invoked in the middle of state
-             * transition
-             */
-            _messagingService.getExecutor().shutdown();
+      /**
+       * shutdown thread pool first to avoid reset() being invoked in the middle of state
+       * transition
+       */
+      _messagingService.getExecutor().shutdown();
 
       // TODO reset user defined handlers only
       // TODO Fix the issue that when connection disconnected, reset handlers will be blocked. -- JJ
       // This is because reset logic contains ZK operations.
-      resetHandlers();
+      resetHandlers(true);
 
-            if (_leaderElectionHandler != null) {
-                _leaderElectionHandler.reset();
-            }
+      if (_leaderElectionHandler != null) {
+        _leaderElectionHandler.reset(true);
+      }
 
     } finally {
       GenericHelixController controller = _controller;
@@ -789,11 +818,11 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     }
   }
 
-    @Override
-    public String getSessionId() {
-        checkConnected(_waitForConnectedTimeout);
-        return _sessionId;
-    }
+  @Override
+  public String getSessionId() {
+    checkConnected(_waitForConnectedTimeout);
+    return _sessionId;
+  }
 
   @Override
   public boolean isConnected() {
@@ -810,16 +839,16 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     }
   }
 
-    @Override
-    public long getLastNotificationTime() {
-        return 0;
-    }
+  @Override
+  public long getLastNotificationTime() {
+    return 0;
+  }
 
-    @Override
-    public void addPreConnectCallback(PreConnectCallback callback) {
-        LOG.info("Adding preconnect callback: " + callback);
-        _preConnectCallbacks.add(callback);
-    }
+  @Override
+  public void addPreConnectCallback(PreConnectCallback callback) {
+    LOG.info("Adding preconnect callback: " + callback);
+    _preConnectCallbacks.add(callback);
+  }
 
   @Override
   public boolean isLeader() {
@@ -842,38 +871,37 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
       LiveInstance leader = _dataAccessor.getProperty(_keyBuilder.controllerLeader());
       if (leader != null) {
         String leaderName = leader.getInstanceName();
-        String sessionId = leader.getSessionId();
-        if (leaderName != null && leaderName.equals(_instanceName) && sessionId != null && sessionId
+        String sessionId = leader.getEphemeralOwner();
+        if (leaderName != null && leaderName.equals(_instanceName) && sessionId
             .equals(_sessionId)) {
           return true;
         }
         LOG.warn(String
             .format("%s current session %s does not match leader session %s", warnLogPrefix,
                 _sessionId, sessionId));
+      } else {
+        LOG.warn(String.format("%s leader ZNode is null", warnLogPrefix));
       }
-      LOG.warn(String.format("%s leader ZNode is null", warnLogPrefix));
-
     } catch (Exception e) {
-      // log
       LOG.warn(String.format("%s exception happen when session check", warnLogPrefix), e);
     }
     return false;
   }
 
-    @Override
-    public synchronized ZkHelixPropertyStore<ZNRecord> getHelixPropertyStore() {
-        checkConnected(_waitForConnectedTimeout);
+  @Override
+  public synchronized ZkHelixPropertyStore<ZNRecord> getHelixPropertyStore() {
+    checkConnected(_waitForConnectedTimeout);
 
     if (_helixPropertyStore == null) {
       String path = PropertyPathBuilder.propertyStore(_clusterName);
       String fallbackPath = String.format("/%s/%s", _clusterName, "HELIX_PROPERTYSTORE");
       _helixPropertyStore =
-          new AutoFallbackPropertyStore<>(new ZkBaseDataAccessor<ZNRecord>(_zkclient),
+          new AutoFallbackPropertyStore<>(new ZkBaseDataAccessor<>(_zkclient),
               path, fallbackPath);
     }
 
-        return _helixPropertyStore;
-    }
+    return _helixPropertyStore;
+  }
 
   @Override
   public synchronized HelixAdmin getClusterManagmentTool() {
@@ -882,59 +910,56 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
       return new ZKHelixAdmin(_zkclient);
     }
 
-        LOG.error("Couldn't get ZKClusterManagementTool because zkclient is null");
-        return null;
-    }
+    LOG.error("Couldn't get ZKClusterManagementTool because zkclient is null");
+    return null;
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public ClusterMessagingService getMessagingService() {
-        // The caller can register message handler factories on messaging service before the
-        // helix manager is connected. Thus we do not do connected check here.
-        return _messagingService;
-    }
+  @Override
+  public ClusterMessagingService getMessagingService() {
+    // The caller can register message handler factories on messaging service before the
+    // helix manager is connected. Thus we do not do connected check here.
+    return _messagingService;
+  }
 
-    @Override
-    public InstanceType getInstanceType() {
-        return _instanceType;
-    }
+  @Override
+  public InstanceType getInstanceType() {
+    return _instanceType;
+  }
 
-    @Override
-    public String getVersion() {
-        return _version;
-    }
+  @Override
+  public String getVersion() {
+    return _version;
+  }
 
-    @Override
-    public HelixManagerProperties getProperties() {
-        return _properties;
-    }
+  @Override
+  public HelixManagerProperties getProperties() {
+    return _properties;
+  }
 
-    @Override
-    public StateMachineEngine getStateMachineEngine() {
-        return _stateMachineEngine;
-    }
+  @Override
+  public StateMachineEngine getStateMachineEngine() {
+    return _stateMachineEngine;
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    // TODO: rename this and not expose this function as part of interface
-    @Override
-    public void startTimerTasks() {
-        for (HelixTimerTask task : _timerTasks) {
-            task.start();
-        }
+  // TODO: rename this and not expose this function as part of interface
+  @Override
+  public void startTimerTasks() {
+    for (HelixTimerTask task : _timerTasks) {
+      task.start();
     }
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public void stopTimerTasks() {
-        for (HelixTimerTask task : _timerTasks) {
-            task.stop();
-        }
+  @Override
+  public void stopTimerTasks() {
+    for (HelixTimerTask task : _timerTasks) {
+      task.stop();
     }
+  }
 
-    @Override
-    public void setLiveInstanceInfoProvider(LiveInstanceInfoProvider liveInstanceInfoProvider) {
-        _liveInstanceInfoProvider = liveInstanceInfoProvider;
-    }
+  @Override
+  public void setLiveInstanceInfoProvider(LiveInstanceInfoProvider liveInstanceInfoProvider) {
+    _liveInstanceInfoProvider = liveInstanceInfoProvider;
+  }
 
   /**
    * wait until we get a non-zero session-id. note that we might lose zkconnection
@@ -955,29 +980,28 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
 
       _sessionId = Long.toHexString(_zkclient.getSessionId());
 
-            /**
-             * at the time we read session-id, zkconnection might be lost again
-             * wait until we get a non-zero session-id
-             */
-        } while (!isConnected || "0".equals(_sessionId));
+      /**
+       * at the time we read session-id, zkconnection might be lost again
+       * wait until we get a non-zero session-id
+       */
+    } while (!isConnected || "0".equals(_sessionId));
 
     LOG.info("Handling new session, session id: " + _sessionId + ", instance: " + _instanceName
         + ", instanceTye: " + _instanceType + ", cluster: " + _clusterName);
   }
 
-    // TODO: 2018/7/27 by zmyer
-    void initHandlers(List<CallbackHandler> handlers) {
-        synchronized (this) {
-            if (handlers != null) {
-                for (CallbackHandler handler : handlers) {
-                    handler.init();
-                    LOG.info("init handler: " + handler.getPath() + ", " + handler.getListener());
-                }
-            }
+  void initHandlers(List<CallbackHandler> handlers) {
+    synchronized (this) {
+      if (handlers != null) {
+        for (CallbackHandler handler : handlers) {
+          handler.init();
+          LOG.info("init handler: " + handler.getPath() + ", " + handler.getListener());
         }
+      }
     }
+  }
 
-  void resetHandlers() {
+  void resetHandlers(boolean isShutdown) {
     synchronized (this) {
       if (_handlers != null) {
         // get a copy of the list and iterate over the copy list
@@ -985,13 +1009,13 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         List<CallbackHandler> tmpHandlers = new ArrayList<>();
         tmpHandlers.addAll(_handlers);
 
-                for (CallbackHandler handler : tmpHandlers) {
-                    handler.reset();
-                    LOG.info("reset handler: " + handler.getPath() + ", " + handler.getListener());
-                }
-            }
+        for (CallbackHandler handler : tmpHandlers) {
+          handler.reset(isShutdown);
+          LOG.info("reset handler: " + handler.getPath() + ", " + handler.getListener());
         }
+      }
     }
+  }
 
   /**
    * If zk state has changed into Disconnected for maxDisconnectThreshold times during previous
@@ -1078,48 +1102,48 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         "Handle new session, instance: " + _instanceName + ", type: " + _instanceType);
     waitUntilConnected();
 
-        /**
-         * stop all timer tasks, reset all handlers, make sure cleanup completed for previous session
-         * disconnect if fail to cleanup
-         */
-        stopTimerTasks();
-        if (_leaderElectionHandler != null) {
-            _leaderElectionHandler.reset();
-        }
-        resetHandlers();
+    /**
+     * stop all timer tasks, reset all handlers, make sure cleanup completed for previous session
+     * disconnect if fail to cleanup
+     */
+    stopTimerTasks();
+    if (_leaderElectionHandler != null) {
+      _leaderElectionHandler.reset(false);
+    }
+    resetHandlers(false);
 
-        /**
-         * clean up write-through cache
-         */
-        _baseDataAccessor.reset();
+    /**
+     * clean up write-through cache
+     */
+    _baseDataAccessor.reset();
 
-        /**
-         * from here on, we are dealing with new session
-         */
-        if (!ZKUtil.isClusterSetup(_clusterName, _zkclient)) {
-            throw new HelixException("Cluster structure is not set up for cluster: " + _clusterName);
-        }
+    /**
+     * from here on, we are dealing with new session
+     */
+    if (!ZKUtil.isClusterSetup(_clusterName, _zkclient)) {
+      throw new HelixException("Cluster structure is not set up for cluster: " + _clusterName);
+    }
 
-        _sessionStartTime = System.currentTimeMillis();
+    _sessionStartTime = System.currentTimeMillis();
 
-        switch (_instanceType) {
-        case PARTICIPANT:
-            handleNewSessionAsParticipant();
-            break;
-        case CONTROLLER:
-            handleNewSessionAsController();
-            break;
-        case CONTROLLER_PARTICIPANT:
-            handleNewSessionAsParticipant();
-            handleNewSessionAsController();
-            break;
-        case ADMINISTRATOR:
-        case SPECTATOR:
-        default:
-            break;
-        }
+    switch (_instanceType) {
+    case PARTICIPANT:
+      handleNewSessionAsParticipant();
+      break;
+    case CONTROLLER:
+      handleNewSessionAsController();
+      break;
+    case CONTROLLER_PARTICIPANT:
+      handleNewSessionAsParticipant();
+      handleNewSessionAsController();
+      break;
+    case ADMINISTRATOR:
+    case SPECTATOR:
+    default:
+      break;
+    }
 
-        startTimerTasks();
+    startTimerTasks();
 
     /**
      * init handlers
@@ -1137,35 +1161,33 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     }
   }
 
-    // TODO: 2018/7/26 by zmyer
-    void handleNewSessionAsParticipant() throws Exception {
-        if (_participantManager != null) {
-            _participantManager.reset();
-        }
-        _participantManager =
-                new ParticipantManager(this, _zkclient, _sessionTimeout, _liveInstanceInfoProvider,
-                        _preConnectCallbacks);
-        _participantManager.handleNewSession();
+  void handleNewSessionAsParticipant() throws Exception {
+    if (_participantManager != null) {
+      _participantManager.reset();
     }
+    _participantManager =
+        new ParticipantManager(this, _zkclient, _sessionTimeout, _liveInstanceInfoProvider,
+            _preConnectCallbacks);
+    _participantManager.handleNewSession();
+  }
 
-    // TODO: 2018/7/24 by zmyer
-    void handleNewSessionAsController() {
-        if (_leaderElectionHandler != null) {
-            _leaderElectionHandler.init();
-        } else {
-            _leaderElectionHandler =
-                    new CallbackHandler(this, _zkclient, _keyBuilder.controller(),
-                            new DistributedLeaderElection(this, _controller, _controllerTimerTasks),
-                            new EventType[]{
-                                    EventType.NodeChildrenChanged, EventType.NodeDeleted, EventType.NodeCreated
-                            }, ChangeType.CONTROLLER, _callbackMonitors.get(ChangeType.CONTROLLER));
-        }
+  void handleNewSessionAsController() {
+    if (_leaderElectionHandler != null) {
+      _leaderElectionHandler.init();
+    } else {
+      _leaderElectionHandler =
+          new CallbackHandler(this, _zkclient, _keyBuilder.controller(),
+              new DistributedLeaderElection(this, _controller, _controllerTimerTasks),
+              new EventType[] {
+                  EventType.NodeChildrenChanged, EventType.NodeDeleted, EventType.NodeCreated
+              }, ChangeType.CONTROLLER, _callbackMonitors.get(ChangeType.CONTROLLER));
     }
+  }
 
-    @Override
-    public ParticipantHealthReportCollector getHealthReportCollector() {
-        return _participantHealthInfoCollector;
-    }
+  @Override
+  public ParticipantHealthReportCollector getHealthReportCollector() {
+    return _participantHealthInfoCollector;
+  }
 
   @Override
   public void handleSessionEstablishmentError(Throwable error) throws Exception {
@@ -1177,8 +1199,8 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     }
   }
 
-    @Override
-    public Long getSessionStartTime() {
-        return _sessionStartTime;
-    }
+  @Override
+  public Long getSessionStartTime() {
+    return _sessionStartTime;
+  }
 }

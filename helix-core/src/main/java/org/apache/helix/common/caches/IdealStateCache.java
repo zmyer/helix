@@ -37,8 +37,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Cache to hold all IdealStates of a cluster.
+ * Deprecated - use {@link PropertyCache<IdealState>} instead
  */
-public class IdealStateCache extends AbstractDataCache {
+@Deprecated
+public class IdealStateCache extends AbstractDataCache<IdealState> {
   private static final Logger LOG = LoggerFactory.getLogger(IdealStateCache.class.getName());
 
   private Map<String, IdealState> _idealStateMap;
@@ -47,6 +49,7 @@ public class IdealStateCache extends AbstractDataCache {
   private String _clusterName;
 
   public IdealStateCache(String clusterName) {
+    super(createDefaultControlContextProvider(clusterName));
     _clusterName = clusterName;
     _idealStateMap = Collections.emptyMap();
     _idealStateCache = Collections.emptyMap();
@@ -82,8 +85,8 @@ public class IdealStateCache extends AbstractDataCache {
     reloadKeys.removeAll(cachedKeys);
 
     Map<PropertyKey, IdealState> updatedMap =
-        refreshProperties(accessor, new LinkedList<>(reloadKeys), new ArrayList<>(cachedKeys),
-            cachedIdealStateMap);
+        refreshProperties(accessor, reloadKeys, new ArrayList<>(cachedKeys),
+            cachedIdealStateMap, new HashSet<>());
     Map<String, IdealState> newIdealStateMap = Maps.newHashMap();
     for (IdealState idealState : updatedMap.values()) {
       newIdealStateMap.put(idealState.getResourceName(), idealState);
@@ -93,7 +96,7 @@ public class IdealStateCache extends AbstractDataCache {
     _idealStateMap = new HashMap<>(newIdealStateMap);
 
     long endTime = System.currentTimeMillis();
-    LogUtil.logInfo(LOG, getEventId(),
+    LogUtil.logInfo(LOG, _controlContextProvider.getClusterEventId(),
         "Refresh " + _idealStateMap.size() + " idealStates for cluster " + _clusterName + ", took "
             + (endTime - startTime) + " ms");
   }

@@ -39,6 +39,7 @@ import org.apache.helix.model.HelixConfigScope;
 import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.builder.HelixConfigScopeBuilder;
 import org.apache.helix.store.HelixPropertyStore;
+import org.apache.helix.util.RebalanceUtil;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.type.TypeReference;
 import org.slf4j.Logger;
@@ -315,7 +316,7 @@ public class TaskUtil {
    * @param workflowJobResource the name of workflow or job
    * @param record the initial data
    */
-  protected static void createUserContent(HelixPropertyStore propertyStore,
+  protected static void createUserContent(HelixPropertyStore<ZNRecord> propertyStore,
       String workflowJobResource, ZNRecord record) {
     propertyStore.create(Joiner.on("/").join(TaskConstants.REBALANCER_CONTEXT_ROOT,
         workflowJobResource, TaskUtil.USER_CONTENT_NODE), record, AccessOption.PERSISTENT);
@@ -331,7 +332,8 @@ public class TaskUtil {
    */
   protected static String getWorkflowJobUserContent(HelixPropertyStore<ZNRecord> propertyStore,
       String workflowJobResource, String key) {
-    Map<String, String> userContentMap = getWorkflowJobUserContentMap(propertyStore, workflowJobResource);
+    Map<String, String> userContentMap =
+        getWorkflowJobUserContentMap(propertyStore, workflowJobResource);
     return userContentMap != null ? userContentMap.get(key) : null;
   }
 
@@ -343,9 +345,8 @@ public class TaskUtil {
    */
   protected static Map<String, String> getWorkflowJobUserContentMap(
       HelixPropertyStore<ZNRecord> propertyStore, String workflowJobResource) {
-    ZNRecord record = propertyStore.get(Joiner.on("/")
-            .join(TaskConstants.REBALANCER_CONTEXT_ROOT, workflowJobResource, USER_CONTENT_NODE), null,
-        AccessOption.PERSISTENT);
+    ZNRecord record = propertyStore.get(Joiner.on("/").join(TaskConstants.REBALANCER_CONTEXT_ROOT,
+        workflowJobResource, USER_CONTENT_NODE), null, AccessOption.PERSISTENT);
     return record != null ? record.getSimpleFields() : null;
   }
 
@@ -366,18 +367,26 @@ public class TaskUtil {
   static void addOrUpdateWorkflowJobUserContentMap(final HelixPropertyStore<ZNRecord> propertyStore,
       String workflowJobResource, final Map<String, String> contentToAddOrUpdate) {
     if (workflowJobResource == null) {
-      throw new IllegalArgumentException("workflowJobResource must be not null when adding workflow / job user content");
+      throw new IllegalArgumentException(
+          "workflowJobResource must be not null when adding workflow / job user content");
     }
-    String path = Joiner.on("/")
-        .join(TaskConstants.REBALANCER_CONTEXT_ROOT, workflowJobResource, USER_CONTENT_NODE);
+    String path = Joiner.on("/").join(TaskConstants.REBALANCER_CONTEXT_ROOT, workflowJobResource,
+        USER_CONTENT_NODE);
 
-    propertyStore.update(path, new DataUpdater<ZNRecord>() {
+    if (!propertyStore.update(path, new DataUpdater<ZNRecord>() {
       @Override
       public ZNRecord update(ZNRecord znRecord) {
+        if (znRecord == null) {
+          // This indicates that somehow the UserContentStore ZNode is missing
+          // This should not happen, but if it is missing, create one
+          znRecord = new ZNRecord(new ZNRecord(TaskUtil.USER_CONTENT_NODE));
+        }
         znRecord.getSimpleFields().putAll(contentToAddOrUpdate);
         return znRecord;
       }
-    }, AccessOption.PERSISTENT);
+    }, AccessOption.PERSISTENT)) {
+      LOG.error("Failed to update the UserContentStore for {}", workflowJobResource);
+    }
   }
 
   /**
@@ -404,9 +413,8 @@ public class TaskUtil {
   protected static Map<String, String> getTaskUserContentMap(
       HelixPropertyStore<ZNRecord> propertyStore, String namespacedJobName,
       String taskPartitionId) {
-    ZNRecord record = propertyStore.get(Joiner.on("/")
-            .join(TaskConstants.REBALANCER_CONTEXT_ROOT, namespacedJobName, USER_CONTENT_NODE), null,
-        AccessOption.PERSISTENT);
+    ZNRecord record = propertyStore.get(Joiner.on("/").join(TaskConstants.REBALANCER_CONTEXT_ROOT,
+        namespacedJobName, USER_CONTENT_NODE), null, AccessOption.PERSISTENT);
     return record != null ? record.getMapField(taskPartitionId) : null;
   }
 
@@ -428,21 +436,29 @@ public class TaskUtil {
   static void addOrUpdateTaskUserContentMap(final HelixPropertyStore<ZNRecord> propertyStore,
       final String job, final String task, final Map<String, String> contentToAddOrUpdate) {
     if (job == null || task == null) {
-      throw new IllegalArgumentException("job and task must be not null when adding task user content");
+      throw new IllegalArgumentException(
+          "job and task must be not null when adding task user content");
     }
     String path =
         Joiner.on("/").join(TaskConstants.REBALANCER_CONTEXT_ROOT, job, USER_CONTENT_NODE);
 
-    propertyStore.update(path, new DataUpdater<ZNRecord>() {
+    if (!propertyStore.update(path, new DataUpdater<ZNRecord>() {
       @Override
       public ZNRecord update(ZNRecord znRecord) {
+        if (znRecord == null) {
+          // This indicates that somehow the UserContentStore ZNode is missing
+          // This should not happen, but if it is missing, create one
+          znRecord = new ZNRecord(new ZNRecord(TaskUtil.USER_CONTENT_NODE));
+        }
         if (znRecord.getMapField(task) == null) {
           znRecord.setMapField(task, new HashMap<String, String>());
         }
         znRecord.getMapField(task).putAll(contentToAddOrUpdate);
         return znRecord;
       }
-    }, AccessOption.PERSISTENT);
+    }, AccessOption.PERSISTENT)) {
+      LOG.error("Failed to update the task UserContentStore for task {} in job {}", task, job);
+    }
   }
 
   /**
@@ -639,7 +655,7 @@ public class TaskUtil {
    * @return True if remove success, otherwise false
    */
   protected static boolean removeWorkflow(final HelixDataAccessor accessor,
-      final HelixPropertyStore propertyStore, String workflow, Set<String> jobs) {
+      final HelixPropertyStore<ZNRecord> propertyStore, String workflow, Set<String> jobs) {
     // clean up all jobs
     for (String job : jobs) {
       if (!removeJob(accessor, propertyStore, job)) {
@@ -678,8 +694,8 @@ public class TaskUtil {
    * @return True if remove success, otherwise false
    */
   protected static boolean removeJobsFromWorkflow(final HelixDataAccessor dataAccessor,
-      final HelixPropertyStore propertyStore, final String workflow, final Set<String> jobs,
-      boolean maintainDependency) {
+      final HelixPropertyStore<ZNRecord> propertyStore, final String workflow,
+      final Set<String> jobs, boolean maintainDependency) {
     boolean success = true;
     if (!removeJobsFromDag(dataAccessor, workflow, jobs, maintainDependency)) {
       LOG.warn("Error occurred while trying to remove jobs + " + jobs + " from the workflow "
@@ -709,9 +725,9 @@ public class TaskUtil {
    * @return
    */
   protected static Set<String> getExpiredJobs(HelixDataAccessor dataAccessor,
-      HelixPropertyStore propertyStore, WorkflowConfig workflowConfig,
+      HelixPropertyStore<ZNRecord> propertyStore, WorkflowConfig workflowConfig,
       WorkflowContext workflowContext) {
-    Set<String> expiredJobs = new HashSet<String>();
+    Set<String> expiredJobs = new HashSet<>();
 
     if (workflowContext != null) {
       Map<String, TaskState> jobStates = workflowContext.getJobStates();
@@ -727,11 +743,9 @@ public class TaskUtil {
           continue;
         }
         long expiry = jobConfig.getExpiry();
-        if (expiry == workflowConfig.DEFAULT_EXPIRY || expiry < 0) {
-          expiry = workflowConfig.getExpiry();
-        }
         if (jobContext != null && jobStates.get(job) == TaskState.COMPLETED) {
-          if (System.currentTimeMillis() >= jobContext.getFinishTime() + expiry) {
+          if (jobContext.getFinishTime() != WorkflowContext.UNFINISHED
+              && System.currentTimeMillis() >= jobContext.getFinishTime() + expiry) {
             expiredJobs.add(job);
           }
         }
@@ -747,8 +761,8 @@ public class TaskUtil {
    * @param job namespaced job name
    * @return
    */
-  protected static boolean removeJob(HelixDataAccessor accessor, HelixPropertyStore propertyStore,
-      String job) {
+  protected static boolean removeJob(HelixDataAccessor accessor,
+      HelixPropertyStore<ZNRecord> propertyStore, String job) {
     if (!removeJobConfig(accessor, job)) {
       LOG.warn(String.format("Error occurred while trying to remove job config for %s.", job));
       return false;
@@ -806,7 +820,7 @@ public class TaskUtil {
   /**
    * update workflow's property to remove jobs from JOB_STATES if there are already started.
    */
-  protected static boolean removeJobsState(final HelixPropertyStore propertyStore,
+  protected static boolean removeJobsState(final HelixPropertyStore<ZNRecord> propertyStore,
       final String workflow, final Set<String> jobs) {
     String contextPath =
         Joiner.on("/").join(TaskConstants.REBALANCER_CONTEXT_ROOT, workflow, TaskUtil.CONTEXT_NODE);
@@ -961,13 +975,11 @@ public class TaskUtil {
     return (jobState != null && jobState != TaskState.NOT_STARTED);
   }
 
-
   /**
    * Clean up all jobs that are COMPLETED and passes its expiry time.
    * @param workflowConfig
    * @param workflowContext
    */
-
   public static void purgeExpiredJobs(String workflow, WorkflowConfig workflowConfig,
       WorkflowContext workflowContext, HelixManager manager,
       RebalanceScheduler rebalanceScheduler) {
@@ -979,17 +991,16 @@ public class TaskUtil {
     long currentTime = System.currentTimeMillis();
     final Set<String> expiredJobs = Sets.newHashSet();
     if (purgeInterval > 0 && workflowContext.getLastJobPurgeTime() + purgeInterval <= currentTime) {
-      expiredJobs.addAll(TaskUtil
-          .getExpiredJobs(manager.getHelixDataAccessor(), manager.getHelixPropertyStore(),
-              workflowConfig, workflowContext));
+      expiredJobs.addAll(TaskUtil.getExpiredJobs(manager.getHelixDataAccessor(),
+          manager.getHelixPropertyStore(), workflowConfig, workflowContext));
       if (expiredJobs.isEmpty()) {
         LOG.info("No job to purge for the queue " + workflow);
       } else {
         LOG.info("Purge jobs " + expiredJobs + " from queue " + workflow);
         Set<String> failedJobRemovals = new HashSet<>();
         for (String job : expiredJobs) {
-          if (!TaskUtil
-              .removeJob(manager.getHelixDataAccessor(), manager.getHelixPropertyStore(), job)) {
+          if (!TaskUtil.removeJob(manager.getHelixDataAccessor(), manager.getHelixPropertyStore(),
+              job)) {
             failedJobRemovals.add(job);
             LOG.warn("Failed to clean up expired and completed jobs from workflow " + workflow);
           }
@@ -1000,11 +1011,10 @@ public class TaskUtil {
         // removal will be tried again at next purge
         expiredJobs.removeAll(failedJobRemovals);
 
-        if (!TaskUtil
-            .removeJobsFromDag(manager.getHelixDataAccessor(), workflow, expiredJobs, true)) {
-          LOG.warn(
-              "Error occurred while trying to remove jobs + " + expiredJobs + " from the workflow "
-                  + workflow);
+        if (!TaskUtil.removeJobsFromDag(manager.getHelixDataAccessor(), workflow, expiredJobs,
+            true)) {
+          LOG.warn("Error occurred while trying to remove jobs + " + expiredJobs
+              + " from the workflow " + workflow);
         }
 
         if (expiredJobs.size() > 0) {
@@ -1015,8 +1025,7 @@ public class TaskUtil {
           List<String> resourceConfigs =
               accessor.getChildNames(accessor.keyBuilder().resourceConfigs());
           if (resourceConfigs.size() > 0) {
-            RebalanceScheduler.invokeRebalanceForResourceConfig(manager.getHelixDataAccessor(),
-                resourceConfigs.get(0));
+            RebalanceUtil.scheduleOnDemandPipeline(manager.getClusterName(), 0L);
           } else {
             LOG.warn(
                 "No resource config to trigger rebalance for clean up contexts for" + expiredJobs);

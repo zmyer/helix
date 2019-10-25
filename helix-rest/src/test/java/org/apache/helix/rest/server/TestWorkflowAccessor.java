@@ -5,9 +5,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+
 import org.apache.helix.TestHelper;
 import org.apache.helix.rest.server.resources.helix.WorkflowAccessor;
 import org.apache.helix.task.JobQueue;
@@ -18,7 +20,6 @@ import org.apache.helix.task.TaskState;
 import org.apache.helix.task.WorkflowConfig;
 import org.codehaus.jackson.JsonNode;
 import org.codehaus.jackson.type.TypeReference;
-import org.glassfish.jersey.server.spi.ResponseErrorMapper;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -44,18 +45,19 @@ public class TestWorkflowAccessor extends AbstractTestClass {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
     String body =
-        get("clusters/" + CLUSTER_NAME + "/workflows", Response.Status.OK.getStatusCode(), true);
+        get("clusters/" + CLUSTER_NAME + "/workflows", null, Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     String workflowsStr = node.get(WorkflowAccessor.WorkflowProperties.Workflows.name()).toString();
     Set<String> workflows = OBJECT_MAPPER.readValue(workflowsStr,
         OBJECT_MAPPER.getTypeFactory().constructCollectionType(Set.class, String.class));
     Assert.assertEquals(workflows, _workflowMap.get(CLUSTER_NAME).keySet());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetWorkflows")
   public void testGetWorkflow() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
-    String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME,
+    String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME, null,
         Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     Assert.assertNotNull(node.get(WorkflowAccessor.WorkflowProperties.WorkflowConfig.name()));
@@ -70,28 +72,31 @@ public class TestWorkflowAccessor extends AbstractTestClass {
         node.get(WorkflowAccessor.WorkflowProperties.WorkflowConfig.name()).get("WorkflowID")
             .getTextValue();
     Assert.assertEquals(workflowId, WORKFLOW_NAME);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetWorkflow")
   public void testGetWorkflowConfig() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
-    String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/configs",
+    String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/configs", null,
         Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     String workflowId = node.get("WorkflowID").getTextValue();
     Assert.assertEquals(workflowId, WORKFLOW_NAME);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetWorkflowConfig")
   public void testGetWorkflowContext() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
-    String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/context",
+    String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/context", null,
         Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     Assert.assertEquals(node.get("STATE").getTextValue(),
         TaskState.IN_PROGRESS.name());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetWorkflowContext")
@@ -122,6 +127,7 @@ public class TestWorkflowAccessor extends AbstractTestClass {
     Assert.assertNotNull(workflowConfig);
     Assert.assertTrue(workflowConfig.isJobQueue());
     Assert.assertEquals(workflowConfig.getJobDag().getAllNodes().size(), 0);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testCreateWorkflow")
@@ -139,6 +145,7 @@ public class TestWorkflowAccessor extends AbstractTestClass {
         ImmutableMap.of("command", "resume"), entity, Response.Status.OK.getStatusCode());
     Assert.assertEquals(driver.getWorkflowConfig(TEST_QUEUE_NAME).getTargetState(),
         TargetState.START);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testUpdateWorkflow")
@@ -151,7 +158,7 @@ public class TestWorkflowAccessor extends AbstractTestClass {
     String uri = "clusters/" + CLUSTER_NAME + "/workflows/Workflow_0/userContent";
 
     String body =
-        get(uri, Response.Status.OK.getStatusCode(), true);
+        get(uri, null, Response.Status.OK.getStatusCode(), true);
     Map<String, String> contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
     Assert.assertTrue(contentStore.isEmpty());
 
@@ -161,7 +168,7 @@ public class TestWorkflowAccessor extends AbstractTestClass {
     post(uri, ImmutableMap.of("command", "update"), entity, Response.Status.OK.getStatusCode());
 
     // update (add items) workflow content store
-    body = get(uri, Response.Status.OK.getStatusCode(), true);
+    body = get(uri, null, Response.Status.OK.getStatusCode(), true);
     contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
     Assert.assertEquals(contentStore, map1);
 
@@ -170,9 +177,10 @@ public class TestWorkflowAccessor extends AbstractTestClass {
     map1.put("k2", "v2");
     entity = Entity.entity(OBJECT_MAPPER.writeValueAsString(map1), MediaType.APPLICATION_JSON_TYPE);
     post(uri, ImmutableMap.of("command", "update"), entity, Response.Status.OK.getStatusCode());
-    body = get(uri, Response.Status.OK.getStatusCode(), true);
+    body = get(uri, null, Response.Status.OK.getStatusCode(), true);
     contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
     Assert.assertEquals(contentStore, map1);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetAndUpdateWorkflowContentStore")
@@ -185,11 +193,13 @@ public class TestWorkflowAccessor extends AbstractTestClass {
     Map<String, String> validCmd = ImmutableMap.of("command", "update");
     Map<String, String> invalidCmd = ImmutableMap.of("command", "delete"); // cmd not supported
 
-    get(invalidURI, Response.Status.NOT_FOUND.getStatusCode(), false);
-    post(invalidURI, validCmd, validEntity, Response.Status.NOT_FOUND.getStatusCode());
+    get(invalidURI, null, Response.Status.NOT_FOUND.getStatusCode(), false);
+    // The following expects a OK because if the usercontent ZNode is not there, it is created
+    post(invalidURI, validCmd, validEntity, Response.Status.OK.getStatusCode());
 
     post(validURI, invalidCmd, validEntity, Response.Status.BAD_REQUEST.getStatusCode());
     post(validURI, validCmd, invalidEntity, Response.Status.BAD_REQUEST.getStatusCode());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testInvalidGetAndUpdateWorkflowContentStore")
@@ -206,5 +216,6 @@ public class TestWorkflowAccessor extends AbstractTestClass {
 
     Thread.sleep(500);
     Assert.assertEquals(driver.getWorkflows().size(), currentWorkflowNumbers - 2);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 }

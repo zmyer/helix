@@ -19,64 +19,61 @@ package org.apache.helix.healthcheck;
  * under the License.
  */
 
-import org.apache.helix.HelixTimerTask;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
 
-// TODO: 2018/7/25 by zmyer
+import org.apache.helix.HelixTimerTask;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class ParticipantHealthReportTask extends HelixTimerTask {
-    private static final Logger LOG = LoggerFactory.getLogger(ParticipantHealthReportTask.class);
-    public final static int DEFAULT_REPORT_LATENCY = 60 * 1000;
-    private final int _reportLatency;
+  private static final Logger LOG = LoggerFactory.getLogger(ParticipantHealthReportTask.class);
+  public final static int DEFAULT_REPORT_LATENCY = 60 * 1000;
+  private final int _reportLatency;
 
-    Timer _timer;
-    final ParticipantHealthReportCollectorImpl _healthReportCollector;
+  Timer _timer;
+  final ParticipantHealthReportCollectorImpl _healthReportCollector;
 
-    class ParticipantHealthReportTimerTask extends TimerTask {
-
-        @Override
-        public void run() {
-            _healthReportCollector.transmitHealthReports();
-        }
-    }
-
-    public ParticipantHealthReportTask(ParticipantHealthReportCollectorImpl healthReportCollector) {
-        this(healthReportCollector, DEFAULT_REPORT_LATENCY);
-    }
-
-    // TODO: 2018/7/25 by zmyer
-    public ParticipantHealthReportTask(ParticipantHealthReportCollectorImpl healthReportCollector,
-            int reportLatency) {
-        _healthReportCollector = healthReportCollector;
-        _reportLatency = reportLatency;
-    }
-
-    // TODO: 2018/7/26 by zmyer
-    @Override
-    public void start() {
-        if (_timer == null) {
-            LOG.info("Start HealthCheckInfoReportingTask");
-            _timer = new Timer("ParticipantHealthReportTimerTask", true);
-            _timer.scheduleAtFixedRate(new ParticipantHealthReportTimerTask(),
-                    new Random().nextInt(_reportLatency), _reportLatency);
-        } else {
-            LOG.warn("ParticipantHealthReportTimerTask already started");
-        }
-    }
+  class ParticipantHealthReportTimerTask extends TimerTask {
 
     @Override
-    public void stop() {
-        if (_timer != null) {
-            LOG.info("Stop ParticipantHealthReportTimerTask");
-            _timer.cancel();
-            _timer = null;
-        } else {
-            LOG.warn("ParticipantHealthReportTimerTask already stopped");
-        }
+    public void run() {
+      _healthReportCollector.transmitHealthReports();
     }
+  }
+
+  public ParticipantHealthReportTask(ParticipantHealthReportCollectorImpl healthReportCollector) {
+    this(healthReportCollector, DEFAULT_REPORT_LATENCY);
+  }
+
+  public ParticipantHealthReportTask(ParticipantHealthReportCollectorImpl healthReportCollector,
+      int reportLatency) {
+    _healthReportCollector = healthReportCollector;
+    _reportLatency = reportLatency;
+  }
+
+  @Override
+  public synchronized void start() {
+    if (_timer == null) {
+      LOG.info("Start HealthCheckInfoReportingTask");
+      _timer = new Timer("ParticipantHealthReportTimerTask", true);
+      _timer.scheduleAtFixedRate(new ParticipantHealthReportTimerTask(),
+          new Random().nextInt(_reportLatency), _reportLatency);
+    } else {
+      LOG.warn("ParticipantHealthReportTimerTask already started");
+    }
+  }
+
+  @Override
+  public synchronized void stop() {
+    if (_timer != null) {
+      LOG.info("Stop ParticipantHealthReportTimerTask");
+      _timer.cancel();
+      _timer = null;
+    } else {
+      LOG.warn("ParticipantHealthReportTimerTask already stopped");
+    }
+  }
 
 }

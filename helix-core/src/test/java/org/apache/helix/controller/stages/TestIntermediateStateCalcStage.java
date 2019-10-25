@@ -6,7 +6,7 @@ package org.apache.helix.controller.stages;
  * distributed with this work for additional information
  * regarding copyright ownership.  The ASF licenses this file
  * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
+// * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
  *   http://www.apache.org/licenses/LICENSE-2.0
@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.helix.api.config.StateTransitionThrottleConfig;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.Partition;
@@ -53,8 +54,6 @@ public class TestIntermediateStateCalcStage extends BaseStageTest {
         resourceSet.toArray(new String[resourceSet.size()]), nPartition, "OnlineOffline"));
     event.addAttribute(AttributeName.RESOURCES_TO_REBALANCE.name(), getResourceMap(
         resourceSet.toArray(new String[resourceSet.size()]), nPartition, "OnlineOffline"));
-
-
 
     // Initialize bestpossible state and current state
     BestPossibleStateOutput bestPossibleStateOutput = new BestPossibleStateOutput();
@@ -163,6 +162,8 @@ public class TestIntermediateStateCalcStage extends BaseStageTest {
 
     event.addAttribute(AttributeName.BEST_POSSIBLE_STATE.name(), bestPossibleStateOutput);
     event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
+    event.addAttribute(AttributeName.ControllerDataProvider.name(),
+        new ResourceControllerDataProvider());
     runStage(event, new ReadClusterDataStage());
     runStage(event, new IntermediateStateCalcStage());
 
@@ -240,6 +241,8 @@ public class TestIntermediateStateCalcStage extends BaseStageTest {
 
     event.addAttribute(AttributeName.BEST_POSSIBLE_STATE.name(), bestPossibleStateOutput);
     event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
+    event.addAttribute(AttributeName.ControllerDataProvider.name(),
+        new ResourceControllerDataProvider());
     runStage(event, new ReadClusterDataStage());
     runStage(event, new IntermediateStateCalcStage());
 

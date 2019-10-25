@@ -140,14 +140,14 @@ public class ResourceMonitor extends DynamicMBeanProvider {
 
     _partitionTopStateHandoffDurationGauge =
         new HistogramDynamicMetric("PartitionTopStateHandoffDurationGauge", new Histogram(
-            new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+            new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
 
     _partitionTopStateHandoffHelixLatencyGauge =
         new HistogramDynamicMetric("PartitionTopStateHandoffHelixLatencyGauge", new Histogram(
-            new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+            new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
     _partitionTopStateNonGracefulHandoffDurationGauge =
         new HistogramDynamicMetric("PartitionTopStateNonGracefulHandoffGauge", new Histogram(
-            new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+            new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
 
     _totalMessageReceived = new SimpleDynamicMetric("TotalMessageReceived", 0L);
     _maxSinglePartitionTopStateHandoffDuration =

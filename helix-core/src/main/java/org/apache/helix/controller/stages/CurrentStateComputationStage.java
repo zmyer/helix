@@ -22,6 +22,7 @@ package org.apache.helix.controller.stages;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import org.apache.helix.controller.dataproviders.BaseControllerDataProvider;
 import org.apache.helix.controller.LogUtil;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
@@ -36,27 +37,26 @@ import org.slf4j.LoggerFactory;
  * sessionId from LiveInstance Get Partition,State for all the resources computed in
  * previous State [ResourceComputationStage]
  */
-// TODO: 2018/7/24 by zmyer
 public class CurrentStateComputationStage extends AbstractBaseStage {
-    private static Logger LOG = LoggerFactory.getLogger(CurrentStateComputationStage.class);
+  private static Logger LOG = LoggerFactory.getLogger(CurrentStateComputationStage.class);
 
   @Override
   public void process(ClusterEvent event) throws Exception {
     _eventId = event.getEventId();
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    BaseControllerDataProvider cache = event.getAttribute(AttributeName.ControllerDataProvider.name());
     final Map<String, Resource> resourceMap = event.getAttribute(AttributeName.RESOURCES.name());
 
-        if (cache == null || resourceMap == null) {
-            throw new StageException("Missing attributes in event:" + event
-                    + ". Requires DataCache|RESOURCE");
-        }
+    if (cache == null || resourceMap == null) {
+      throw new StageException("Missing attributes in event:" + event
+          + ". Requires DataCache|RESOURCE");
+    }
 
     Map<String, LiveInstance> liveInstances = cache.getLiveInstances();
     final CurrentStateOutput currentStateOutput = new CurrentStateOutput();
 
-        for (final LiveInstance instance : liveInstances.values()) {
-            final String instanceName = instance.getInstanceName();
-            final String instanceSessionId = instance.getSessionId();
+    for (LiveInstance instance : liveInstances.values()) {
+      String instanceName = instance.getInstanceName();
+      String instanceSessionId = instance.getEphemeralOwner();
 
       // update pending messages
       Map<String, Message> messages = cache.getMessages(instanceName);
@@ -76,7 +76,7 @@ public class CurrentStateComputationStage extends AbstractBaseStage {
       CurrentStateOutput currentStateOutput, Collection<Message> pendingRelayMessages,
       Map<String, Resource> resourceMap) {
     String instanceName = instance.getInstanceName();
-    String instanceSessionId = instance.getSessionId();
+    String instanceSessionId = instance.getEphemeralOwner();
 
     // update all pending messages
     for (Message message : pendingMessages) {
@@ -121,6 +121,11 @@ public class CurrentStateComputationStage extends AbstractBaseStage {
           }
         }
       }
+
+      // Add the state model into the map for lookup of Task Framework pending partitions
+      if (resource.getStateModelDefRef() != null) {
+        currentStateOutput.setResourceStateModelDef(resourceName, resource.getStateModelDefRef());
+      }
     }
 
 
@@ -157,45 +162,50 @@ public class CurrentStateComputationStage extends AbstractBaseStage {
     }
   }
 
-    // TODO: 2018/7/25 by zmyer
-    // update current states in CurrentStateOutput
-    private void updateCurrentStates(LiveInstance instance, Collection<CurrentState> currentStates,
-            CurrentStateOutput currentStateOutput, Map<String, Resource> resourceMap) {
-        String instanceName = instance.getInstanceName();
-        String instanceSessionId = instance.getSessionId();
+  // update current states in CurrentStateOutput
+  private void updateCurrentStates(LiveInstance instance, Collection<CurrentState> currentStates,
+      CurrentStateOutput currentStateOutput, Map<String, Resource> resourceMap) {
+    String instanceName = instance.getInstanceName();
+    String instanceSessionId = instance.getEphemeralOwner();
 
-        for (final CurrentState currentState : currentStates) {
-            if (!instanceSessionId.equals(currentState.getSessionId())) {
-                continue;
-            }
-            String resourceName = currentState.getResourceName();
-            String stateModelDefName = currentState.getStateModelDefRef();
-            Resource resource = resourceMap.get(resourceName);
-            if (resource == null) {
-                continue;
-            }
-            if (stateModelDefName != null) {
-                currentStateOutput.setResourceStateModelDef(resourceName, stateModelDefName);
-            }
+    for (CurrentState currentState : currentStates) {
+      if (!instanceSessionId.equals(currentState.getSessionId())) {
+        continue;
+      }
+      String resourceName = currentState.getResourceName();
+      String stateModelDefName = currentState.getStateModelDefRef();
+      Resource resource = resourceMap.get(resourceName);
+      if (resource == null) {
+        continue;
+      }
+      if (stateModelDefName != null) {
+        currentStateOutput.setResourceStateModelDef(resourceName, stateModelDefName);
+      }
 
-            currentStateOutput.setBucketSize(resourceName, currentState.getBucketSize());
+      currentStateOutput.setBucketSize(resourceName, currentState.getBucketSize());
 
-            final Map<String, String> partitionStateMap = currentState.getPartitionStateMap();
-            for (final String partitionName : partitionStateMap.keySet()) {
-                final Partition partition = resource.getPartition(partitionName);
-                if (partition != null) {
-                    currentStateOutput.setCurrentState(resourceName, partition, instanceName,
-                            currentState.getState(partitionName));
-                    currentStateOutput.setRequestedState(resourceName, partition, instanceName,
-                            currentState.getRequestedState(partitionName));
-                    currentStateOutput
-                            .setInfo(resourceName, partition, instanceName, currentState.getInfo(partitionName));
-                    currentStateOutput.setEndTime(resourceName, partition, instanceName,
-                            currentState.getEndTime(partitionName));
-                }
-            }
+      Map<String, String> partitionStateMap = currentState.getPartitionStateMap();
+      for (String partitionName : partitionStateMap.keySet()) {
+        Partition partition = resource.getPartition(partitionName);
+        if (partition != null) {
+          currentStateOutput.setCurrentState(resourceName, partition, instanceName,
+              currentState.getState(partitionName));
+          currentStateOutput.setEndTime(resourceName, partition, instanceName,
+              currentState.getEndTime(partitionName));
+          String info = currentState.getInfo(partitionName);
+          // This is to avoid null value entries in the map, and reduce memory usage by avoiding extra empty entries in the map.
+          if (info != null) {
+            currentStateOutput.setInfo(resourceName, partition, instanceName, info);
+          }
+          String requestState = currentState.getRequestedState(partitionName);
+          if (requestState != null) {
+            currentStateOutput
+                .setRequestedState(resourceName, partition, instanceName, requestState);
+          }
         }
+      }
     }
+  }
 
   private void setMessageState(CurrentStateOutput currentStateOutput, String resourceName,
       Partition partition, String instanceName, Message message) {

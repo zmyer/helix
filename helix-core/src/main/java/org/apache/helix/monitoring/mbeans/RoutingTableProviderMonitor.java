@@ -60,13 +60,14 @@ public class RoutingTableProviderMonitor extends DynamicMBeanProvider {
             _propertyType.name());
 
     _dataRefreshLatencyGauge = new HistogramDynamicMetric("DataRefreshLatencyGauge", new Histogram(
-        new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+        new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
     _callbackCounter = new SimpleDynamicMetric("CallbackCounter", 0l);
     _eventQueueSizeGauge = new SimpleDynamicMetric("EventQueueSizeGauge", 0l);
     _dataRefreshCounter = new SimpleDynamicMetric("DataRefreshCounter", 0l);
     if (propertyType.equals(PropertyType.CURRENTSTATES)) {
-      _statePropLatencyGauge = new HistogramDynamicMetric("StatePropagationLatencyGauge", new Histogram(
-          new SlidingTimeWindowArrayReservoir(DEFAULT_RESET_INTERVAL_MS, TimeUnit.MILLISECONDS)));
+      _statePropLatencyGauge = new HistogramDynamicMetric("StatePropagationLatencyGauge",
+          new Histogram(
+              new SlidingTimeWindowArrayReservoir(getResetIntervalInMs(), TimeUnit.MILLISECONDS)));
     }
   }
 

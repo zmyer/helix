@@ -19,7 +19,6 @@ package org.apache.helix.rest.server;
  * under the License.
  */
 
-import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,9 +28,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+
 import org.apache.helix.AccessOption;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
@@ -50,6 +51,8 @@ import org.codehaus.jackson.type.TypeReference;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import com.google.common.collect.ImmutableMap;
+
 public class TestResourceAccessor extends AbstractTestClass {
   private final static String CLUSTER_NAME = "TestCluster_0";
   private final static String RESOURCE_NAME = CLUSTER_NAME + "_db_0";
@@ -59,8 +62,8 @@ public class TestResourceAccessor extends AbstractTestClass {
   public void testGetResources() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
-    String body =
-        get("clusters/" + CLUSTER_NAME + "/resources", Response.Status.OK.getStatusCode(), true);
+    String body = get("clusters/" + CLUSTER_NAME + "/resources", null,
+        Response.Status.OK.getStatusCode(), true);
 
     JsonNode node = OBJECT_MAPPER.readTree(body);
     String idealStates =
@@ -69,15 +72,15 @@ public class TestResourceAccessor extends AbstractTestClass {
 
     Set<String> resources = OBJECT_MAPPER.readValue(idealStates,
         OBJECT_MAPPER.getTypeFactory().constructCollectionType(Set.class, String.class));
-    Assert.assertEquals(resources, _resourcesMap.get("TestCluster_0"),
-        "Resources from response: " + resources + " vs clusters actually: " + _resourcesMap
-            .get("TestCluster_0"));
+    Assert.assertEquals(resources, _resourcesMap.get("TestCluster_0"), "Resources from response: "
+        + resources + " vs clusters actually: " + _resourcesMap.get("TestCluster_0"));
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetResources")
   public void testGetResource() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
-    String body = get("clusters/" + CLUSTER_NAME + "/resources/" + RESOURCE_NAME,
+    String body = get("clusters/" + CLUSTER_NAME + "/resources/" + RESOURCE_NAME, null,
         Response.Status.OK.getStatusCode(), true);
 
     JsonNode node = OBJECT_MAPPER.readTree(body);
@@ -87,6 +90,7 @@ public class TestResourceAccessor extends AbstractTestClass {
     IdealState originIdealState =
         _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, RESOURCE_NAME);
     Assert.assertEquals(idealState, originIdealState);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetResource")
@@ -94,9 +98,8 @@ public class TestResourceAccessor extends AbstractTestClass {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
     String newResourceName = "newResource";
     IdealState idealState = new IdealState(newResourceName);
-    idealState.getRecord().getSimpleFields().putAll(
-        _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, RESOURCE_NAME)
-            .getRecord().getSimpleFields());
+    idealState.getRecord().getSimpleFields().putAll(_gSetupTool.getClusterManagementTool()
+        .getResourceIdealState(CLUSTER_NAME, RESOURCE_NAME).getRecord().getSimpleFields());
 
     // Add resource by IdealState
     Entity entity = Entity.entity(OBJECT_MAPPER.writeValueAsString(idealState.getRecord()),
@@ -111,7 +114,7 @@ public class TestResourceAccessor extends AbstractTestClass {
     entity = Entity.entity("", MediaType.APPLICATION_JSON_TYPE);
 
     put("clusters/" + CLUSTER_NAME + "/resources/" + newResourceName + "0", ImmutableMap
-            .of("numPartitions", "4", "stateModelRef", "OnlineOffline", "rebalancerMode", "FULL_AUTO"),
+        .of("numPartitions", "4", "stateModelRef", "OnlineOffline", "rebalancerMode", "FULL_AUTO"),
         entity, Response.Status.OK.getStatusCode());
 
     IdealState queryIdealState = new FullAutoModeISBuilder(newResourceName + 0).setNumPartitions(4)
@@ -119,42 +122,46 @@ public class TestResourceAccessor extends AbstractTestClass {
         .setRebalanceStrategy("DEFAULT").build();
     Assert.assertEquals(queryIdealState, _gSetupTool.getClusterManagementTool()
         .getResourceIdealState(CLUSTER_NAME, newResourceName + "0"));
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testAddResources")
   public void testResourceConfig() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
-    String body = get("clusters/" + CLUSTER_NAME + "/resources/" + RESOURCE_NAME + "/configs",
+    String body = get("clusters/" + CLUSTER_NAME + "/resources/" + RESOURCE_NAME + "/configs", null,
         Response.Status.OK.getStatusCode(), true);
     ResourceConfig resourceConfig = new ResourceConfig(toZNRecord(body));
     Assert.assertEquals(resourceConfig,
         _configAccessor.getResourceConfig(CLUSTER_NAME, RESOURCE_NAME));
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
-  @Test(dependsOnMethods = "testAddResources")
+  @Test(dependsOnMethods = "testResourceConfig")
   public void testIdealState() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
     String body = get("clusters/" + CLUSTER_NAME + "/resources/" + RESOURCE_NAME + "/idealState",
-        Response.Status.OK.getStatusCode(), true);
+        null, Response.Status.OK.getStatusCode(), true);
     IdealState idealState = new IdealState(toZNRecord(body));
     Assert.assertEquals(idealState,
         _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, RESOURCE_NAME));
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
-  @Test(dependsOnMethods = "testAddResources")
+  @Test(dependsOnMethods = "testIdealState")
   public void testExternalView() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
     String body = get("clusters/" + CLUSTER_NAME + "/resources/" + RESOURCE_NAME + "/externalView",
-        Response.Status.OK.getStatusCode(), true);
+        null, Response.Status.OK.getStatusCode(), true);
     ExternalView externalView = new ExternalView(toZNRecord(body));
     Assert.assertEquals(externalView, _gSetupTool.getClusterManagementTool()
         .getResourceExternalView(CLUSTER_NAME, RESOURCE_NAME));
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
-  @Test
+  @Test(dependsOnMethods = "testExternalView")
   public void testPartitionHealth() throws Exception {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
@@ -171,9 +178,15 @@ public class TestResourceAccessor extends AbstractTestClass {
 
     // Create a mock state mapping for testing
     Map<String, List<String>> partitionReplicaStates = new LinkedHashMap<>();
-    String[] p0 = {"MASTER", "SLAVE", "SLAVE"};
-    String[] p1 = {"MASTER", "SLAVE", "ERROR"};
-    String[] p2 = {"ERROR", "SLAVE", "SLAVE"};
+    String[] p0 = {
+        "MASTER", "SLAVE", "SLAVE"
+    };
+    String[] p1 = {
+        "MASTER", "SLAVE", "ERROR"
+    };
+    String[] p2 = {
+        "ERROR", "SLAVE", "SLAVE"
+    };
     partitionReplicaStates.put("p0", Arrays.asList(p0));
     partitionReplicaStates.put("p1", Arrays.asList(p1));
     partitionReplicaStates.put("p2", Arrays.asList(p2));
@@ -181,15 +194,18 @@ public class TestResourceAccessor extends AbstractTestClass {
     createDummyMapping(clusterName, resourceName, idealStateParams, partitionReplicaStates);
 
     // Get the result of getPartitionHealth
-    String body = get("clusters/" + clusterName + "/resources/" + resourceName + "/health",
+    String body = get("clusters/" + clusterName + "/resources/" + resourceName + "/health", null,
         Response.Status.OK.getStatusCode(), true);
 
     JsonNode node = OBJECT_MAPPER.readTree(body);
-    Map<String, String> healthStatus = OBJECT_MAPPER.readValue(node, new TypeReference<Map<String, String>>(){});
+    Map<String, String> healthStatus =
+        OBJECT_MAPPER.readValue(node, new TypeReference<Map<String, String>>() {
+        });
 
     Assert.assertEquals(healthStatus.get("p0"), "HEALTHY");
     Assert.assertEquals(healthStatus.get("p1"), "PARTIAL_HEALTHY");
     Assert.assertEquals(healthStatus.get("p2"), "UNHEALTHY");
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testPartitionHealth")
@@ -207,9 +223,15 @@ public class TestResourceAccessor extends AbstractTestClass {
     // Create a healthy resource
     String resourceNameHealthy = clusterName + "_db_0";
     Map<String, List<String>> partitionReplicaStates = new LinkedHashMap<>();
-    String[] p0 = {"MASTER", "SLAVE", "SLAVE"};
-    String[] p1 = {"MASTER", "SLAVE", "SLAVE"};
-    String[] p2 = {"MASTER", "SLAVE", "SLAVE"};
+    String[] p0 = {
+        "MASTER", "SLAVE", "SLAVE"
+    };
+    String[] p1 = {
+        "MASTER", "SLAVE", "SLAVE"
+    };
+    String[] p2 = {
+        "MASTER", "SLAVE", "SLAVE"
+    };
     partitionReplicaStates.put("p0", Arrays.asList(p0));
     partitionReplicaStates.put("p1", Arrays.asList(p1));
     partitionReplicaStates.put("p2", Arrays.asList(p2));
@@ -219,37 +241,54 @@ public class TestResourceAccessor extends AbstractTestClass {
     // Create a partially healthy resource
     String resourceNamePartiallyHealthy = clusterName + "_db_1";
     Map<String, List<String>> partitionReplicaStates_1 = new LinkedHashMap<>();
-    String[] p0_1 = {"MASTER", "SLAVE", "SLAVE"};
-    String[] p1_1 = {"MASTER", "SLAVE", "SLAVE"};
-    String[] p2_1 = {"MASTER", "SLAVE", "ERROR"};
+    String[] p0_1 = {
+        "MASTER", "SLAVE", "SLAVE"
+    };
+    String[] p1_1 = {
+        "MASTER", "SLAVE", "SLAVE"
+    };
+    String[] p2_1 = {
+        "MASTER", "SLAVE", "ERROR"
+    };
     partitionReplicaStates_1.put("p0", Arrays.asList(p0_1));
     partitionReplicaStates_1.put("p1", Arrays.asList(p1_1));
     partitionReplicaStates_1.put("p2", Arrays.asList(p2_1));
 
-    createDummyMapping(clusterName, resourceNamePartiallyHealthy, idealStateParams, partitionReplicaStates_1);
+    createDummyMapping(clusterName, resourceNamePartiallyHealthy, idealStateParams,
+        partitionReplicaStates_1);
 
     // Create a partially healthy resource
     String resourceNameUnhealthy = clusterName + "_db_2";
     Map<String, List<String>> partitionReplicaStates_2 = new LinkedHashMap<>();
-    String[] p0_2 = {"MASTER", "SLAVE", "SLAVE"};
-    String[] p1_2 = {"MASTER", "SLAVE", "SLAVE"};
-    String[] p2_2 = {"ERROR", "SLAVE", "ERROR"};
+    String[] p0_2 = {
+        "MASTER", "SLAVE", "SLAVE"
+    };
+    String[] p1_2 = {
+        "MASTER", "SLAVE", "SLAVE"
+    };
+    String[] p2_2 = {
+        "ERROR", "SLAVE", "ERROR"
+    };
     partitionReplicaStates_2.put("p0", Arrays.asList(p0_2));
     partitionReplicaStates_2.put("p1", Arrays.asList(p1_2));
     partitionReplicaStates_2.put("p2", Arrays.asList(p2_2));
 
-    createDummyMapping(clusterName, resourceNameUnhealthy, idealStateParams, partitionReplicaStates_2);
+    createDummyMapping(clusterName, resourceNameUnhealthy, idealStateParams,
+        partitionReplicaStates_2);
 
     // Get the result of getResourceHealth
-    String body = get("clusters/" + clusterName + "/resources/health", Response.Status.OK.getStatusCode(),
-        true);
+    String body = get("clusters/" + clusterName + "/resources/health", null,
+        Response.Status.OK.getStatusCode(), true);
 
     JsonNode node = OBJECT_MAPPER.readTree(body);
-    Map<String, String> healthStatus = OBJECT_MAPPER.readValue(node, new TypeReference<Map<String, String>>(){});
+    Map<String, String> healthStatus =
+        OBJECT_MAPPER.readValue(node, new TypeReference<Map<String, String>>() {
+        });
 
     Assert.assertEquals(healthStatus.get(resourceNameHealthy), "HEALTHY");
     Assert.assertEquals(healthStatus.get(resourceNamePartiallyHealthy), "PARTIAL_HEALTHY");
     Assert.assertEquals(healthStatus.get(resourceNameUnhealthy), "UNHEALTHY");
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   /**
@@ -302,6 +341,7 @@ public class TestResourceAccessor extends AbstractTestClass {
     Assert.assertEquals(record.getSimpleFields(), updatedConfig.getRecord().getSimpleFields());
     Assert.assertEquals(record.getListFields(), updatedConfig.getRecord().getListFields());
     Assert.assertEquals(record.getMapFields(), updatedConfig.getRecord().getMapFields());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   /**
@@ -343,18 +383,18 @@ public class TestResourceAccessor extends AbstractTestClass {
       Assert.assertFalse(configAfterDelete.getRecord().getListFields().containsKey(key));
       Assert.assertFalse(configAfterDelete.getRecord().getMapFields().containsKey(key));
     }
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
-
 
   /**
    * Test "update" command of updateResourceIdealState.
    * @throws Exception
    */
-  @Test(dependsOnMethods = "testResourceHealth")
+  @Test(dependsOnMethods = "deleteFromResourceConfig")
   public void updateResourceIdealState() throws Exception {
     // Get IdealState ZNode
     String zkPath = PropertyPathBuilder.idealState(CLUSTER_NAME, RESOURCE_NAME);
-    ZNRecord record = _baseAccessor.get(zkPath,  null, AccessOption.PERSISTENT);
+    ZNRecord record = _baseAccessor.get(zkPath, null, AccessOption.PERSISTENT);
 
     // 1. Add these fields by way of "update"
     Entity entity =
@@ -387,6 +427,7 @@ public class TestResourceAccessor extends AbstractTestClass {
     Assert.assertEquals(record.getSimpleFields(), newRecord.getSimpleFields());
     Assert.assertEquals(record.getListFields(), newRecord.getListFields());
     Assert.assertEquals(record.getMapFields(), newRecord.getMapFields());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   /**
@@ -428,6 +469,7 @@ public class TestResourceAccessor extends AbstractTestClass {
       Assert.assertFalse(recordAfterDelete.getListFields().containsKey(key));
       Assert.assertFalse(recordAfterDelete.getMapFields().containsKey(key));
     }
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   /**
@@ -439,12 +481,13 @@ public class TestResourceAccessor extends AbstractTestClass {
    * @throws Exception
    */
   private void createDummyMapping(String clusterName, String resourceName,
-      Map<String, String> idealStateParams,
-      Map<String, List<String>> partitionReplicaStates) throws Exception {
+      Map<String, String> idealStateParams, Map<String, List<String>> partitionReplicaStates)
+      throws Exception {
     IdealState idealState = new IdealState(resourceName);
     idealState.setMinActiveReplicas(Integer.parseInt(idealStateParams.get("MinActiveReplicas"))); // 2
     idealState.setStateModelDefRef(idealStateParams.get("StateModelDefRef")); // MasterSlave
-    idealState.setMaxPartitionsPerInstance(Integer.parseInt(idealStateParams.get("MaxPartitionsPerInstance"))); // 3
+    idealState.setMaxPartitionsPerInstance(
+        Integer.parseInt(idealStateParams.get("MaxPartitionsPerInstance"))); // 3
     idealState.setReplicas(idealStateParams.get("Replicas")); // 3
     idealState.setNumPartitions(Integer.parseInt(idealStateParams.get("NumPartitions"))); // 3
     idealState.enable(false);
@@ -461,7 +504,8 @@ public class TestResourceAccessor extends AbstractTestClass {
     if (!_gSetupTool.getClusterManagementTool().getClusters().contains(clusterName)) {
       _gSetupTool.getClusterManagementTool().addCluster(clusterName);
     }
-    _gSetupTool.getClusterManagementTool().setResourceIdealState(clusterName, resourceName, idealState);
+    _gSetupTool.getClusterManagementTool().setResourceIdealState(clusterName, resourceName,
+        idealState);
 
     // Set ExternalView's replica states for a given parameter map
     ExternalView externalView = new ExternalView(resourceName);
@@ -480,10 +524,12 @@ public class TestResourceAccessor extends AbstractTestClass {
 
     externalView.getRecord().getMapFields().putAll(mappingCurrent);
 
-    HelixManager helixManager = HelixManagerFactory
-        .getZKHelixManager(clusterName, "p1", InstanceType.ADMINISTRATOR, ZK_ADDR);
+    HelixManager helixManager = HelixManagerFactory.getZKHelixManager(clusterName, "p1",
+        InstanceType.ADMINISTRATOR, ZK_ADDR);
     helixManager.connect();
     HelixDataAccessor helixDataAccessor = helixManager.getHelixDataAccessor();
-    helixDataAccessor.setProperty(helixDataAccessor.keyBuilder().externalView(resourceName), externalView);
+    helixDataAccessor.setProperty(helixDataAccessor.keyBuilder().externalView(resourceName),
+        externalView);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 }

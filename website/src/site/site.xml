@@ -35,7 +35,6 @@
   </skin>
 
   <body>
-
     <head>
       <script type="text/javascript">
 
@@ -50,7 +49,6 @@
         })();
 
       </script>
-
     </head>
 
     <breadcrumbs position="left">
@@ -65,7 +63,11 @@
     </menu>
 
     <menu name="Documentation">
-      <item name="0.8.2 (stable)" href="./0.8.2-docs/index.html"/>
+      <item name="0.9.1 (stable)" href="./0.9.1-docs/index.html"/>
+      <item name="0.9.0" href="./0.9.0-docs/index.html"/>
+      <item name="0.8.4" href="./0.8.4-docs/index.html"/>
+      <item name="0.8.3 (alpha)" href="./0.8.3-docs/index.html"/>
+      <item name="0.8.2" href="./0.8.2-docs/index.html"/>
       <item name="0.8.1" href="./0.8.1-docs/index.html"/>
       <item name="0.8.0" href="./0.8.0-docs/index.html"/>
       <item name="0.7.1 (beta)" href="./0.7.1-docs/index.html"/>
@@ -82,11 +84,11 @@
       <item name="trunk" href="./trunk-docs/index.html"/>
     </menu>
 
-    <menu name="Helix 0.8.2">
-      <item name="Documentation" href="./0.8.2-docs/index.html"/>
-      <item name="Quick Start" href="./0.8.2-docs/Quickstart.html"/>
-      <item name="Tutorial" href="./0.8.2-docs/Tutorial.html"/>
-      <item name="Download" href="./0.8.2-docs/download.html"/>
+    <menu name="Helix 0.9.1">
+      <item name="Documentation" href="./0.9.1-docs/index.html"/>
+      <item name="Quick Start" href="./0.9.1-docs/Quickstart.html"/>
+      <item name="Tutorial" href="./0.9.1-docs/Tutorial.html"/>
+      <item name="Download" href="./0.9.1-docs/download.html"/>
     </menu>
 
     <menu name="Helix 0.7.1 (beta)">
@@ -151,7 +153,7 @@
       <slogan>A cluster management framework for partitioned and replicated distributed resources</slogan>
       <bottomNav>
         <column>Learn</column>
-        <column>Documentation|Helix 0.8.2|Helix 0.7.1 (beta)</column>
+        <column>Documentation|Helix 0.9.1|Helix 0.7.1 (beta)</column>
         <column>Get Involved</column>
         <column>ASF</column>
       </bottomNav>

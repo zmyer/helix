@@ -28,7 +28,6 @@ import java.util.TreeSet;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.ResourceAssignment;
-import org.apache.helix.task.assigner.AssignableInstance;
 import org.apache.helix.task.assigner.TaskAssignResult;
 import org.apache.helix.task.assigner.TaskAssigner;
 import org.slf4j.Logger;
@@ -86,10 +85,6 @@ public class ThreadCountBasedTaskAssignmentCalculator extends TaskAssignmentCalc
       return new HashMap<>();
     }
 
-    // Get AssignableInstances
-    Iterable<AssignableInstance> assignableInstances =
-        _assignableInstanceManager.getAssignableInstanceMap().values();
-
     // Convert the filtered partitionSet (partition numbers) to TaskConfigs
     Iterable<TaskConfig> taskConfigs = getFilteredTaskConfigs(partitionSet, jobCfg, jobContext);
 
@@ -98,7 +93,7 @@ public class ThreadCountBasedTaskAssignmentCalculator extends TaskAssignmentCalc
 
     // Assign tasks to AssignableInstances
     Map<String, TaskAssignResult> taskAssignResultMap =
-        _taskAssigner.assignTasks(assignableInstances, taskConfigs, quotaType);
+        _taskAssigner.assignTasks(_assignableInstanceManager, instances, taskConfigs, quotaType);
 
     // TODO: Do this with Quota Manager is ready
     // Cache TaskAssignResultMap to prevent double-assign

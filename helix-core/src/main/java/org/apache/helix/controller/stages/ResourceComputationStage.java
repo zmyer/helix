@@ -19,6 +19,12 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import org.apache.helix.controller.dataproviders.BaseControllerDataProvider;
+import org.apache.helix.controller.LogUtil;
+import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
 import org.apache.helix.model.ClusterConfig;
@@ -27,13 +33,8 @@ import org.apache.helix.model.IdealState;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.Resource;
 import org.apache.helix.task.TaskConstants;
-import org.apache.helix.controller.LogUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * This stage computes all the resources in a cluster. The resources are
@@ -41,109 +42,107 @@ import java.util.Set;
  * CurrentState for liveInstance-> Helps in finding resources that are inactive
  * and needs to be dropped
  */
-// TODO: 2018/7/24 by zmyer
 public class ResourceComputationStage extends AbstractBaseStage {
-    private static Logger LOG = LoggerFactory.getLogger(ResourceComputationStage.class);
+  private static Logger LOG = LoggerFactory.getLogger(ResourceComputationStage.class);
 
   @Override
   public void process(ClusterEvent event) throws Exception {
     _eventId = event.getEventId();
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    BaseControllerDataProvider cache =
+        event.getAttribute(AttributeName.ControllerDataProvider.name());
     if (cache == null) {
       throw new StageException("Missing attributes in event:" + event + ". Requires DataCache");
     }
 
-        Map<String, IdealState> idealStates = cache.getIdealStates();
+    Map<String, IdealState> idealStates = cache.getIdealStates();
 
     Map<String, Resource> resourceMap = new LinkedHashMap<>();
     Map<String, Resource> resourceToRebalance = new LinkedHashMap<>();
 
-        if (idealStates != null && idealStates.size() > 0) {
-            for (IdealState idealState : idealStates.values()) {
-                if (idealState == null) {
-                    continue;
-                }
-                final Set<String> partitionSet = idealState.getPartitionSet();
-                final String resourceName = idealState.getResourceName();
-                if (!resourceMap.containsKey(resourceName)) {
-                    final Resource resource = new Resource(resourceName, cache.getClusterConfig(),
-                            cache.getResourceConfig(resourceName));
-                    resourceMap.put(resourceName, resource);
+    boolean isTaskCache = cache instanceof WorkflowControllerDataProvider;
 
-                    if (!idealState.isValid() && !cache.isTaskCache()
-                            || idealState.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME) && cache
-                            .isTaskCache()
-                            || !idealState.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME) && !cache
-                            .isTaskCache()) {
-                        resourceToRebalance.put(resourceName, resource);
-                    }
-                    resource.setStateModelDefRef(idealState.getStateModelDefRef());
-                    resource.setStateModelFactoryName(idealState.getStateModelFactoryName());
-                    resource.setBucketSize(idealState.getBucketSize());
-                    boolean batchMessageMode = idealState.getBatchMessageMode();
-                    ClusterConfig clusterConfig = cache.getClusterConfig();
-                    if (clusterConfig != null) {
-                        batchMessageMode |= clusterConfig.getBatchMessageMode();
-                    }
-                    resource.setBatchMessageMode(batchMessageMode);
-                    resource.setResourceGroupName(idealState.getResourceGroupName());
-                    resource.setResourceTag(idealState.getInstanceGroupTag());
-                }
+    if (idealStates != null && idealStates.size() > 0) {
+      for (IdealState idealState : idealStates.values()) {
+        if (idealState == null) {
+          continue;
+        }
+        Set<String> partitionSet = idealState.getPartitionSet();
+        String resourceName = idealState.getResourceName();
+        if (!resourceMap.containsKey(resourceName)) {
+          Resource resource = new Resource(resourceName, cache.getClusterConfig(),
+              cache.getResourceConfig(resourceName));
+          resourceMap.put(resourceName, resource);
 
-                for (String partition : partitionSet) {
-                    addPartition(partition, resourceName, resourceMap);
-                }
-            }
+          if (!idealState.isValid() && !isTaskCache
+              || idealState.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME) && isTaskCache
+              || !idealState.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME) && !isTaskCache) {
+            resourceToRebalance.put(resourceName, resource);
+          }
+          resource.setStateModelDefRef(idealState.getStateModelDefRef());
+          resource.setStateModelFactoryName(idealState.getStateModelFactoryName());
+          resource.setBucketSize(idealState.getBucketSize());
+          boolean batchMessageMode = idealState.getBatchMessageMode();
+          ClusterConfig clusterConfig = cache.getClusterConfig();
+          if (clusterConfig != null) {
+            batchMessageMode |= clusterConfig.getBatchMessageMode();
+          }
+          resource.setBatchMessageMode(batchMessageMode);
+          resource.setResourceGroupName(idealState.getResourceGroupName());
+          resource.setResourceTag(idealState.getInstanceGroupTag());
         }
 
-        // It's important to get partitions from CurrentState as well since the
-        // idealState might be removed.
-        final Map<String, LiveInstance> availableInstances = cache.getLiveInstances();
+        for (String partition : partitionSet) {
+          addPartition(partition, resourceName, resourceMap);
+        }
+      }
+    }
 
-        if (availableInstances != null && !availableInstances.isEmpty()) {
-            for (final LiveInstance instance : availableInstances.values()) {
-                final String instanceName = instance.getInstanceName();
-                final String clientSessionId = instance.getSessionId();
+    // It's important to get partitions from CurrentState as well since the
+    // idealState might be removed.
+    Map<String, LiveInstance> availableInstances = cache.getLiveInstances();
 
-                final Map<String, CurrentState> currentStateMap =
-                        cache.getCurrentState(instanceName, clientSessionId);
-                if (currentStateMap == null || currentStateMap.isEmpty()) {
-                    continue;
-                }
-                for (final CurrentState currentState : currentStateMap.values()) {
+    if (availableInstances != null && availableInstances.size() > 0) {
+      for (LiveInstance instance : availableInstances.values()) {
+        String instanceName = instance.getInstanceName();
+        String clientSessionId = instance.getEphemeralOwner();
 
-                    final String resourceName = currentState.getResourceName();
-                    final Map<String, String> resourceStateMap = currentState.getPartitionStateMap();
+        Map<String, CurrentState> currentStateMap =
+            cache.getCurrentState(instanceName, clientSessionId);
+        if (currentStateMap == null || currentStateMap.size() == 0) {
+          continue;
+        }
+        for (CurrentState currentState : currentStateMap.values()) {
 
-                    if (resourceStateMap.keySet().isEmpty()) {
-                        // don't include empty current state for dropped resource
-                        continue;
-                    }
+          String resourceName = currentState.getResourceName();
+          Map<String, String> resourceStateMap = currentState.getPartitionStateMap();
 
-                    // don't overwrite ideal state settings
-                    if (!resourceMap.containsKey(resourceName)) {
-                        addResource(resourceName, resourceMap);
-                        final Resource resource = resourceMap.get(resourceName);
-                        resource.setStateModelDefRef(currentState.getStateModelDefRef());
-                        resource.setStateModelFactoryName(currentState.getStateModelFactoryName());
-                        resource.setBucketSize(currentState.getBucketSize());
-                        resource.setBatchMessageMode(currentState.getBatchMessageMode());
-                        if (resource.getStateModelDefRef() == null && !cache.isTaskCache()
-                                || resource.getStateModelDefRef() != null && (
-                                resource.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME) && cache
-                                        .isTaskCache()
-                                        || !resource.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME)
-                                        && !cache.isTaskCache())) {
-                            resourceToRebalance.put(resourceName, resource);
-                        }
+          if (resourceStateMap.keySet().isEmpty()) {
+            // don't include empty current state for dropped resource
+            continue;
+          }
 
-                        assert idealStates != null;
-                        final IdealState idealState = idealStates.get(resourceName);
-                        if (idealState != null) {
-                            resource.setResourceGroupName(idealState.getResourceGroupName());
-                            resource.setResourceTag(idealState.getInstanceGroupTag());
-                        }
-                    }
+          // don't overwrite ideal state settings
+          if (!resourceMap.containsKey(resourceName)) {
+            addResource(resourceName, resourceMap);
+            Resource resource = resourceMap.get(resourceName);
+            resource.setStateModelDefRef(currentState.getStateModelDefRef());
+            resource.setStateModelFactoryName(currentState.getStateModelFactoryName());
+            resource.setBucketSize(currentState.getBucketSize());
+            resource.setBatchMessageMode(currentState.getBatchMessageMode());
+            if (resource.getStateModelDefRef() == null && !isTaskCache
+                || resource.getStateModelDefRef() != null && (
+                resource.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME) && isTaskCache
+                    || !resource.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME)
+                    && !isTaskCache)) {
+              resourceToRebalance.put(resourceName, resource);
+            }
+
+            IdealState idealState = idealStates.get(resourceName);
+            if (idealState != null) {
+              resource.setResourceGroupName(idealState.getResourceGroupName());
+              resource.setResourceTag(idealState.getInstanceGroupTag());
+            }
+          }
 
           if (currentState.getStateModelDefRef() == null) {
             LogUtil.logError(LOG, _eventId,
@@ -154,37 +153,35 @@ public class ResourceComputationStage extends AbstractBaseStage {
                 + currentState.getResourceName());
           }
 
-                    for (final String partition : resourceStateMap.keySet()) {
-                        addPartition(partition, resourceName, resourceMap);
-                    }
-                }
-            }
+          for (String partition : resourceStateMap.keySet()) {
+            addPartition(partition, resourceName, resourceMap);
+          }
         }
-
-        event.addAttribute(AttributeName.RESOURCES.name(), resourceMap);
-        event.addAttribute(AttributeName.RESOURCES_TO_REBALANCE.name(), resourceToRebalance);
+      }
     }
 
-    // TODO: 2018/7/25 by zmyer
-    private void addResource(String resource, Map<String, Resource> resourceMap) {
-        if (resource == null || resourceMap == null) {
-            return;
-        }
-        if (!resourceMap.containsKey(resource)) {
-            resourceMap.put(resource, new Resource(resource));
-        }
-    }
+    event.addAttribute(AttributeName.RESOURCES.name(), resourceMap);
+    event.addAttribute(AttributeName.RESOURCES_TO_REBALANCE.name(), resourceToRebalance);
+  }
 
-    // TODO: 2018/7/25 by zmyer
-    private void addPartition(String partition, String resourceName, Map<String, Resource> resourceMap) {
-        if (resourceName == null || partition == null || resourceMap == null) {
-            return;
-        }
-        if (!resourceMap.containsKey(resourceName)) {
-            resourceMap.put(resourceName, new Resource(resourceName));
-        }
-        final Resource resource = resourceMap.get(resourceName);
-        resource.addPartition(partition);
-
+  private void addResource(String resource, Map<String, Resource> resourceMap) {
+    if (resource == null || resourceMap == null) {
+      return;
     }
+    if (!resourceMap.containsKey(resource)) {
+      resourceMap.put(resource, new Resource(resource));
+    }
+  }
+
+  private void addPartition(String partition, String resourceName, Map<String, Resource> resourceMap) {
+    if (resourceName == null || partition == null || resourceMap == null) {
+      return;
+    }
+    if (!resourceMap.containsKey(resourceName)) {
+      resourceMap.put(resourceName, new Resource(resourceName));
+    }
+    Resource resource = resourceMap.get(resourceName);
+    resource.addPartition(partition);
+
+  }
 }

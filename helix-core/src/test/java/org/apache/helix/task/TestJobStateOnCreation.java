@@ -21,7 +21,7 @@ package org.apache.helix.task;
 
 import com.google.common.collect.Sets;
 import java.util.Map;
-import org.apache.helix.controller.stages.ClusterDataCache;
+import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.integration.task.MockTask;
@@ -37,14 +37,14 @@ public class TestJobStateOnCreation extends TaskSynchronizedTestBase {
 
   private static final String WORKFLOW_NAME = "testWorkflow";
 
-  private ClusterDataCache _cache;
+  private WorkflowControllerDataProvider _cache;
   private IdealState _idealState;
   private Resource _resource;
   private CurrentStateOutput _currStateOutput;
 
   @BeforeClass
   public void beforeClass() throws Exception {
-    _cache = new ClusterDataCache();
+    _cache = new WorkflowControllerDataProvider();
     _idealState = new IdealState(WORKFLOW_NAME);
     _resource = new Resource(WORKFLOW_NAME);
     _currStateOutput = new CurrentStateOutput();

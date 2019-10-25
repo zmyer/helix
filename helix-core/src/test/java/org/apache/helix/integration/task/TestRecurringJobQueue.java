@@ -264,7 +264,7 @@ public class TestRecurringJobQueue extends TaskTestBase {
     WorkflowContext wCtx;
     // wait until at least 2 workflows are scheduled based on template queue
     do {
-      Thread.sleep(60000);
+      Thread.sleep(60000L);
       wCtx = TaskTestUtil.pollForWorkflowContext(_driver, queueName);
     } while (wCtx.getScheduledWorkflows().size() < 2);
 
@@ -274,19 +274,18 @@ public class TestRecurringJobQueue extends TaskTestBase {
 
     // Record all scheduled workflows
     wCtx = TaskTestUtil.pollForWorkflowContext(_driver, queueName);
-    List<String> scheduledWorkflows = new ArrayList<String>(wCtx.getScheduledWorkflows());
+    List<String> scheduledWorkflows = new ArrayList<>(wCtx.getScheduledWorkflows());
     final String lastScheduledWorkflow = wCtx.getLastScheduledSingleWorkflow();
 
     // Delete recurrent workflow
     _driver.delete(queueName);
 
+    Thread.sleep(500L);
     // Wait until recurrent workflow and the last scheduled workflow are cleaned up
-    boolean result = TestHelper.verify(new TestHelper.Verifier() {
-      @Override public boolean verify() throws Exception {
-        WorkflowContext wCtx = _driver.getWorkflowContext(queueName);
-        WorkflowContext lastWfCtx = _driver.getWorkflowContext(lastScheduledWorkflow);
-        return (wCtx == null && lastWfCtx == null);
-      }
+    boolean result = TestHelper.verify(() -> {
+      WorkflowContext wCtx1 = _driver.getWorkflowContext(queueName);
+      WorkflowContext lastWfCtx = _driver.getWorkflowContext(lastScheduledWorkflow);
+      return (wCtx1 == null && lastWfCtx == null);
     }, 5 * 1000);
     Assert.assertTrue(result);
 

@@ -19,12 +19,12 @@ package org.apache.helix.rest.server;
  * under the License.
  */
 
-import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
@@ -43,8 +43,10 @@ import org.codehaus.jackson.type.TypeReference;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import com.google.common.collect.ImmutableMap;
+
 public class TestJobAccessor extends AbstractTestClass {
-  private final static String CLUSTER_NAME = "TestCluster_0";
+  private final static String CLUSTER_NAME = TASK_TEST_CLUSTER;
   private final static String WORKFLOW_NAME = WORKFLOW_PREFIX + 0;
   private final static String TEST_QUEUE_NAME = "TestQueue";
   private final static String JOB_NAME = WORKFLOW_NAME + "_" + JOB_PREFIX + 0;
@@ -58,7 +60,7 @@ public class TestJobAccessor extends AbstractTestClass {
   public void testGetJobs() throws IOException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
-    String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/jobs",
+    String body = get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/jobs", null,
         Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     String jobsStr = node.get(JobAccessor.JobProperties.Jobs.name()).toString();
@@ -67,6 +69,7 @@ public class TestJobAccessor extends AbstractTestClass {
     Assert.assertEquals(jobs,
         _workflowMap.get(CLUSTER_NAME).get(WORKFLOW_NAME).getWorkflowConfig().getJobDag()
             .getAllNodes());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetJobs")
@@ -74,7 +77,7 @@ public class TestJobAccessor extends AbstractTestClass {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
     String body =
-        get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/jobs/" + JOB_NAME,
+        get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/jobs/" + JOB_NAME, null,
             Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     Assert.assertNotNull(node.get(JobAccessor.JobProperties.JobConfig.name()));
@@ -83,6 +86,7 @@ public class TestJobAccessor extends AbstractTestClass {
         node.get(JobAccessor.JobProperties.JobConfig.name()).get("simpleFields").get("WorkflowID")
             .getTextValue();
     Assert.assertEquals(workflowId, WORKFLOW_NAME);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetJob")
@@ -91,23 +95,24 @@ public class TestJobAccessor extends AbstractTestClass {
 
     String body =
         get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/jobs/" + JOB_NAME
-            + "/configs", Response.Status.OK.getStatusCode(), true);
+            + "/configs", null, Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     String workflowId = node.get("simpleFields").get("WorkflowID").getTextValue();
     Assert.assertEquals(workflowId, WORKFLOW_NAME);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetJobConfig")
   public void testGetJobContext() throws IOException {
-
     System.out.println("Start test :" + TestHelper.getTestMethodName());
 
     String body =
         get("clusters/" + CLUSTER_NAME + "/workflows/" + WORKFLOW_NAME + "/jobs/" + JOB_NAME
-            + "/context", Response.Status.OK.getStatusCode(), true);
+            + "/context", null, Response.Status.OK.getStatusCode(), true);
     JsonNode node = OBJECT_MAPPER.readTree(body);
     Assert.assertEquals(node.get("mapFields").get("0").get("STATE").getTextValue(),
         TaskPartitionState.COMPLETED.name());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetJobContext")
@@ -136,6 +141,7 @@ public class TestJobAccessor extends AbstractTestClass {
 
     WorkflowConfig workflowConfig = driver.getWorkflowConfig(TEST_QUEUE_NAME);
     Assert.assertTrue(workflowConfig.getJobDag().getAllNodes().contains(jobName));
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testCreateJob")
@@ -145,7 +151,7 @@ public class TestJobAccessor extends AbstractTestClass {
 
     // Empty user content
     String body =
-        get(uri, Response.Status.OK.getStatusCode(), true);
+        get(uri, null, Response.Status.OK.getStatusCode(), true);
     Map<String, String> contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
     Assert.assertTrue(contentStore.isEmpty());
 
@@ -156,7 +162,7 @@ public class TestJobAccessor extends AbstractTestClass {
     post(uri, ImmutableMap.of("command", "update"), entity, Response.Status.OK.getStatusCode());
 
     // update (add items) workflow content store
-    body = get(uri, Response.Status.OK.getStatusCode(), true);
+    body = get(uri, null, Response.Status.OK.getStatusCode(), true);
     contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
     Assert.assertEquals(contentStore, map1);
 
@@ -165,9 +171,10 @@ public class TestJobAccessor extends AbstractTestClass {
     map1.put("k2", "v2");
     entity = Entity.entity(OBJECT_MAPPER.writeValueAsString(map1), MediaType.APPLICATION_JSON_TYPE);
     post(uri, ImmutableMap.of("command", "update"), entity, Response.Status.OK.getStatusCode());
-    body = get(uri, Response.Status.OK.getStatusCode(), true);
+    body = get(uri, null, Response.Status.OK.getStatusCode(), true);
     contentStore = OBJECT_MAPPER.readValue(body, new TypeReference<Map<String, String>>() {});
     Assert.assertEquals(contentStore, map1);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testGetAddJobContent")
@@ -181,29 +188,34 @@ public class TestJobAccessor extends AbstractTestClass {
     Map<String, String> validCmd = ImmutableMap.of("command", "update");
     Map<String, String> invalidCmd = ImmutableMap.of("command", "delete"); // cmd not supported
 
-    get(invalidURI1, Response.Status.NOT_FOUND.getStatusCode(), false);
-    get(invalidURI2, Response.Status.NOT_FOUND.getStatusCode(), false);
+    get(invalidURI1, null, Response.Status.NOT_FOUND.getStatusCode(), false);
+    get(invalidURI2, null, Response.Status.NOT_FOUND.getStatusCode(), false);
 
-    post(invalidURI1, validCmd, validEntity, Response.Status.NOT_FOUND.getStatusCode());
-    post(invalidURI2, validCmd, validEntity, Response.Status.NOT_FOUND.getStatusCode());
+    // The following two lines should get OK even though they should be NOT FOUND because the client
+    // side code create UserContent znodes when not found
+    post(invalidURI1, validCmd, validEntity, Response.Status.OK.getStatusCode());
+    post(invalidURI2, validCmd, validEntity, Response.Status.OK.getStatusCode());
 
     post(validURI, invalidCmd, validEntity, Response.Status.BAD_REQUEST.getStatusCode());
     post(validURI, validCmd, invalidEntity, Response.Status.BAD_REQUEST.getStatusCode());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
   @Test(dependsOnMethods = "testInvalidGetAndUpdateJobContentStore")
-  public void testDeleteJob() {
+  public void testDeleteJob() throws InterruptedException {
     System.out.println("Start test :" + TestHelper.getTestMethodName());
     TaskDriver driver = getTaskDriver(CLUSTER_NAME);
-
+    driver.waitToStop(TEST_QUEUE_NAME, 5000);
     delete("clusters/" + CLUSTER_NAME + "/workflows/" + TEST_QUEUE_NAME + "/jobs/" + TEST_JOB_NAME,
         Response.Status.OK.getStatusCode());
 
     String jobName = TaskUtil.getNamespacedJobName(TEST_QUEUE_NAME, TEST_JOB_NAME);
     JobConfig jobConfig = driver.getJobConfig(jobName);
+
     Assert.assertNull(jobConfig);
 
     WorkflowConfig workflowConfig = driver.getWorkflowConfig(TEST_QUEUE_NAME);
     Assert.assertTrue(!workflowConfig.getJobDag().getAllNodes().contains(jobName));
+    System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 }

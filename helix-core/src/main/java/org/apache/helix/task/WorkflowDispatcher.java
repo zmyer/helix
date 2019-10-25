@@ -1,5 +1,24 @@
 package org.apache.helix.task;
 
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import com.google.common.collect.Lists;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -19,7 +38,12 @@ import org.apache.helix.HelixProperty;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.common.caches.TaskDataCache;
+import org.apache.helix.controller.LogUtil;
+import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
+import org.apache.helix.controller.stages.BestPossibleStateOutput;
+import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.IdealState;
+import org.apache.helix.model.ResourceAssignment;
 import org.apache.helix.model.builder.CustomModeISBuilder;
 import org.apache.helix.model.builder.IdealStateBuilder;
 import org.slf4j.Logger;
@@ -29,15 +53,24 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
   private static final Logger LOG = LoggerFactory.getLogger(WorkflowDispatcher.class);
   private static final Set<TaskState> finalStates = new HashSet<>(
       Arrays.asList(TaskState.COMPLETED, TaskState.FAILED, TaskState.ABORTED, TaskState.TIMED_OUT));
-  private TaskDataCache _taskDataCache;
+  private WorkflowControllerDataProvider _clusterDataCache;
+  private JobDispatcher _jobDispatcher;
 
-  public void updateCache(TaskDataCache cache) {
-    _taskDataCache = cache;
+  public void updateCache(WorkflowControllerDataProvider cache) {
+    _clusterDataCache = cache;
+    if (_jobDispatcher == null) {
+      _jobDispatcher = new JobDispatcher();
+    }
+    _jobDispatcher.init(_manager);
+    _jobDispatcher.updateCache(cache);
+    _jobDispatcher.setClusterStatusMonitor(_clusterStatusMonitor);
   }
 
   // Split it into status update and assign. But there are couple of data need
   // to pass around.
-  public void updateWorkflowStatus(String workflow, WorkflowConfig workflowCfg, WorkflowContext workflowCtx) {
+  public void updateWorkflowStatus(String workflow, WorkflowConfig workflowCfg,
+      WorkflowContext workflowCtx, CurrentStateOutput currentStateOutput,
+      BestPossibleStateOutput bestPossibleOutput) {
 
     // Fetch workflow configuration and context
     if (workflowCfg == null) {
@@ -61,9 +94,10 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
       // If timeout point has already been passed, it will not be scheduled
       scheduleRebalanceForTimeout(workflow, workflowCtx.getStartTime(), workflowCfg.getTimeout());
 
-      if (!TaskState.TIMED_OUT.equals(workflowCtx.getWorkflowState()) && isTimeout(workflowCtx.getStartTime(), workflowCfg.getTimeout())) {
+      if (!TaskState.TIMED_OUT.equals(workflowCtx.getWorkflowState())
+          && isTimeout(workflowCtx.getStartTime(), workflowCfg.getTimeout())) {
         workflowCtx.setWorkflowState(TaskState.TIMED_OUT);
-        _taskDataCache.updateWorkflowContext(workflow, workflowCtx);
+        _clusterDataCache.updateWorkflowContext(workflow, workflowCtx);
       }
 
       // We should not return after setting timeout, as in case the workflow is stopped already
@@ -73,33 +107,22 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
       // future cleanup work
     }
 
-    // Step 3: handle workflow that should STOP
-    // For workflows that already reached final states, STOP should not take into effect
-    if (!finalStates.contains(workflowCtx.getWorkflowState()) && TargetState.STOP.equals(targetState)) {
-      LOG.info("Workflow " + workflow + "is marked as stopped.");
-      if (isWorkflowStopped(workflowCtx, workflowCfg)) {
-        workflowCtx.setWorkflowState(TaskState.STOPPED);
-        _taskDataCache.updateWorkflowContext(workflow, workflowCtx);
-      }
-      return;
-    }
-
     long currentTime = System.currentTimeMillis();
 
-    // Step 4: Check and process finished workflow context (confusing,
+    // Step 3: Check and process finished workflow context (confusing,
     // but its inside isWorkflowFinished())
     // Check if workflow has been finished and mark it if it is. Also update cluster status
     // monitor if provided
     // Note that COMPLETE and FAILED will be marked in markJobComplete / markJobFailed
     // This is to handle TIMED_OUT only
     if (workflowCtx.getFinishTime() == WorkflowContext.UNFINISHED && isWorkflowFinished(workflowCtx,
-        workflowCfg, _taskDataCache.getJobConfigMap(), _taskDataCache)) {
+        workflowCfg, _clusterDataCache.getJobConfigMap(), _clusterDataCache)) {
       workflowCtx.setFinishTime(currentTime);
       updateWorkflowMonitor(workflowCtx, workflowCfg);
-      _taskDataCache.updateWorkflowContext(workflow, workflowCtx);
+      _clusterDataCache.updateWorkflowContext(workflow, workflowCtx);
     }
 
-    // Step 5: Handle finished workflows
+    // Step 4: Handle finished workflows
     if (workflowCtx.getFinishTime() != WorkflowContext.UNFINISHED) {
       LOG.info("Workflow " + workflow + " is finished.");
       long expiryTime = workflowCfg.getExpiry();
@@ -125,11 +148,37 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
       }
     }
 
-    _taskDataCache.updateWorkflowContext(workflow, workflowCtx);
+    // Update jobs already inflight
+    RuntimeJobDag runtimeJobDag = _clusterDataCache.getTaskDataCache().getRuntimeJobDag(workflow);
+    if (runtimeJobDag != null) {
+      for (String inflightJob : runtimeJobDag.getInflightJobList()) {
+        if (System.currentTimeMillis() >= workflowCtx.getJobStartTime(inflightJob)) {
+          processJob(inflightJob, currentStateOutput, bestPossibleOutput, workflowCtx);
+        }
+      }
+    } else {
+      LOG.warn(String.format(
+          "Failed to find runtime job DAG for workflow %s, existing runtime jobs may not be processed correctly for it",
+          workflow));
+    }
+
+    // Step 5: handle workflow that should STOP
+    // For workflows that have already reached final states, STOP should not take into effect.
+    if (!finalStates.contains(workflowCtx.getWorkflowState())
+        && TargetState.STOP.equals(targetState)) {
+      LOG.info("Workflow " + workflow + " is marked as stopped. Workflow state is " + workflowCtx.getWorkflowState());
+      if (isWorkflowStopped(workflowCtx, workflowCfg)) {
+        workflowCtx.setWorkflowState(TaskState.STOPPED);
+        _clusterDataCache.updateWorkflowContext(workflow, workflowCtx);
+      }
+      return;
+    }
+    _clusterDataCache.updateWorkflowContext(workflow, workflowCtx);
   }
 
   public void assignWorkflow(String workflow, WorkflowConfig workflowCfg,
-      WorkflowContext workflowCtx) {
+      WorkflowContext workflowCtx, CurrentStateOutput currentStateOutput,
+      BestPossibleStateOutput bestPossibleOutput) {
     // Fetch workflow configuration and context
     if (workflowCfg == null) {
       // Already logged in status update.
@@ -144,20 +193,20 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
       return;
     }
 
-
     // Check for readiness, and stop processing if it's not ready
-    boolean isReady = scheduleWorkflowIfReady(workflow, workflowCfg, workflowCtx, _taskDataCache);
+    boolean isReady = scheduleWorkflowIfReady(workflow, workflowCfg, workflowCtx,
+        _clusterDataCache.getTaskDataCache());
     if (isReady) {
       // Schedule jobs from this workflow.
-      scheduleJobs(workflow, workflowCfg, workflowCtx, _taskDataCache.getJobConfigMap(), _taskDataCache);
+      scheduleJobs(workflow, workflowCfg, workflowCtx, _clusterDataCache.getJobConfigMap(),
+          _clusterDataCache, currentStateOutput, bestPossibleOutput);
     } else {
       LOG.debug("Workflow " + workflow + " is not ready to be scheduled.");
     }
-    _taskDataCache.updateWorkflowContext(workflow, workflowCtx);
+    _clusterDataCache.updateWorkflowContext(workflow, workflowCtx);
   }
 
-  public WorkflowContext getOrInitializeWorkflowContext(
-      String workflowName, TaskDataCache cache) {
+  public WorkflowContext getOrInitializeWorkflowContext(String workflowName, TaskDataCache cache) {
     WorkflowContext workflowCtx = cache.getWorkflowContext(workflowName);
     if (workflowCtx == null) {
       workflowCtx = new WorkflowContext(new ZNRecord(TaskUtil.WORKFLOW_CONTEXT_KW));
@@ -174,7 +223,8 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
    */
   private void scheduleJobs(String workflow, WorkflowConfig workflowCfg,
       WorkflowContext workflowCtx, Map<String, JobConfig> jobConfigMap,
-      TaskDataCache clusterDataCache) {
+      WorkflowControllerDataProvider clusterDataCache, CurrentStateOutput currentStateOutput,
+      BestPossibleStateOutput bestPossibleOutput) {
     ScheduleConfig scheduleConfig = workflowCfg.getScheduleConfig();
     if (scheduleConfig != null && scheduleConfig.isRecurring()) {
       LOG.debug("Jobs from recurring workflow are not schedule-able");
@@ -184,12 +234,22 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
     int inCompleteAllJobCount = TaskUtil.getInCompleteJobCount(workflowCfg, workflowCtx);
     int scheduledJobs = 0;
     long timeToSchedule = Long.MAX_VALUE;
-    for (String job : workflowCfg.getJobDag().getAllNodes()) {
+    JobDag jobDag = clusterDataCache.getTaskDataCache().getRuntimeJobDag(workflow);
+    if (jobDag == null) {
+      jobDag = workflowCfg.getJobDag();
+    }
+
+    String nextJob = jobDag.getNextJob();
+    // Assign new jobs
+    while (nextJob != null) {
+      String job = nextJob;
       TaskState jobState = workflowCtx.getJobState(job);
       if (jobState != null && !jobState.equals(TaskState.NOT_STARTED)) {
         if (LOG.isDebugEnabled()) {
           LOG.debug("Job " + job + " is already started or completed.");
         }
+        processJob(job, currentStateOutput, bestPossibleOutput, workflowCtx);
+        nextJob = jobDag.getNextJob();
         continue;
       }
 
@@ -201,45 +261,47 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
         break;
       }
 
+      // TODO: Part of isJobReadyToSchedule() is already done by RuntimeJobDag. Because there is
+      // some duplicate logic, consider refactoring. The check here and the ready-list in
+      // RuntimeJobDag may cause conflicts.
       // check ancestor job status
       if (isJobReadyToSchedule(job, workflowCfg, workflowCtx, inCompleteAllJobCount, jobConfigMap,
-          clusterDataCache)) {
+          clusterDataCache, clusterDataCache.getAssignableInstanceManager())) {
         JobConfig jobConfig = jobConfigMap.get(job);
-        if (jobConfig == null) {
-          LOG.error(String.format("The job config is missing for job %s", job));
-          continue;
-        }
 
-        // Since the start time is calculated base on the time of completion of parent jobs for this
-        // job, the calculated start time should only be calculate once. Persist the calculated time
-        // in WorkflowContext znode.
-        long calculatedStartTime = workflowCtx.getJobStartTime(job);
-        if (calculatedStartTime < 0) {
-          // Calculate the start time if it is not already calculated
-          calculatedStartTime = System.currentTimeMillis();
-          // If the start time is not calculated before, do the math.
-          if (jobConfig.getExecutionDelay() >= 0) {
-            calculatedStartTime += jobConfig.getExecutionDelay();
-          }
-          calculatedStartTime = Math.max(calculatedStartTime, jobConfig.getExecutionStart());
-          workflowCtx.setJobStartTime(job, calculatedStartTime);
-        }
-
+        long calculatedStartTime = computeStartTimeForJob(workflowCtx, job, jobConfig);
         // Time is not ready. Set a trigger and update the start time.
-        if (System.currentTimeMillis() < calculatedStartTime) {
-          timeToSchedule = Math.min(timeToSchedule, calculatedStartTime);
-        } else {
+        // Check if the job is ready to be executed.
+        if (System.currentTimeMillis() >= workflowCtx.getJobStartTime(job)) {
           scheduleSingleJob(job, jobConfig);
           workflowCtx.setJobState(job, TaskState.NOT_STARTED);
+          processJob(job, currentStateOutput, bestPossibleOutput, workflowCtx);
           scheduledJobs++;
+        } else {
+          timeToSchedule = Math.min(timeToSchedule, calculatedStartTime);
         }
       }
+      nextJob = jobDag.getNextJob();
     }
+
     long currentScheduledTime =
         _rebalanceScheduler.getRebalanceTime(workflow) == -1 ? Long.MAX_VALUE
             : _rebalanceScheduler.getRebalanceTime(workflow);
     if (timeToSchedule < currentScheduledTime) {
       _rebalanceScheduler.scheduleRebalance(_manager, workflow, timeToSchedule);
+    }
+  }
+
+  private void processJob(String job, CurrentStateOutput currentStateOutput,
+      BestPossibleStateOutput bestPossibleOutput, WorkflowContext workflowCtx) {
+    _clusterDataCache.getTaskDataCache().dispatchJob(job);
+    try {
+      ResourceAssignment resourceAssignment =
+          _jobDispatcher.processJobStatusUpdateAndAssignment(job, currentStateOutput, workflowCtx);
+      updateBestPossibleStateOutput(job, resourceAssignment, bestPossibleOutput);
+    } catch (Exception e) {
+      LogUtil.logWarn(LOG, _clusterDataCache.getClusterEventId(),
+          String.format("Failed to compute job assignment for job %s", job));
     }
   }
 
@@ -256,11 +318,12 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
     }
 
     // Set up job resource based on partitions from target resource
+
+    // Create the UserContentStore for the job first
     TaskUtil.createUserContent(_manager.getHelixPropertyStore(), jobResource,
         new ZNRecord(TaskUtil.USER_CONTENT_NODE));
-    int numIndependentTasks = jobConfig.getTaskConfigMap().size();
 
-    int numPartitions = numIndependentTasks;
+    int numPartitions = jobConfig.getTaskConfigMap().size();
     if (numPartitions == 0) {
       IdealState targetIs =
           admin.getResourceIdealState(_manager.getClusterName(), jobConfig.getTargetResource());
@@ -307,8 +370,8 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
 
     jobIS = builder.build();
     for (int i = 0; i < numPartitions; i++) {
-      jobIS.getRecord().setListField(jobResource + "_" + i, new ArrayList<String>());
-      jobIS.getRecord().setMapField(jobResource + "_" + i, new HashMap<String, String>());
+      jobIS.getRecord().setListField(jobResource + "_" + i, new ArrayList<>());
+      jobIS.getRecord().setMapField(jobResource + "_" + i, new HashMap<>());
     }
     jobIS.setRebalancerClassName(JobRebalancer.class.getName());
     admin.setResourceIdealState(_manager.getClusterName(), jobResource, jobIS);
@@ -370,7 +433,7 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
         if (LOG.isDebugEnabled()) {
           LOG.debug("Ready to start workflow " + newWorkflowName);
         }
-        if (lastScheduled == null || !newWorkflowName.equals(lastScheduled)) {
+        if (!newWorkflowName.equals(lastScheduled)) {
           Workflow clonedWf =
               cloneWorkflow(_manager, workflow, newWorkflowName, new Date(timeToSchedule));
           TaskDriver driver = new TaskDriver(_manager);
@@ -380,7 +443,8 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
               driver.start(clonedWf);
             } catch (Exception e) {
               LOG.error("Failed to schedule cloned workflow " + newWorkflowName, e);
-              _clusterStatusMonitor.updateWorkflowCounters(clonedWf.getWorkflowConfig(), TaskState.FAILED);
+              _clusterStatusMonitor.updateWorkflowCounters(clonedWf.getWorkflowConfig(),
+                  TaskState.FAILED);
             }
           }
           // Persist workflow start regardless of success to avoid retrying and failing
@@ -491,7 +555,7 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
    */
   private void cleanupWorkflow(String workflow) {
     LOG.info("Cleaning up workflow: " + workflow);
-    WorkflowConfig workflowcfg = _taskDataCache.getWorkflowConfig(workflow);
+    WorkflowConfig workflowcfg = _clusterDataCache.getWorkflowConfig(workflow);
 
     if (workflowcfg.isTerminable() || workflowcfg.getTargetState() == TargetState.DELETE) {
       Set<String> jobs = workflowcfg.getJobDag().getAllNodes();
@@ -507,20 +571,42 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
         // Only remove from cache when remove all workflow success. Otherwise, batch write will
         // clean all the contexts even if Configs and IdealStates are exists. Then all the workflows
         // and jobs will rescheduled again.
-        removeContexts(workflow, jobs, _taskDataCache);
+        removeContextsAndPreviousAssignment(workflow, jobs, _clusterDataCache.getTaskDataCache());
       }
-     } else {
+    } else {
       LOG.info("Did not clean up workflow " + workflow
           + " because neither the workflow is non-terminable nor is set to DELETE.");
     }
   }
 
-  private void removeContexts(String workflow, Set<String> jobs, TaskDataCache cache) {
+  private void removeContextsAndPreviousAssignment(String workflow, Set<String> jobs,
+      TaskDataCache cache) {
     if (jobs != null) {
       for (String job : jobs) {
         cache.removeContext(job);
+        cache.removePrevAssignment(job);
       }
     }
     cache.removeContext(workflow);
   }
+
+  private long computeStartTimeForJob(WorkflowContext workflowCtx, String job,
+      JobConfig jobConfig) {
+    // Since the start time is calculated base on the time of completion of parent jobs for this
+    // job, the calculated start time should only be calculated once. Persist the calculated time
+    // in WorkflowContext znode.
+    long calculatedStartTime = workflowCtx.getJobStartTime(job);
+    if (calculatedStartTime < 0) {
+      // Calculate the start time if it is not already calculated
+      calculatedStartTime = System.currentTimeMillis();
+      // If the start time is not calculated before, do the math.
+      if (jobConfig.getExecutionDelay() >= 0) {
+        calculatedStartTime += jobConfig.getExecutionDelay();
+      }
+      calculatedStartTime = Math.max(calculatedStartTime, jobConfig.getExecutionStart());
+      workflowCtx.setJobStartTime(job, calculatedStartTime);
+    }
+    return calculatedStartTime;
+  }
+
 }

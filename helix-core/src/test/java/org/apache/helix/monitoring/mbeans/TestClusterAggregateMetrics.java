@@ -35,24 +35,26 @@ import javax.management.QueryExp;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixManagerFactory;
 import org.apache.helix.InstanceType;
+import org.apache.helix.TestHelper;
 import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
+import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.tools.ClusterStateVerifier;
+import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-
 /**
- * This test specifically tests MBean metrics instrumented in ClusterStatusMonitor that aggregate individual
+ * This test specifically tests MBean metrics instrumented in ClusterStatusMonitor that aggregate
+ * individual
  * resource-level metrics into cluster-level figures.
- *
- * Sets up 3 Participants and 5 partitions with 3 replicas each, the test monitors the change in the numbers
+ * Sets up 3 Participants and 5 partitions with 3 replicas each, the test monitors the change in the
+ * numbers
  * when a Participant is disabled.
- *
  */
 public class TestClusterAggregateMetrics extends ZkTestBase {
 
@@ -121,7 +123,6 @@ public class TestClusterAggregateMetrics extends ZkTestBase {
 
   /**
    * Shutdown order: 1) disconnect the controller 2) disconnect participants.
-   *
    */
   @AfterClass
   public void afterClass() {
@@ -136,12 +137,16 @@ public class TestClusterAggregateMetrics extends ZkTestBase {
     if (_manager != null && _manager.isConnected()) {
       _manager.disconnect();
     }
-
+    deleteCluster(CLUSTER_NAME);
     System.out.println("END " + CLASS_NAME + " at " + new Date(System.currentTimeMillis()));
   }
 
   @Test
   public void testAggregateMetrics() throws Exception {
+    BestPossibleExternalViewVerifier verifier =
+        new BestPossibleExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR)
+            .setZkClient(_gZkClient).build();
+
     // Everything should be up and running initially with 5 total partitions
     updateMetrics();
     Assert.assertEquals(_beanValueMap.get(PARTITION_COUNT), 5L);
@@ -154,7 +159,21 @@ public class TestClusterAggregateMetrics extends ZkTestBase {
       String instanceName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
       _setupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, instanceName, false);
     }
-    Thread.sleep(500);
+    // Confirm that the Participants have been disabled
+    boolean result = TestHelper.verify(() -> {
+      for (int i = 0; i < NUM_PARTICIPANTS; i++) {
+        String instanceName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
+        InstanceConfig instanceConfig =
+            _manager.getConfigAccessor().getInstanceConfig(CLUSTER_NAME, instanceName);
+        if (instanceConfig.getInstanceEnabled()) {
+          return false;
+        }
+      }
+      return true;
+    }, TestHelper.WAIT_DURATION);
+    Assert.assertTrue(result);
+    Assert.assertTrue(verifier.verifyByPolling());
+
     updateMetrics();
     Assert.assertEquals(_beanValueMap.get(PARTITION_COUNT), 5L);
     Assert.assertEquals(_beanValueMap.get(ERROR_PARTITION_COUNT), 0L);
@@ -166,7 +185,21 @@ public class TestClusterAggregateMetrics extends ZkTestBase {
       String instanceName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
       _setupTool.getClusterManagementTool().enableInstance(CLUSTER_NAME, instanceName, true);
     }
-    Thread.sleep(500);
+    // Confirm that the Participants have been enabled
+    result = TestHelper.verify(() -> {
+      for (int i = 0; i < NUM_PARTICIPANTS; i++) {
+        String instanceName = PARTICIPANT_PREFIX + "_" + (START_PORT + i);
+        InstanceConfig instanceConfig =
+            _manager.getConfigAccessor().getInstanceConfig(CLUSTER_NAME, instanceName);
+        if (!instanceConfig.getInstanceEnabled()) {
+          return false;
+        }
+      }
+      return true;
+    }, TestHelper.WAIT_DURATION);
+    Assert.assertTrue(result);
+    Assert.assertTrue(verifier.verifyByPolling());
+
     updateMetrics();
     Assert.assertEquals(_beanValueMap.get(PARTITION_COUNT), 5L);
     Assert.assertEquals(_beanValueMap.get(ERROR_PARTITION_COUNT), 0L);
@@ -175,7 +208,14 @@ public class TestClusterAggregateMetrics extends ZkTestBase {
 
     // Drop the resource and check that all metrics are zero.
     _setupTool.dropResourceFromCluster(CLUSTER_NAME, TEST_DB);
-    Thread.sleep(500);
+    // Check that the resource has been removed
+    result = TestHelper.verify(
+        () -> _manager.getHelixDataAccessor().getPropertyStat(
+            _manager.getHelixDataAccessor().keyBuilder().idealStates(TEST_DB)) == null,
+        TestHelper.WAIT_DURATION);
+    Assert.assertTrue(result);
+    Assert.assertTrue(verifier.verifyByPolling());
+
     updateMetrics();
     Assert.assertEquals(_beanValueMap.get(PARTITION_COUNT), 0L);
     Assert.assertEquals(_beanValueMap.get(ERROR_PARTITION_COUNT), 0L);
@@ -184,14 +224,14 @@ public class TestClusterAggregateMetrics extends ZkTestBase {
   }
 
   /**
-   * Queries for all MBeans from the MBean Server and only looks at the relevant MBean and gets its metric numbers.
-   *
+   * Queries for all MBeans from the MBean Server and only looks at the relevant MBean and gets its
+   * metric numbers.
    */
   private void updateMetrics() {
     try {
       QueryExp exp = Query.match(Query.attr("SensorName"), Query.value("*" + CLUSTER_NAME + "*"));
-      Set<ObjectInstance> mbeans =
-          new HashSet<>(ManagementFactory.getPlatformMBeanServer().queryMBeans(new ObjectName("ClusterStatus:*"), exp));
+      Set<ObjectInstance> mbeans = new HashSet<>(ManagementFactory.getPlatformMBeanServer()
+          .queryMBeans(new ObjectName("ClusterStatus:*"), exp));
       for (ObjectInstance instance : mbeans) {
         ObjectName beanName = instance.getObjectName();
         if (beanName.toString().equals("ClusterStatus:cluster=" + CLUSTER_NAME)) {

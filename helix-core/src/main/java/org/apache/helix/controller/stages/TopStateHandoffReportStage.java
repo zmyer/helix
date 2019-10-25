@@ -21,7 +21,11 @@ package org.apache.helix.controller.stages;
 
 import java.util.HashMap;
 import java.util.Map;
+
 import org.apache.helix.controller.LogUtil;
+import org.apache.helix.controller.dataproviders.BaseControllerDataProvider;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
+import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
 import org.apache.helix.model.CurrentState;
@@ -31,23 +35,22 @@ import org.apache.helix.model.Partition;
 import org.apache.helix.model.Resource;
 import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.monitoring.mbeans.ClusterStatusMonitor;
+import org.apache.helix.task.TaskConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Observe top state handoff and report latency
- * TODO: make this stage async
  */
 public class TopStateHandoffReportStage extends AbstractBaseStage {
   private static final long DEFAULT_HANDOFF_USER_LATENCY = 0L;
   private static Logger LOG = LoggerFactory.getLogger(TopStateHandoffReportStage.class);
   public static final long TIMESTAMP_NOT_RECORDED = -1L;
-  private static final String TASK_STATE_MODEL_NAME = "Task";
 
   @Override
   public void process(ClusterEvent event) throws Exception {
     _eventId = event.getEventId();
-    final ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    final BaseControllerDataProvider cache = event.getAttribute(AttributeName.ControllerDataProvider.name());
     final Long lastPipelineFinishTimestamp = event
         .getAttributeWithDefault(AttributeName.LastRebalanceFinishTimeStamp.name(),
             TIMESTAMP_NOT_RECORDED);
@@ -58,19 +61,19 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
 
     if (cache == null || resourceMap == null || currentStateOutput == null) {
       throw new StageException(
-          "Missing critical attributes for stage, requires ClusterDataCache, RESOURCES and CURRENT_STATE");
+          "Missing critical attributes for stage, requires ResourceControllerDataProvider, RESOURCES and CURRENT_STATE");
     }
 
-    if (cache.isTaskCache()) {
+    // TODO: remove this if-else after splitting controller
+    if (cache instanceof WorkflowControllerDataProvider) {
       throw new StageException("TopStateHandoffReportStage can only be used in resource pipeline");
+    } else {
+      updateTopStateStatus((ResourceControllerDataProvider) cache, clusterStatusMonitor,
+          resourceMap, currentStateOutput, lastPipelineFinishTimestamp);
     }
-
-    updateTopStateStatus(cache, clusterStatusMonitor, resourceMap, currentStateOutput,
-        lastPipelineFinishTimestamp);
-
   }
 
-  private void updateTopStateStatus(ClusterDataCache cache,
+  private void updateTopStateStatus(ResourceControllerDataProvider cache,
       ClusterStatusMonitor clusterStatusMonitor, Map<String, Resource> resourceMap,
       CurrentStateOutput currentStateOutput,
       long lastPipelineFinishTimestamp) {
@@ -90,7 +93,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
     for (Resource resource : resourceMap.values()) {
       StateModelDefinition stateModelDef = cache.getStateModelDef(resource.getStateModelDefRef());
       if (stateModelDef == null || resource.getStateModelDefRef()
-          .equalsIgnoreCase(TASK_STATE_MODEL_NAME)) {
+          .equalsIgnoreCase(TaskConstants.STATE_MODEL_NAME)) {
         // Resource does not have valid state model, just skip processing
         continue;
       }
@@ -150,7 +153,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
    * @param partition partition of the given resource
    * @return cached name of the node that contains top state, null if not previously cached
    */
-  private String findCachedTopStateLocation(ClusterDataCache cache, String resourceName, Partition partition) {
+  private String findCachedTopStateLocation(ResourceControllerDataProvider cache, String resourceName, Partition partition) {
     Map<String, Map<String, String>> lastTopStateMap = cache.getLastTopStateLocationMap();
     return lastTopStateMap.containsKey(resourceName) && lastTopStateMap.get(resourceName)
         .containsKey(partition.getPartitionName()) ? lastTopStateMap.get(resourceName)
@@ -165,7 +168,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
    * @param partition partition of the given resource
    * @param currentTopStateInstance name of the instance that currently has the top state
    */
-  private void updateCachedTopStateLocation(ClusterDataCache cache, String resourceName,
+  private void updateCachedTopStateLocation(ResourceControllerDataProvider cache, String resourceName,
       Partition partition, String currentTopStateInstance) {
     Map<String, Map<String, String>> lastTopStateMap = cache.getLastTopStateLocationMap();
     if (!lastTopStateMap.containsKey(resourceName)) {
@@ -192,7 +195,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
    * @param durationThreshold top state handoff duration threshold
    * @param lastPipelineFinishTimestamp timestamp when last pipeline run finished
    */
-  private void reportTopStateExistence(ClusterDataCache cache, CurrentStateOutput currentStateOutput,
+  private void reportTopStateExistence(ResourceControllerDataProvider cache, CurrentStateOutput currentStateOutput,
       StateModelDefinition stateModelDef, String resourceName, Partition partition,
       String lastTopStateInstance, String currentTopStateInstance,
       ClusterStatusMonitor clusterStatusMonitor, long durationThreshold,
@@ -226,7 +229,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
    * i.e. current top state instance loaded from ZK is different than the one we cached during
    * last pipeline run.
    *
-   * @param cache ClusterDataCache
+   * @param cache ResourceControllerDataProvider
    * @param lastTopStateInstance Name of last top state instance we cached
    * @param curTopStateInstance Name of current top state instance we refreshed from ZK
    * @param resourceName resource name
@@ -234,7 +237,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
    * @param clusterStatusMonitor cluster state monitor object
    * @param lastPipelineFinishTimestamp last pipeline run finish timestamp
    */
-  private void reportSingleTopStateHandoff(ClusterDataCache cache, String lastTopStateInstance,
+  private void reportSingleTopStateHandoff(ResourceControllerDataProvider cache, String lastTopStateInstance,
       String curTopStateInstance, String resourceName, Partition partition,
       ClusterStatusMonitor clusterStatusMonitor, long lastPipelineFinishTimestamp) {
     if (curTopStateInstance.equals(lastTopStateInstance)) {
@@ -243,7 +246,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
 
     // Current state output generation logic guarantees that current top state instance
     // must be a live instance
-    String curTopStateSession = cache.getLiveInstances().get(curTopStateInstance).getSessionId();
+    String curTopStateSession = cache.getLiveInstances().get(curTopStateInstance).getEphemeralOwner();
     long endTime =
         cache.getCurrentState(curTopStateInstance, curTopStateSession).get(resourceName)
             .getEndTime(partition.getPartitionName());
@@ -257,7 +260,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
     // Make sure last top state instance has not bounced during cluster data cache refresh
     if (cache.getLiveInstances().containsKey(lastTopStateInstance)) {
       String lastTopStateSession =
-          cache.getLiveInstances().get(lastTopStateInstance).getSessionId();
+          cache.getLiveInstances().get(lastTopStateInstance).getEphemeralOwner();
       // We need this null check as there are test cases creating incomplete current state
       if (cache.getCurrentState(lastTopStateInstance, lastTopStateSession).get(resourceName)
           != null) {
@@ -309,7 +312,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
    * @param durationThreshold top state handoff duration threshold
    * @param clusterStatusMonitor monitor object
    */
-  private void reportTopStateHandoffFailIfNecessary(ClusterDataCache cache, String resourceName,
+  private void reportTopStateHandoffFailIfNecessary(ResourceControllerDataProvider cache, String resourceName,
       Partition partition, long durationThreshold, ClusterStatusMonitor clusterStatusMonitor) {
     Map<String, Map<String, MissingTopStateRecord>> missingTopStateMap =
         cache.getMissingTopStateMap();
@@ -336,7 +339,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
    * @param topState top state name
    * @param currentStateOutput current state output
    */
-  private void reportTopStateMissing(ClusterDataCache cache, String resourceName, Partition partition,
+  private void reportTopStateMissing(ResourceControllerDataProvider cache, String resourceName, Partition partition,
       String topState, CurrentStateOutput currentStateOutput) {
     Map<String, Map<String, MissingTopStateRecord>> missingTopStateMap = cache.getMissingTopStateMap();
     Map<String, Map<String, String>> lastTopStateMap = cache.getLastTopStateLocationMap();
@@ -360,7 +363,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
       Map<String, LiveInstance> liveInstances = cache.getLiveInstances();
       if (liveInstances.containsKey(missingStateInstance)) {
         CurrentState currentState = cache.getCurrentState(missingStateInstance,
-            liveInstances.get(missingStateInstance).getSessionId()).get(resourceName);
+            liveInstances.get(missingStateInstance).getEphemeralOwner()).get(resourceName);
 
         if (currentState != null
             && currentState.getPreviousState(partition.getPartitionName()) != null && currentState
@@ -441,7 +444,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
    * @param threshold top state handoff threshold
    * @param topState name of the top state
    */
-  private void reportTopStateComesBack(ClusterDataCache cache, Map<String, String> stateMap, String resourceName,
+  private void reportTopStateComesBack(ResourceControllerDataProvider cache, Map<String, String> stateMap, String resourceName,
       Partition partition, ClusterStatusMonitor clusterStatusMonitor, long threshold,
       String topState) {
     Map<String, Map<String, MissingTopStateRecord>> missingTopStateMap =
@@ -457,7 +460,7 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
     Map<String, LiveInstance> liveInstances = cache.getLiveInstances();
     for (String instanceName : stateMap.keySet()) {
       CurrentState currentState =
-          cache.getCurrentState(instanceName, liveInstances.get(instanceName).getSessionId())
+          cache.getCurrentState(instanceName, liveInstances.get(instanceName).getEphemeralOwner())
               .get(resourceName);
       if (currentState.getState(partition.getPartitionName()).equalsIgnoreCase(topState)) {
         if (currentState.getEndTime(partition.getPartitionName()) <= handOffEndTime) {
@@ -498,10 +501,10 @@ public class TopStateHandoffReportStage extends AbstractBaseStage {
     }
   }
 
-  private void logMissingTopStateInfo(long totalDuration, long userLatency, boolean isGraceful,
+  private void logMissingTopStateInfo(long totalDuration, long helixLatency, boolean isGraceful,
       String partitionName) {
-    LogUtil.logInfo(LOG, _eventId, String
-        .format("Missing top state duration is %s/%s for partition %s. Graceful: %s", userLatency,
-            totalDuration, partitionName, isGraceful));
+    LogUtil.logInfo(LOG, _eventId, String.format(
+        "Missing top state duration is %s/%s (helix latency / end to end latency) for partition %s. Graceful: %s",
+        helixLatency, totalDuration, partitionName, isGraceful));
   }
 }

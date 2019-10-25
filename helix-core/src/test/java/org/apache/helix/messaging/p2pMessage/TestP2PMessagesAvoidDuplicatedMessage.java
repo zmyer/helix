@@ -23,20 +23,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import org.apache.helix.HelixConstants;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.common.PartitionStateMap;
 import org.apache.helix.controller.common.ResourcesStateMap;
 import org.apache.helix.controller.pipeline.Pipeline;
 import org.apache.helix.controller.stages.AttributeName;
 import org.apache.helix.controller.stages.BaseStageTest;
 import org.apache.helix.controller.stages.BestPossibleStateCalcStage;
-import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.controller.stages.IntermediateStateCalcStage;
 import org.apache.helix.controller.stages.MessageOutput;
 import org.apache.helix.controller.stages.MessageSelectionStage;
 import org.apache.helix.controller.stages.MessageThrottleStage;
 import org.apache.helix.controller.stages.ReadClusterDataStage;
-import org.apache.helix.controller.stages.resource.ResourceMessageDispatchStage;
 import org.apache.helix.controller.stages.resource.ResourceMessageGenerationPhase;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
 import org.apache.helix.model.ClusterConfig;
@@ -55,7 +54,7 @@ public class TestP2PMessagesAvoidDuplicatedMessage extends BaseStageTest {
 
   Partition _partition = new Partition(_db + "_0");
 
-  ClusterDataCache _dataCache;
+  ResourceControllerDataProvider _dataCache;
   Pipeline _fullPipeline;
   Pipeline _messagePipeline;
 
@@ -75,10 +74,10 @@ public class TestP2PMessagesAvoidDuplicatedMessage extends BaseStageTest {
     Map<String, Resource> resourceMap = getResourceMap(new String[] { _db }, _numPartition,
         BuiltInStateModelDefinitions.MasterSlave.name(), clusterConfig, null);
 
-    _dataCache = new ClusterDataCache();
+    _dataCache = new ResourceControllerDataProvider();
     _dataCache.setAsyncTasksThreadPool(Executors.newSingleThreadExecutor());
 
-    event.addAttribute(AttributeName.ClusterDataCache.name(), _dataCache);
+    event.addAttribute(AttributeName.ControllerDataProvider.name(), _dataCache);
     event.addAttribute(AttributeName.RESOURCES.name(), resourceMap);
     event.addAttribute(AttributeName.RESOURCES_TO_REBALANCE.name(), resourceMap);
     event.addAttribute(AttributeName.CURRENT_STATE.name(), new CurrentStateOutput());
@@ -117,7 +116,7 @@ public class TestP2PMessagesAvoidDuplicatedMessage extends BaseStageTest {
 
     // disable existing master instance
     admin.enableInstance(_clusterName, initialMaster, false);
-    _dataCache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    _dataCache = event.getAttribute(AttributeName.ControllerDataProvider.name());
     _dataCache.notifyDataChange(HelixConstants.ChangeType.INSTANCE_CONFIG);
 
     CurrentStateOutput currentStateOutput =
@@ -151,11 +150,10 @@ public class TestP2PMessagesAvoidDuplicatedMessage extends BaseStageTest {
     Assert.assertEquals(relayMessage.getFromState(), MasterSlaveSMD.States.SLAVE.name());
     Assert.assertEquals(relayMessage.getToState(), MasterSlaveSMD.States.MASTER.name());
 
-    // Scenario 2:
+    // Scenario 2A:
     // Old master (initialMaster) completes the M->S transition,
     // but has not forward p2p message to new master (secondMaster) yet.
     // Validate: Controller should not send S->M message to new master.
-
     currentStateOutput.setCurrentState(_db, _partition, initialMaster, "SLAVE");
     currentStateOutput.setPendingMessage(_db, _partition, initialMaster, toSlaveMessage);
     currentStateOutput.setPendingRelayMessage(_db, _partition, initialMaster, relayMessage);
@@ -169,11 +167,76 @@ public class TestP2PMessagesAvoidDuplicatedMessage extends BaseStageTest {
     Assert.assertEquals(messages.size(), 0);
 
 
+    // Scenario 2B:
+    // Old master (initialMaster) completes the M->S transition,
+    // There is a pending p2p message to new master (secondMaster).
+    // Validate: Controller should send S->M message to new master at same time.
+
+    currentStateOutput.setCurrentState(_db, _partition, initialMaster, "SLAVE");
+    currentStateOutput.getPendingMessageMap(_db, _partition).clear();
+    currentStateOutput.setPendingRelayMessage(_db, _partition, initialMaster, relayMessage);
+
+    event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
+
+    _messagePipeline.handle(event);
+
+    messageOutput = event.getAttribute(AttributeName.MESSAGES_SELECTED.name());
+    messages = messageOutput.getMessages(_db, _partition);
+    Assert.assertEquals(messages.size(), 2);
+
+    boolean hasToOffline = false;
+    boolean hasToMaster = false;
+    for (Message msg : messages) {
+      if (msg.getToState().equals(MasterSlaveSMD.States.MASTER.name()) && msg.getTgtName()
+          .equals(secondMaster)) {
+        hasToMaster = true;
+      }
+      if (msg.getToState().equals(MasterSlaveSMD.States.OFFLINE.name()) && msg.getTgtName()
+          .equals(initialMaster)) {
+        hasToOffline = true;
+      }
+    }
+    Assert.assertTrue(hasToMaster);
+    Assert.assertTrue(hasToOffline);
+
+    // Secenario 2C
+    // Old master (initialMaster) completes the M->S transition,
+    // There is a pending p2p message to new master (secondMaster).
+    // However, the new master has been changed in bestPossible
+    // Validate: Controller should not send S->M message to the third master at same time.
+
+    String thirdMaster =
+        getTopStateInstance(_bestpossibleState.getInstanceStateMap(_db, _partition),
+            MasterSlaveSMD.States.SLAVE.name());
+
+    Map<String, String> instanceStateMap = _bestpossibleState.getInstanceStateMap(_db, _partition);
+    instanceStateMap.put(secondMaster, "SLAVE");
+    instanceStateMap.put(thirdMaster, "MASTER");
+    _bestpossibleState.setState(_db, _partition, instanceStateMap);
+
+
+    event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
+    event.addAttribute(AttributeName.INTERMEDIATE_STATE.name(), _bestpossibleState);
+
+    _messagePipeline.handle(event);
+
+    messageOutput = event.getAttribute(AttributeName.MESSAGES_SELECTED.name());
+    messages = messageOutput.getMessages(_db, _partition);
+    Assert.assertEquals(messages.size(), 1);
+    Assert.assertTrue(messages.get(0).getToState().equals("OFFLINE"));
+    Assert.assertTrue(messages.get(0).getTgtName().equals(initialMaster));
+
+
     // Scenario 3:
     // Old master (initialMaster) completes the M->S transition,
     // and has already forwarded p2p message to new master (secondMaster)
     // The original S->M message sent to old master has been removed.
     // Validate: Controller should send S->O to old master, but not S->M message to new master.
+    instanceStateMap = _bestpossibleState.getInstanceStateMap(_db, _partition);
+    instanceStateMap.put(secondMaster, "MASTER");
+    instanceStateMap.put(thirdMaster, "SLAVE");
+    _bestpossibleState.setState(_db, _partition, instanceStateMap);
+
     currentStateOutput =
         populateCurrentStateFromBestPossible(_bestpossibleState);
     currentStateOutput.setCurrentState(_db, _partition, initialMaster, "SLAVE");
@@ -200,11 +263,11 @@ public class TestP2PMessagesAvoidDuplicatedMessage extends BaseStageTest {
     currentStateOutput.setCurrentState(_db, _partition, initialMaster, "OFFLINE");
     event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
 
-    String thirdMaster =
+    thirdMaster =
         getTopStateInstance(_bestpossibleState.getInstanceStateMap(_db, _partition),
             MasterSlaveSMD.States.SLAVE.name());
 
-    Map<String, String> instanceStateMap = _bestpossibleState.getInstanceStateMap(_db, _partition);
+    instanceStateMap = _bestpossibleState.getInstanceStateMap(_db, _partition);
     instanceStateMap.put(secondMaster, "SLAVE");
     instanceStateMap.put(thirdMaster, "MASTER");
     _bestpossibleState.setState(_db, _partition, instanceStateMap);

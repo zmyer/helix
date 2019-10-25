@@ -48,10 +48,15 @@ public class TestResourceThreadpoolSize extends ZkStandAloneCMTestBase {
 
   @Test
   public void TestThreadPoolSizeConfig() {
-    setResourceThreadPoolSize("NextDB", 12);
+    String resourceName = "NextDB";
+    int numPartition = 64;
+    int numReplica = 3;
+    int threadPoolSize = 12;
 
-    _gSetupTool.addResourceToCluster(CLUSTER_NAME, "NextDB", 64, STATE_MODEL);
-    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, "NextDB", 3);
+    setResourceThreadPoolSize(resourceName, threadPoolSize);
+
+    _gSetupTool.addResourceToCluster(CLUSTER_NAME, resourceName, numPartition, STATE_MODEL);
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, resourceName, numReplica);
 
     Assert.assertTrue(_clusterVerifier.verifyByPolling());
 
@@ -62,16 +67,21 @@ public class TestResourceThreadpoolSize extends ZkStandAloneCMTestBase {
       HelixTaskExecutor helixExecutor = svc.getExecutor();
       ThreadPoolExecutor executor =
           (ThreadPoolExecutor) (helixExecutor._executorMap.get(MessageType.STATE_TRANSITION + "."
-              + "NextDB"));
+              + resourceName));
       Assert.assertNotNull(executor);
-      Assert.assertEquals(12, executor.getMaximumPoolSize());
+      Assert.assertEquals(threadPoolSize, executor.getMaximumPoolSize());
       taskcount += executor.getCompletedTaskCount();
       Assert.assertTrue(executor.getCompletedTaskCount() > 0);
     }
-    Assert.assertEquals(taskcount, 64 * 4);
+
+    // (numPartition * numReplica) O->S, numPartition S->M
+    // Plus possible racing condition: when preference list is [n1, n2, n3],
+    // but n2 or n3 becomes Slave before n1 and captured by controller, i.e. [n1:O, n2:S, n3:O],
+    // controller will set n2 to Master first and then change it back to n1
+    Assert.assertTrue(taskcount >= numPartition * (numReplica + 1));
   }
 
-  @Test
+  @Test (dependsOnMethods = "TestThreadPoolSizeConfig")
   public void TestCustomizedResourceThreadPool() {
     int customizedPoolSize = 7;
     int configuredPoolSize = 9;
@@ -124,7 +134,7 @@ public class TestResourceThreadpoolSize extends ZkStandAloneCMTestBase {
     }
   }
 
-  @Test
+  @Test (dependsOnMethods = "TestCustomizedResourceThreadPool")
   public void TestPerStateTransitionTypeThreadPool() throws InterruptedException {
     String MASTER_SLAVE = "MasterSlave";
 
@@ -163,7 +173,7 @@ public class TestResourceThreadpoolSize extends ZkStandAloneCMTestBase {
     }
   }
 
-  @Test
+  @Test (dependsOnMethods = "TestPerStateTransitionTypeThreadPool")
   public void testBatchMessageThreadPoolSize() throws InterruptedException {
     int customizedPoolSize = 5;
     _participants[0].getStateMachineEngine().registerStateModelFactory("OnlineOffline",

@@ -55,6 +55,7 @@ import org.testng.annotations.BeforeMethod;
 public class BaseStageTest {
   public final static String HOSTNAME_PREFIX = "localhost_";
   public final static String SESSION_PREFIX = "session_";
+  private final static int MIN_ACTIVE_REPLICA_NOT_SET = -1;
 
   protected String _clusterName;
   protected HelixManager manager;
@@ -104,10 +105,9 @@ public class BaseStageTest {
 
   protected List<IdealState> setupIdealState(int nodes, String[] resources, int partitions,
       int replicas, RebalanceMode rebalanceMode, String stateModelName, String rebalanceClassName,
-      String rebalanceStrategyName) {
+      String rebalanceStrategyName, int minActiveReplica) {
     List<IdealState> idealStates = new ArrayList<IdealState>();
-    for (int i = 0; i < resources.length; i++) {
-      String resourceName = resources[i];
+    for (String resourceName : resources) {
       ZNRecord record = new ZNRecord(resourceName);
       for (int p = 0; p < partitions; p++) {
         List<String> value = new ArrayList<String>();
@@ -129,6 +129,10 @@ public class BaseStageTest {
       idealStates.add(idealState);
       idealState.setReplicas(String.valueOf(replicas));
 
+      if (minActiveReplica > 0) {
+        idealState.setMinActiveReplicas(minActiveReplica);
+      }
+
       Builder keyBuilder = accessor.keyBuilder();
 
       accessor.setProperty(keyBuilder.idealStates(resourceName), idealState);
@@ -139,19 +143,19 @@ public class BaseStageTest {
   protected List<IdealState> setupIdealState(int nodes, String[] resources, int partitions,
       int replicas, RebalanceMode rebalanceMode) {
     return setupIdealState(nodes, resources, partitions, replicas, rebalanceMode,
-        BuiltInStateModelDefinitions.MasterSlave.name(), null, null);
+        BuiltInStateModelDefinitions.MasterSlave.name(), null, null, MIN_ACTIVE_REPLICA_NOT_SET);
   }
 
   protected List<IdealState> setupIdealState(int nodes, String[] resources, int partitions,
       int replicas, RebalanceMode rebalanceMode, String stateModelName) {
-    return setupIdealState(nodes, resources, partitions, replicas, rebalanceMode,
-        stateModelName, null, null);
+    return setupIdealState(nodes, resources, partitions, replicas, rebalanceMode, stateModelName,
+        null, null, MIN_ACTIVE_REPLICA_NOT_SET);
   }
 
   protected List<IdealState> setupIdealState(int nodes, String[] resources, int partitions,
       int replicas, RebalanceMode rebalanceMode, String stateModelName, String rebalanceClassName) {
-    return setupIdealState(nodes, resources, partitions, replicas, rebalanceMode,
-      stateModelName, rebalanceClassName, null);
+    return setupIdealState(nodes, resources, partitions, replicas, rebalanceMode, stateModelName,
+        rebalanceClassName, null, MIN_ACTIVE_REPLICA_NOT_SET);
   }
 
   protected List<String> setupLiveInstances(int numLiveInstances) {

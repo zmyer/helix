@@ -19,20 +19,28 @@ package org.apache.helix.participant;
  * under the License.
  */
 
+import com.google.common.collect.Sets;
+import java.util.Set;
+import org.apache.helix.controller.pipeline.Pipeline;
 import org.apache.helix.participant.statemachine.StateModelFactory;
 
-// TODO: 2018/6/15 by zmyer
 public class DistClusterControllerStateModelFactory extends
-        StateModelFactory<DistClusterControllerStateModel> {
-    private final String _zkAddr;
+    StateModelFactory<DistClusterControllerStateModel> {
+  private final String _zkAddr;
+  private final Set<Pipeline.Type> _enabledPipelineTypes;
 
-    public DistClusterControllerStateModelFactory(String zkAddr) {
-        _zkAddr = zkAddr;
-    }
+  public DistClusterControllerStateModelFactory(String zkAddr) {
+    this(zkAddr, Sets.newHashSet(Pipeline.Type.DEFAULT, Pipeline.Type.TASK));
+  }
 
-    @Override
-    public DistClusterControllerStateModel createNewStateModel(String resourceName, String partitionKey) {
-        return new DistClusterControllerStateModel(_zkAddr);
-    }
+  public DistClusterControllerStateModelFactory(String zkAddr,
+      Set<Pipeline.Type> enabledPipelineTypes) {
+    _zkAddr = zkAddr;
+    _enabledPipelineTypes = enabledPipelineTypes;
+  }
 
+  @Override public DistClusterControllerStateModel createNewStateModel(String resourceName,
+      String partitionKey) {
+    return new DistClusterControllerStateModel(_zkAddr, _enabledPipelineTypes);
+  }
 }

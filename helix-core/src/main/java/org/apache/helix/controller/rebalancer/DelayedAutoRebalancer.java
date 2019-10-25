@@ -28,12 +28,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.api.config.StateTransitionThrottleConfig;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.rebalancer.util.RebalanceScheduler;
-import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.IdealState;
@@ -49,14 +48,14 @@ import org.slf4j.LoggerFactory;
 /**
  * This is the Full-Auto Rebalancer that is featured with delayed partition movement.
  */
-public class DelayedAutoRebalancer extends AbstractRebalancer {
+public class DelayedAutoRebalancer extends AbstractRebalancer<ResourceControllerDataProvider> {
   private static final Logger LOG = LoggerFactory.getLogger(DelayedAutoRebalancer.class);
   private static RebalanceScheduler _rebalanceScheduler = new RebalanceScheduler();
 
   @Override
   public IdealState computeNewIdealState(String resourceName,
       IdealState currentIdealState, CurrentStateOutput currentStateOutput,
-      ClusterDataCache clusterData) {
+      ResourceControllerDataProvider clusterData) {
 
     IdealState cachedIdealState = getCachedIdealState(resourceName, clusterData);
     if (cachedIdealState != null) {
@@ -173,9 +172,6 @@ public class DelayedAutoRebalancer extends AbstractRebalancer {
       finalMapping =
           getFinalDelayedMapping(currentIdealState, newIdealMapping, newActiveMapping, liveEnabledNodes,
               replicaCount, minActiveReplicas);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("newActiveMapping: " + newActiveMapping);
-      }
     }
 
     finalMapping.getListFields().putAll(userDefinedPreferenceList);
@@ -210,13 +206,13 @@ public class DelayedAutoRebalancer extends AbstractRebalancer {
   private Set<String> getActiveInstances(Set<String> allNodes, IdealState idealState,
       Set<String> liveEnabledNodes, Map<String, Long> instanceOfflineTimeMap, Set<String> liveNodes,
       Map<String, InstanceConfig> instanceConfigMap, long delay, ClusterConfig clusterConfig) {
-    Set<String> activeInstances = new HashSet<String>(liveEnabledNodes);
+    Set<String> activeInstances = new HashSet<>(liveEnabledNodes);
 
     if (!isDelayRebalanceEnabled(idealState, clusterConfig)) {
       return activeInstances;
     }
 
-    Set<String> offlineOrDisabledInstances = new HashSet<String>(allNodes);
+    Set<String> offlineOrDisabledInstances = new HashSet<>(allNodes);
     offlineOrDisabledInstances.removeAll(liveEnabledNodes);
 
     long currentTime = System.currentTimeMillis();
@@ -385,7 +381,7 @@ public class DelayedAutoRebalancer extends AbstractRebalancer {
    * @return
    */
   @Override
-  public ResourceAssignment computeBestPossiblePartitionState(ClusterDataCache cache,
+  public ResourceAssignment computeBestPossiblePartitionState(ResourceControllerDataProvider cache,
       IdealState idealState, Resource resource, CurrentStateOutput currentStateOutput) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("Processing resource:" + resource.getResourceName());
@@ -533,10 +529,21 @@ public class DelayedAutoRebalancer extends AbstractRebalancer {
     // we should drop all partitions from previous assigned instances.
     if (!currentMapWithPreferenceList.values().contains(HelixDefinedState.ERROR.name())
         && bestPossibleStateMap.size() > numReplicas && readyToDrop(currentStateMap,
-        bestPossibleStateMap, numReplicas, combinedPreferenceList)) {
+        bestPossibleStateMap, preferenceList, combinedPreferenceList)) {
       for (int i = 0; i < combinedPreferenceList.size() - numReplicas; i++) {
         String instanceToDrop = combinedPreferenceList.get(combinedPreferenceList.size() - i - 1);
         bestPossibleStateMap.put(instanceToDrop, HelixDefinedState.DROPPED.name());
+      }
+    }
+
+    // Adding ERROR replica mapping to best possible
+    // ERROR assignment should be mutual excluded from DROPPED assignment because
+    // once there is an ERROR replica in the mapping, bestPossibleStateMap.size() > numReplicas prevents
+    // code entering the DROPPING stage.
+    for (String instance : combinedPreferenceList) {
+      if (currentStateMap.containsKey(instance) && currentStateMap.get(instance)
+          .equals(HelixDefinedState.ERROR.name())) {
+        bestPossibleStateMap.put(instance, HelixDefinedState.ERROR.name());
       }
     }
 
@@ -544,13 +551,12 @@ public class DelayedAutoRebalancer extends AbstractRebalancer {
   }
 
   private boolean readyToDrop(Map<String, String> currentStateMap,
-      Map<String, String> bestPossibleMap, int numReplicas, List<String> combinedPreferenceList) {
-    if (currentStateMap.size() != bestPossibleMap.size()) {
-      return false;
-    }
+      Map<String, String> bestPossibleMap, List<String> preferenceList,
+      List<String> combinedPreferenceList) {
+    Set<String> preferenceWithActiveState = new HashSet<>(preferenceList);
+    preferenceWithActiveState.retainAll(combinedPreferenceList);
 
-    for (int i = 0; i < numReplicas; i++) {
-      String instance = combinedPreferenceList.get(i);
+    for (String instance : preferenceWithActiveState) {
       if (!currentStateMap.containsKey(instance) || !currentStateMap.get(instance)
           .equals(bestPossibleMap.get(instance))) {
         return false;

@@ -85,10 +85,11 @@ export class AppComponent implements OnInit {
           this.service
             .login(result.username.value, result.password.value)
             .subscribe(
-              isAuthroized => {
-                if (isAuthroized) {
-                  location.reload();
+              isAuthorized => {
+                if (!isAuthorized) {
+                  this.helper.showError("You're not part of helix-admin group or password incorrect");
                 }
+                this.currentUser = this.service.getCurrentUser();
               },
               error => this.helper.showError(error)
             );

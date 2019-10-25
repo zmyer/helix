@@ -19,14 +19,13 @@ package org.apache.helix.tools.ClusterVerifiers;
  * under the License.
  */
 
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import org.I0Itec.zkclient.IZkChildListener;
 import org.I0Itec.zkclient.IZkDataListener;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.api.listeners.PreFetch;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
@@ -34,6 +33,7 @@ import org.apache.helix.manager.zk.ZkBaseDataAccessor;
 import org.apache.helix.manager.zk.ZkClient;
 import org.apache.helix.manager.zk.client.DedicatedZkClientFactory;
 import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.model.ResourceConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,8 +45,7 @@ public abstract class ZkHelixClusterVerifier
     implements IZkChildListener, IZkDataListener, HelixClusterVerifier {
   private static Logger LOG = LoggerFactory.getLogger(ZkHelixClusterVerifier.class);
   protected static int DEFAULT_TIMEOUT = 300 * 1000;
-  protected static int DEFAULT_PERIOD = 100;
-
+  protected static int DEFAULT_PERIOD = 500;
 
   protected final HelixZkClient _zkClient;
   protected final String _clusterName;
@@ -55,11 +54,7 @@ public abstract class ZkHelixClusterVerifier
   private CountDownLatch _countdown;
 
   private ExecutorService _verifyTaskThreadPool =
-      Executors.newSingleThreadExecutor(new ThreadFactory() {
-        @Override public Thread newThread(Runnable r) {
-          return new Thread(r, "ZkHelixClusterVerifier-verify_thread");
-        }
-      });
+      Executors.newSingleThreadExecutor(r -> new Thread(r, "ZkHelixClusterVerifier-verify_thread"));
 
   protected static class ClusterVerifyTrigger {
     final PropertyKey _triggerKey;
@@ -98,7 +93,7 @@ public abstract class ZkHelixClusterVerifier
     }
     _zkClient = zkClient;
     _clusterName = clusterName;
-    _accessor = new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<ZNRecord>(_zkClient));
+    _accessor = new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<>(_zkClient));
     _keyBuilder = _accessor.keyBuilder();
   }
 
@@ -110,15 +105,14 @@ public abstract class ZkHelixClusterVerifier
         .buildZkClient(new HelixZkClient.ZkConnectionConfig(zkAddr));
     _zkClient.setZkSerializer(new ZNRecordSerializer());
     _clusterName = clusterName;
-    _accessor = new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<ZNRecord>(_zkClient));
+    _accessor = new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<>(_zkClient));
     _keyBuilder = _accessor.keyBuilder();
   }
 
   /**
-   *  Verify the cluster.
-   *  The method will be blocked at most {@code timeout}.
-   *  Return true if the verify succeed, otherwise return false.
-   *
+   * Verify the cluster.
+   * The method will be blocked at most {@code timeout}.
+   * Return true if the verify succeed, otherwise return false.
    * @param timeout in milliseconds
    * @return true if succeed, false if not.
    */
@@ -127,10 +121,9 @@ public abstract class ZkHelixClusterVerifier
   }
 
   /**
-   *  Verify the cluster.
-   *  The method will be blocked at most 30 seconds.
-   *  Return true if the verify succeed, otherwise return false.
-   *
+   * Verify the cluster.
+   * The method will be blocked at most 30 seconds.
+   * Return true if the verify succeed, otherwise return false.
    * @return true if succeed, false if not.
    */
   public boolean verify() {
@@ -138,20 +131,18 @@ public abstract class ZkHelixClusterVerifier
   }
 
   /**
-   *  Verify the cluster by relying on zookeeper callback and verify.
-   *  The method will be blocked at most {@code timeout}.
-   *  Return true if the verify succeed, otherwise return false.
-   *
+   * Verify the cluster by relying on zookeeper callback and verify.
+   * The method will be blocked at most {@code timeout}.
+   * Return true if the verify succeed, otherwise return false.
    * @param timeout in milliseconds
    * @return true if succeed, false if not.
    */
   public abstract boolean verifyByZkCallback(long timeout);
 
   /**
-   *  Verify the cluster by relying on zookeeper callback and verify.
-   *  The method will be blocked at most 30 seconds.
-   *  Return true if the verify succeed, otherwise return false.
-   *
+   * Verify the cluster by relying on zookeeper callback and verify.
+   * The method will be blocked at most 30 seconds.
+   * Return true if the verify succeed, otherwise return false.
    * @return true if succeed, false if not.
    */
   public boolean verifyByZkCallback() {
@@ -159,10 +150,9 @@ public abstract class ZkHelixClusterVerifier
   }
 
   /**
-   *  Verify the cluster by periodically polling the cluster status and verify.
-   *  The method will be blocked at most {@code timeout}.
-   *  Return true if the verify succeed, otherwise return false.
-   *
+   * Verify the cluster by periodically polling the cluster status and verify.
+   * The method will be blocked at most {@code timeout}.
+   * Return true if the verify succeed, otherwise return false.
    * @param timeout
    * @param period polling interval
    * @return
@@ -172,6 +162,10 @@ public abstract class ZkHelixClusterVerifier
       long start = System.currentTimeMillis();
       boolean success;
       do {
+        // Add a rebalance invoker in case some callbacks got buried - sometimes callbacks get
+        // processed even before changes get fully written to ZK.
+        invokeRebalance(_accessor);
+
         success = verifyState();
         if (success) {
           return true;
@@ -185,10 +179,9 @@ public abstract class ZkHelixClusterVerifier
   }
 
   /**
-   *  Verify the cluster by periodically polling the cluster status and verify.
-   *  The method will be blocked at most 30 seconds.
-   *  Return true if the verify succeed, otherwise return false.
-   *
+   * Verify the cluster by periodically polling the cluster status and verify.
+   * The method will be blocked at most 30 seconds.
+   * Return true if the verify succeed, otherwise return false.
    * @return true if succeed, false if not.
    */
   public boolean verifyByPolling() {
@@ -250,7 +243,8 @@ public abstract class ZkHelixClusterVerifier
   protected abstract boolean verifyState() throws Exception;
 
   class VerifyStateCallbackTask implements Runnable {
-    @Override public void run() {
+    @Override
+    public void run() {
       try {
         boolean success = verifyState();
         if (success) {
@@ -263,7 +257,7 @@ public abstract class ZkHelixClusterVerifier
   }
 
   @Override
-  @PreFetch (enabled = false)
+  @PreFetch(enabled = false)
   public void handleDataChange(String dataPath, Object data) throws Exception {
     if (!_verifyTaskThreadPool.isShutdown()) {
       _verifyTaskThreadPool.submit(new VerifyStateCallbackTask());
@@ -300,5 +294,16 @@ public abstract class ZkHelixClusterVerifier
 
   public String getClusterName() {
     return _clusterName;
+  }
+
+  /**
+   * Invoke a cluster rebalance in case some callbacks get ignored. This is for Helix integration
+   * testing purposes only.
+   */
+  public static synchronized void invokeRebalance(HelixDataAccessor accessor) {
+    String dummyName = UUID.randomUUID().toString();
+    ResourceConfig dummyConfig = new ResourceConfig(dummyName);
+    accessor.updateProperty(accessor.keyBuilder().resourceConfig(dummyName), dummyConfig);
+    accessor.removeProperty(accessor.keyBuilder().resourceConfig(dummyName));
   }
 }

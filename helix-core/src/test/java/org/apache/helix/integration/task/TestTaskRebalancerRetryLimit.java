@@ -35,7 +35,8 @@ import org.testng.annotations.Test;
  */
 public class TestTaskRebalancerRetryLimit extends TaskTestBase {
 
-  @Test public void test() throws Exception {
+  @Test
+  public void test() throws Exception {
     String jobResource = TestHelper.getTestMethodName();
 
     JobConfig.Builder jobBuilder = JobConfig.Builder.fromMap(WorkflowGenerator.DEFAULT_JOB_CONFIG);

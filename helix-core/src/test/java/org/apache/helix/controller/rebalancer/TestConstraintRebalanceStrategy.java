@@ -29,16 +29,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import org.apache.helix.HelixException;
 import org.apache.helix.api.rebalancer.constraint.AbstractRebalanceHardConstraint;
 import org.apache.helix.api.rebalancer.constraint.AbstractRebalanceSoftConstraint;
 import org.apache.helix.api.rebalancer.constraint.dataprovider.CapacityProvider;
 import org.apache.helix.api.rebalancer.constraint.dataprovider.PartitionWeightProvider;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.rebalancer.constraint.PartitionWeightAwareEvennessConstraint;
 import org.apache.helix.controller.rebalancer.constraint.TotalCapacityConstraint;
 import org.apache.helix.controller.rebalancer.constraint.dataprovider.MockCapacityProvider;
 import org.apache.helix.controller.rebalancer.constraint.dataprovider.MockPartitionWeightProvider;
 import org.apache.helix.controller.rebalancer.strategy.ConstraintRebalanceStrategy;
-import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.LiveInstance;
@@ -64,7 +65,7 @@ public class TestConstraintRebalanceStrategy {
   final List<String> instanceNames = new ArrayList<>();
   final List<String> partitions = new ArrayList<>(nPartitions);
 
-  final ClusterDataCache cache = new ClusterDataCache();
+  final ResourceControllerDataProvider cache = new ResourceControllerDataProvider();
   final LinkedHashMap<String, Integer> states = new LinkedHashMap<>(2);
 
   @BeforeClass
@@ -271,7 +272,7 @@ public class TestConstraintRebalanceStrategy {
           Collections.<AbstractRebalanceHardConstraint>singletonList(capacityConstraint),
           Collections.EMPTY_LIST);
       Assert.fail("Assignment should fail because of insufficient capacity.");
-    } catch (IllegalStateException e) {
+    } catch (HelixException e) {
       // expected
     }
   }
@@ -300,7 +301,7 @@ public class TestConstraintRebalanceStrategy {
     try {
       calculateAssignment(constraints, Collections.EMPTY_LIST);
       Assert.fail("Assignment should fail because of the conflicting capacity constraint.");
-    } catch (IllegalStateException e) {
+    } catch (HelixException e) {
       // expected
     }
   }
@@ -400,7 +401,7 @@ public class TestConstraintRebalanceStrategy {
   @Test
   public void testTopologyAwareAssignment() {
     // Topology Aware configuration
-    ClusterDataCache cache = new ClusterDataCache();
+    ResourceControllerDataProvider cache = new ResourceControllerDataProvider();
     List<LiveInstance> liveInstanceList = new ArrayList<>();
     Map<String, InstanceConfig> instanceConfigs = new HashMap<>();
     for (int i = 0; i < instanceNames.size(); i++) {
@@ -447,7 +448,7 @@ public class TestConstraintRebalanceStrategy {
       domainPartitionMap.clear();
       for (String partition : partitionMap.keySet()) {
         for (String instance : partitionMap.get(partition).keySet()) {
-          String domain = instanceConfigs.get(instance).getDomain().split(",")[0].split("=")[1];
+          String domain = instanceConfigs.get(instance).getDomainAsString().split(",")[0].split("=")[1];
           if (domainPartitionMap.containsKey(domain)) {
             Assert.assertFalse(domainPartitionMap.get(domain).contains(partition));
           } else {

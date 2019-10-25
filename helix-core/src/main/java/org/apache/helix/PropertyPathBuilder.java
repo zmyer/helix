@@ -19,11 +19,17 @@ package org.apache.helix;
  * under the License.
  */
 
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
-import org.apache.helix.model.LeaderHistory;
+import org.apache.helix.model.ControllerHistory;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.MaintenanceSignal;
 import org.apache.helix.model.Message;
@@ -34,32 +40,13 @@ import org.apache.helix.task.WorkflowContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import static org.apache.helix.PropertyType.CONFIGS;
-import static org.apache.helix.PropertyType.CURRENTSTATES;
-import static org.apache.helix.PropertyType.EXTERNALVIEW;
-import static org.apache.helix.PropertyType.HISTORY;
-import static org.apache.helix.PropertyType.IDEALSTATES;
-import static org.apache.helix.PropertyType.LIVEINSTANCES;
-import static org.apache.helix.PropertyType.MAINTENANCE;
-import static org.apache.helix.PropertyType.MESSAGES;
-import static org.apache.helix.PropertyType.PAUSE;
-import static org.apache.helix.PropertyType.STATEMODELDEFS;
-import static org.apache.helix.PropertyType.STATUSUPDATES;
-import static org.apache.helix.PropertyType.WORKFLOWCONTEXT;
-
+import static org.apache.helix.PropertyType.*;
 
 /**
  * Utility mapping properties to their Zookeeper locations
  */
-// TODO: 2018/6/4 by zmyer
 public class PropertyPathBuilder {
-    private static Logger logger = LoggerFactory.getLogger(PropertyPathBuilder.class);
+  private static Logger logger = LoggerFactory.getLogger(PropertyPathBuilder.class);
 
   static final Map<PropertyType, Map<Integer, String>> templateMap =
       new HashMap<PropertyType, Map<Integer, String>>();
@@ -75,7 +62,7 @@ public class PropertyPathBuilder {
     typeToClassMapping.put(MESSAGES, Message.class);
     typeToClassMapping.put(CURRENTSTATES, CurrentState.class);
     typeToClassMapping.put(STATUSUPDATES, StatusUpdate.class);
-    typeToClassMapping.put(HISTORY, LeaderHistory.class);
+    typeToClassMapping.put(HISTORY, ControllerHistory.class);
     typeToClassMapping.put(PAUSE, PauseSignal.class);
     typeToClassMapping.put(MAINTENANCE, MaintenanceSignal.class);
     // TODO: Below must handle the case for future versions of Task Framework with a different path
@@ -151,8 +138,8 @@ public class PropertyPathBuilder {
     // RESOURCE
     addEntry(PropertyType.WORKFLOWCONTEXT, 2,
         "/{clusterName}/PROPERTYSTORE/TaskRebalancer/{workflowName}/Context"); // Old
-                                                                               // WorkflowContext
-                                                                               // path
+    // WorkflowContext
+    // path
     addEntry(PropertyType.TASK_CONFIG_ROOT, 1, "/{clusterName}/CONFIGS/TASK");
     addEntry(PropertyType.WORKFLOW_CONFIG, 3,
         "/{clusterName}/CONFIGS/TASK/{workflowName}/{workflowName}");
@@ -167,37 +154,37 @@ public class PropertyPathBuilder {
   }
   static Pattern pattern = Pattern.compile("(\\{.+?\\})");
 
-    private static void addEntry(PropertyType type, int numKeys, String template) {
-        if (!templateMap.containsKey(type)) {
-            templateMap.put(type, new HashMap<Integer, String>());
-        }
-        logger.trace("Adding template for type:" + type.getType() + " arguments:" + numKeys
-                + " template:" + template);
-        templateMap.get(type).put(numKeys, template);
+  private static void addEntry(PropertyType type, int numKeys, String template) {
+    if (!templateMap.containsKey(type)) {
+      templateMap.put(type, new HashMap<Integer, String>());
+    }
+    logger.trace("Adding template for type:" + type.getType() + " arguments:" + numKeys
+        + " template:" + template);
+    templateMap.get(type).put(numKeys, template);
+  }
+
+  /**
+   * Get the Zookeeper path given the property type, cluster, and parameters
+   * @param type
+   * @param clusterName
+   * @param keys
+   * @return a valid path, or null if none exists
+   */
+  public static String getPath(PropertyType type, String clusterName, String... keys) {
+    if (clusterName == null) {
+      logger.warn("ClusterName can't be null for type:" + type);
+      return null;
+    }
+    if (keys == null) {
+      keys = new String[] {};
+    }
+    String template = null;
+    if (templateMap.containsKey(type)) {
+      // keys.length+1 since we add clusterName
+      template = templateMap.get(type).get(keys.length + 1);
     }
 
-    /**
-     * Get the Zookeeper path given the property type, cluster, and parameters
-     * @param type
-     * @param clusterName
-     * @param keys
-     * @return a valid path, or null if none exists
-     */
-    public static String getPath(PropertyType type, String clusterName, String... keys) {
-        if (clusterName == null) {
-            logger.warn("ClusterName can't be null for type:" + type);
-            return null;
-        }
-        if (keys == null) {
-            keys = new String[]{};
-        }
-        String template = null;
-        if (templateMap.containsKey(type)) {
-            // keys.length+1 since we add clusterName
-            template = templateMap.get(type).get(keys.length + 1);
-        }
-
-        String result = null;
+    String result = null;
 
     if (template != null) {
       result = template;
@@ -220,70 +207,66 @@ public class PropertyPathBuilder {
     return result;
   }
 
-    /**
-     * Given a path, find the name of an instance at that path
-     * @param path
-     * @return a valid instance name, or null if none exists
-     */
-    public static String getInstanceNameFromPath(String path) {
-        // path structure
-        // /<cluster_name>/instances/<instance_name>/[currentStates/messages]
-        if (path.contains("/" + PropertyType.INSTANCES + "/")) {
-            String[] split = path.split("\\/");
-            if (split.length > 3) {
-                return split[3];
-            }
-        }
-        return null;
+  /**
+   * Given a path, find the name of an instance at that path
+   * @param path
+   * @return a valid instance name, or null if none exists
+   */
+  public static String getInstanceNameFromPath(String path) {
+    // path structure
+    // /<cluster_name>/instances/<instance_name>/[currentStates/messages]
+    if (path.contains("/" + PropertyType.INSTANCES + "/")) {
+      String[] split = path.split("\\/");
+      if (split.length > 3) {
+        return split[3];
+      }
     }
+    return null;
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String idealState(String clusterName) {
-        return String.format("/%s/IDEALSTATES", clusterName);
-    }
+  public static String idealState(String clusterName) {
+    return String.format("/%s/IDEALSTATES", clusterName);
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    public static String idealState(String clusterName, String resourceName) {
-        return String.format("/%s/IDEALSTATES/%s", clusterName, resourceName);
-    }
+  public static String idealState(String clusterName, String resourceName) {
+    return String.format("/%s/IDEALSTATES/%s", clusterName, resourceName);
+  }
 
-    public static String stateModelDef(String clusterName) {
-        return String.format("/%s/STATEMODELDEFS", clusterName);
-    }
+  public static String stateModelDef(String clusterName) {
+    return String.format("/%s/STATEMODELDEFS", clusterName);
+  }
 
-    public static String stateModelDef(String clusterName, String stateModelName) {
-        return String.format("/%s/STATEMODELDEFS/%s", clusterName, stateModelName);
-    }
+  public static String stateModelDef(String clusterName, String stateModelName) {
+    return String.format("/%s/STATEMODELDEFS/%s", clusterName, stateModelName);
+  }
 
-    public static String externalView(String clusterName) {
-        return String.format("/%s/EXTERNALVIEW", clusterName);
-    }
+  public static String externalView(String clusterName) {
+    return String.format("/%s/EXTERNALVIEW", clusterName);
+  }
 
-    public static String externalView(String clusterName, String resourceName) {
-        return String.format("/%s/EXTERNALVIEW/%s", clusterName, resourceName);
-    }
+  public static String externalView(String clusterName, String resourceName) {
+    return String.format("/%s/EXTERNALVIEW/%s", clusterName, resourceName);
+  }
 
-    public static String targetExternalView(String clusterName) {
-        return String.format("/%s/TARGETEXTERNALVIEW", clusterName);
-    }
+  public static String targetExternalView(String clusterName) {
+    return String.format("/%s/TARGETEXTERNALVIEW", clusterName);
+  }
 
-    public static String targetExternalView(String clusterName, String resourceName) {
-        return String.format("/%s/TARGETEXTERNALVIEW/%s", clusterName, resourceName);
-    }
+  public static String targetExternalView(String clusterName, String resourceName) {
+    return String.format("/%s/TARGETEXTERNALVIEW/%s", clusterName, resourceName);
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String liveInstance(String clusterName) {
-        return String.format("/%s/LIVEINSTANCES", clusterName);
-    }
+  public static String liveInstance(String clusterName) {
+    return String.format("/%s/LIVEINSTANCES", clusterName);
+  }
 
-    public static String liveInstance(String clusterName, String instanceName) {
-        return String.format("/%s/LIVEINSTANCES/%s", clusterName, instanceName);
-    }
+  public static String liveInstance(String clusterName, String instanceName) {
+    return String.format("/%s/LIVEINSTANCES/%s", clusterName, instanceName);
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String instance(String clusterName) {
-        return String.format("/%s/INSTANCES", clusterName);
-    }
+  public static String instance(String clusterName) {
+    return String.format("/%s/INSTANCES", clusterName);
+  }
 
   @Deprecated
   public static String instanceProperty(String clusterName, String instanceName, PropertyType type,
@@ -291,23 +274,21 @@ public class PropertyPathBuilder {
     return String.format("/%s/INSTANCES/%s/%s/%s", clusterName, instanceName, type, key);
   }
 
-    public static String instance(String clusterName, String instanceName) {
-        return String.format("/%s/INSTANCES/%s", clusterName, instanceName);
-    }
+  public static String instance(String clusterName, String instanceName) {
+    return String.format("/%s/INSTANCES/%s", clusterName, instanceName);
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String instanceMessage(String clusterName, String instanceName) {
-        return String.format("/%s/INSTANCES/%s/MESSAGES", clusterName, instanceName);
-    }
+  public static String instanceMessage(String clusterName, String instanceName) {
+    return String.format("/%s/INSTANCES/%s/MESSAGES", clusterName, instanceName);
+  }
 
-    public static String instanceMessage(String clusterName, String instanceName, String messageId) {
-        return String.format("/%s/INSTANCES/%s/MESSAGES/%s", clusterName, instanceName, messageId);
-    }
+  public static String instanceMessage(String clusterName, String instanceName, String messageId) {
+    return String.format("/%s/INSTANCES/%s/MESSAGES/%s", clusterName, instanceName, messageId);
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String instanceCurrentState(String clusterName, String instanceName) {
-        return String.format("/%s/INSTANCES/%s/CURRENTSTATES", clusterName, instanceName);
-    }
+  public static String instanceCurrentState(String clusterName, String instanceName) {
+    return String.format("/%s/INSTANCES/%s/CURRENTSTATES", clusterName, instanceName);
+  }
 
   public static String instanceCurrentState(String clusterName, String instanceName,
       String sessionId) {
@@ -320,10 +301,9 @@ public class PropertyPathBuilder {
         sessionId, resourceName);
   }
 
-    // TODO: 2018/7/27 by zmyer
-    public static String instanceError(String clusterName, String instanceName) {
-        return String.format("/%s/INSTANCES/%s/ERRORS", clusterName, instanceName);
-    }
+  public static String instanceError(String clusterName, String instanceName) {
+    return String.format("/%s/INSTANCES/%s/ERRORS", clusterName, instanceName);
+  }
 
   public static String instanceError(String clusterName, String instanceName, String sessionId,
       String resourceName, String partitionName) {
@@ -331,79 +311,72 @@ public class PropertyPathBuilder {
         resourceName, partitionName);
   }
 
-    // TODO: 2018/7/27 by zmyer
-    public static String instanceHistory(String clusterName, String instanceName) {
-        return String.format("/%s/INSTANCES/%s/HISTORY", clusterName, instanceName);
-    }
+  public static String instanceHistory(String clusterName, String instanceName) {
+    return String.format("/%s/INSTANCES/%s/HISTORY", clusterName, instanceName);
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    public static String instanceStatusUpdate(String clusterName, String instanceName) {
-        return String.format("/%s/INSTANCES/%s/STATUSUPDATES", clusterName, instanceName);
-    }
+  public static String instanceStatusUpdate(String clusterName, String instanceName) {
+    return String.format("/%s/INSTANCES/%s/STATUSUPDATES", clusterName, instanceName);
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String propertyStore(String clusterName) {
-        return String.format("/%s/PROPERTYSTORE", clusterName);
-    }
+  public static String propertyStore(String clusterName) {
+    return String.format("/%s/PROPERTYSTORE", clusterName);
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String clusterConfig(String clusterName) {
-        return String.format("/%s/CONFIGS/CLUSTER/%s", clusterName, clusterName);
-    }
+  public static String clusterConfig(String clusterName) {
+    return String.format("/%s/CONFIGS/CLUSTER/%s", clusterName, clusterName);
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String instanceConfig(String clusterName) {
-        return String.format("/%s/CONFIGS/PARTICIPANT", clusterName);
-    }
+  public static String instanceConfig(String clusterName) {
+    return String.format("/%s/CONFIGS/PARTICIPANT", clusterName);
+  }
 
-    public static String instanceConfig(String clusterName, String instanceName) {
-        return String.format("/%s/CONFIGS/PARTICIPANT/%s", clusterName, instanceName);
-    }
+  public static String instanceConfig(String clusterName, String instanceName) {
+    return String.format("/%s/CONFIGS/PARTICIPANT/%s", clusterName, instanceName);
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public static String resourceConfig(String clusterName) {
-        return String.format("/%s/CONFIGS/RESOURCE", clusterName);
-    }
+  public static String resourceConfig(String clusterName) {
+    return String.format("/%s/CONFIGS/RESOURCE", clusterName);
+  }
 
-    public static String controller(String clusterName) {
-        return String.format("/%s/CONTROLLER", clusterName);
-    }
+  public static String controller(String clusterName) {
+    return String.format("/%s/CONTROLLER", clusterName);
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    public static String controllerLeader(String clusterName) {
-        return String.format("/%s/CONTROLLER/LEADER", clusterName);
-    }
+  public static String controllerLeader(String clusterName) {
+    return String.format("/%s/CONTROLLER/LEADER", clusterName);
+  }
 
-    public static String controllerMessage(String clusterName) {
-        return String.format("/%s/CONTROLLER/MESSAGES", clusterName);
-    }
+  public static String controllerMessage(String clusterName) {
+    return String.format("/%s/CONTROLLER/MESSAGES", clusterName);
+  }
 
-    public static String controllerMessage(String clusterName, String messageId) {
-        return String.format("/%s/CONTROLLER/MESSAGES/%s", clusterName, messageId);
-    }
+  public static String controllerMessage(String clusterName, String messageId) {
+    return String.format("/%s/CONTROLLER/MESSAGES/%s", clusterName, messageId);
+  }
 
-    public static String controllerStatusUpdate(String clusterName) {
-        return String.format("/%s/CONTROLLER/STATUSUPDATES", clusterName);
-    }
+  public static String controllerStatusUpdate(String clusterName) {
+    return String.format("/%s/CONTROLLER/STATUSUPDATES", clusterName);
+  }
 
   public static String controllerStatusUpdate(String clusterName, String subPath,
       String recordName) {
     return String.format("/%s/CONTROLLER/STATUSUPDATES/%s/%s", clusterName, subPath, recordName);
   }
 
-    public static String controllerError(String clusterName) {
-        return String.format("/%s/CONTROLLER/ERRORS", clusterName);
-    }
+  public static String controllerError(String clusterName) {
+    return String.format("/%s/CONTROLLER/ERRORS", clusterName);
+  }
 
-    public static String controllerHistory(String clusterName) {
-        return String.format("/%s/CONTROLLER/HISTORY", clusterName);
-    }
+  public static String controllerHistory(String clusterName) {
+    return String.format("/%s/CONTROLLER/HISTORY", clusterName);
+  }
 
-    public static String pause(String clusterName) {
-        return String.format("/%s/CONTROLLER/PAUSE", clusterName);
-    }
+  public static String pause(String clusterName) {
+    return String.format("/%s/CONTROLLER/PAUSE", clusterName);
+  }
 
-    public static String maintenance(String clusterName) {
-        return String.format("/%s/CONTROLLER/MAINTENANCE", clusterName);
-    }
+  public static String maintenance(String clusterName) {
+    return String.format("/%s/CONTROLLER/MAINTENANCE", clusterName);
+  }
 }

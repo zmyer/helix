@@ -19,59 +19,45 @@ package org.apache.helix.task;
  * under the License.
  */
 
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.SortedSet;
-import java.util.TreeMap;
-import java.util.TreeSet;
-
-import org.apache.helix.AccessOption;
-import org.apache.helix.HelixDataAccessor;
-import org.apache.helix.PropertyKey;
-import org.apache.helix.ZNRecord;
-import org.apache.helix.controller.stages.ClusterDataCache;
+import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.IdealState;
-import org.apache.helix.model.Message;
-import org.apache.helix.model.Partition;
 import org.apache.helix.model.Resource;
 import org.apache.helix.model.ResourceAssignment;
-import org.apache.helix.task.assigner.ThreadCountBasedTaskAssigner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableMap;
 
 /**
  * Custom rebalancer implementation for the {@code Job} in task model.
  */
-// TODO: 2018/7/25 by zmyer
 public class JobRebalancer extends TaskRebalancer {
   private static final Logger LOG = LoggerFactory.getLogger(JobRebalancer.class);
   private JobDispatcher _jobDispatcher;
 
   @Override
-  public ResourceAssignment computeBestPossiblePartitionState(ClusterDataCache clusterData, IdealState taskIs, Resource resource,
+  public ResourceAssignment computeBestPossiblePartitionState(
+      WorkflowControllerDataProvider clusterData, IdealState taskIs, Resource resource,
       CurrentStateOutput currStateOutput) {
     long startTime = System.currentTimeMillis();
     final String jobName = resource.getResourceName();
+    JobConfig jobConfig = clusterData.getJobConfig(jobName);
+    if (jobConfig == null) {
+      LOG.error(
+          "Job {}'s JobConfig is missing. This job might have been deleted or purged. Skipping status update and assignment!",
+          jobName);
+      return buildEmptyAssignment(jobName, currStateOutput);
+    }
     LOG.debug("Computer Best Partition for job: " + jobName);
-
     if (_jobDispatcher == null) {
       _jobDispatcher = new JobDispatcher();
     }
     _jobDispatcher.init(_manager);
     _jobDispatcher.updateCache(clusterData);
     _jobDispatcher.setClusterStatusMonitor(_clusterStatusMonitor);
-    ResourceAssignment resourceAssignment =
-        _jobDispatcher.processJobStatusUpdateandAssignment(jobName, currStateOutput, taskIs);
-    LOG.debug(String.format("JobRebalancer computation takes %d ms for Job %s", +System.currentTimeMillis() - startTime,
-        jobName));
+    ResourceAssignment resourceAssignment = _jobDispatcher.processJobStatusUpdateAndAssignment(
+        jobName, currStateOutput, clusterData.getWorkflowContext(jobConfig.getWorkflow()));
+    LOG.debug(String.format("JobRebalancer computation takes %d ms for Job %s",
+        System.currentTimeMillis() - startTime, jobName));
     return resourceAssignment;
   }
 }

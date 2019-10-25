@@ -19,6 +19,7 @@ package org.apache.helix.participant;
  * under the License.
  */
 
+import java.util.Set;
 import java.util.UUID;
 import org.apache.helix.ClusterMessagingService;
 import org.apache.helix.ConfigAccessor;
@@ -42,6 +43,7 @@ import org.apache.helix.api.listeners.LiveInstanceChangeListener;
 import org.apache.helix.api.listeners.MessageListener;
 import org.apache.helix.api.listeners.ResourceConfigChangeListener;
 import org.apache.helix.api.listeners.ScopedConfigChangeListener;
+import org.apache.helix.controller.pipeline.Pipeline;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollector;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
@@ -49,6 +51,8 @@ import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.messaging.DefaultMessagingService;
 import org.apache.helix.model.HelixConfigScope.ConfigScopeProperty;
 import org.apache.helix.store.zk.ZkHelixPropertyStore;
+import org.apache.helix.task.TaskConstants;
+import org.testng.collections.Lists;
 
 public class MockZKHelixManager implements HelixManager {
   private final ZKHelixDataAccessor _accessor;
@@ -96,6 +100,11 @@ public class MockZKHelixManager implements HelixManager {
   @Override
   public void addLiveInstanceChangeListener(LiveInstanceChangeListener listener) throws Exception {
     // TODO Auto-generated method stub
+
+  }
+
+  @Override
+  public void setEnabledControlPipelineTypes(Set<Pipeline.Type> types) {
 
   }
 
@@ -274,7 +283,8 @@ public class MockZKHelixManager implements HelixManager {
   @Override
   public ZkHelixPropertyStore<ZNRecord> getHelixPropertyStore() {
     // TODO Auto-generated method stub
-    return null;
+    return new ZkHelixPropertyStore<>(
+        (ZkBaseDataAccessor<ZNRecord>) _accessor.getBaseDataAccessor(), TaskConstants.REBALANCER_CONTEXT_ROOT, Lists.<String>newArrayList());
   }
 
   @Override

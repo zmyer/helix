@@ -30,6 +30,7 @@ import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyKey.Builder;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.ZkUnitTestBase;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.pipeline.Pipeline;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
@@ -40,13 +41,10 @@ import org.apache.helix.model.ConstraintItem;
 import org.apache.helix.model.Message;
 import org.apache.helix.model.Message.MessageType;
 import org.apache.helix.model.Partition;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
 public class TestMessageThrottleStage extends ZkUnitTestBase {
-  private static final Logger LOG = LoggerFactory.getLogger(TestMessageThrottleStage.class.getName());
   final String _className = getShortClassName();
 
   @Test
@@ -55,7 +53,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
 
     HelixDataAccessor accessor =
-        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<ZNRecord>(_gZkClient));
+        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<>(_gZkClient));
     HelixManager manager = new DummyClusterManager(clusterName, accessor);
 
     // ideal state: node0 is MASTER, node1 is SLAVE
@@ -71,9 +69,9 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     setupStateModel(clusterName);
 
     ClusterEvent event = new ClusterEvent(ClusterEventType.Unknown);
-    ClusterDataCache cache = new ClusterDataCache(clusterName);
+    ResourceControllerDataProvider cache = new ResourceControllerDataProvider(clusterName);
     event.addAttribute(AttributeName.helixmanager.name(), manager);
-    event.addAttribute(AttributeName.ClusterDataCache.name(), cache);
+    event.addAttribute(AttributeName.ControllerDataProvider.name(), cache);
 
     MessageThrottleStage throttleStage = new MessageThrottleStage();
     try {
@@ -102,7 +100,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
       // OK
     }
     MessageOutput msgSelectOutput = new MessageOutput();
-    List<Message> selectMessages = new ArrayList<Message>();
+    List<Message> selectMessages = new ArrayList<>();
     Message msg =
         createMessage(MessageType.STATE_TRANSITION, "msgId-001", "OFFLINE", "SLAVE", "TestDB",
             "localhost_0");
@@ -118,6 +116,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     Assert.assertEquals(msgThrottleOutput.getMessages("TestDB", new Partition("TestDB_0")).size(),
         1);
 
+    deleteLiveInstances(clusterName);
     deleteCluster(clusterName);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -128,7 +127,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
 
     HelixDataAccessor accessor =
-        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor(_gZkClient));
+        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<>(_gZkClient));
     HelixManager manager = new DummyClusterManager(clusterName, accessor);
 
     // ideal state: node0 is MASTER, node1 is SLAVE
@@ -148,14 +147,14 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
 
     // constraint0:
     // "MESSAGE_TYPE=STATE_TRANSITION,CONSTRAINT_VALUE=ANY"
-    record.setMapField("constraint0", new TreeMap<String, String>());
+    record.setMapField("constraint0", new TreeMap<>());
     record.getMapField("constraint0").put("MESSAGE_TYPE", "STATE_TRANSITION");
     record.getMapField("constraint0").put("CONSTRAINT_VALUE", "ANY");
     ConstraintItem constraint0 = new ConstraintItem(record.getMapField("constraint0"));
 
     // constraint1:
     // "MESSAGE_TYPE=STATE_TRANSITION,TRANSITION=OFFLINE-SLAVE,CONSTRAINT_VALUE=ANY"
-    record.setMapField("constraint1", new TreeMap<String, String>());
+    record.setMapField("constraint1", new TreeMap<>());
     record.getMapField("constraint1").put("MESSAGE_TYPE", "STATE_TRANSITION");
     record.getMapField("constraint1").put("TRANSITION", "OFFLINE-SLAVE");
     record.getMapField("constraint1").put("CONSTRAINT_VALUE", "50");
@@ -163,7 +162,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
 
     // constraint2:
     // "MESSAGE_TYPE=STATE_TRANSITION,TRANSITION=OFFLINE-SLAVE,INSTANCE=.*,RESOURCE=TestDB,CONSTRAINT_VALUE=2";
-    record.setMapField("constraint2", new TreeMap<String, String>());
+    record.setMapField("constraint2", new TreeMap<>());
     record.getMapField("constraint2").put("MESSAGE_TYPE", "STATE_TRANSITION");
     record.getMapField("constraint2").put("TRANSITION", "OFFLINE-SLAVE");
     record.getMapField("constraint2").put("INSTANCE", ".*");
@@ -173,7 +172,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
 
     // constraint3:
     // "MESSAGE_TYPE=STATE_TRANSITION,TRANSITION=OFFLINE-SLAVE,INSTANCE=localhost_12918,RESOURCE=.*,CONSTRAINT_VALUE=1";
-    record.setMapField("constraint3", new TreeMap<String, String>());
+    record.setMapField("constraint3", new TreeMap<>());
     record.getMapField("constraint3").put("MESSAGE_TYPE", "STATE_TRANSITION");
     record.getMapField("constraint3").put("TRANSITION", "OFFLINE-SLAVE");
     record.getMapField("constraint3").put("INSTANCE", "localhost_1");
@@ -183,7 +182,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
 
     // constraint4:
     // "MESSAGE_TYPE=STATE_TRANSITION,TRANSITION=OFFLINE-SLAVE,INSTANCE=.*,RESOURCE=.*,CONSTRAINT_VALUE=10"
-    record.setMapField("constraint4", new TreeMap<String, String>());
+    record.setMapField("constraint4", new TreeMap<>());
     record.getMapField("constraint4").put("MESSAGE_TYPE", "STATE_TRANSITION");
     record.getMapField("constraint4").put("TRANSITION", "OFFLINE-SLAVE");
     record.getMapField("constraint4").put("INSTANCE", ".*");
@@ -193,7 +192,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
 
     // constraint5:
     // "MESSAGE_TYPE=STATE_TRANSITION,TRANSITION=OFFLINE-SLAVE,INSTANCE=localhost_12918,RESOURCE=TestDB,CONSTRAINT_VALUE=5"
-    record.setMapField("constraint5", new TreeMap<String, String>());
+    record.setMapField("constraint5", new TreeMap<>());
     record.getMapField("constraint5").put("MESSAGE_TYPE", "STATE_TRANSITION");
     record.getMapField("constraint5").put("TRANSITION", "OFFLINE-SLAVE");
     record.getMapField("constraint5").put("INSTANCE", "localhost_0");
@@ -205,11 +204,6 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     accessor.setProperty(keyBuilder.constraint(ConstraintType.MESSAGE_CONSTRAINT.toString()),
         new ClusterConstraints(record));
 
-    // ClusterConstraints constraint =
-    // accessor.getProperty(ClusterConstraints.class,
-    // PropertyType.CONFIGS,
-    // ConfigScopeProperty.CONSTRAINT.toString(),
-    // ConstraintType.MESSAGE_CONSTRAINT.toString());
     ClusterConstraints constraint =
         accessor.getProperty(keyBuilder.constraint(ConstraintType.MESSAGE_CONSTRAINT.toString()));
 
@@ -223,7 +217,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
 
     Map<ConstraintAttribute, String> msgAttr = ClusterConstraints.toConstraintAttributes(msg1);
     Set<ConstraintItem> matches = constraint.match(msgAttr);
-    System.out.println(msg1 + " matches(" + matches.size() + "): " + matches);
+
     Assert.assertEquals(matches.size(), 5);
     Assert.assertTrue(containsConstraint(matches, constraint0));
     Assert.assertTrue(containsConstraint(matches, constraint1));
@@ -232,7 +226,6 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     Assert.assertTrue(containsConstraint(matches, constraint5));
 
     matches = throttleStage.selectConstraints(matches, msgAttr);
-    System.out.println(msg1 + " matches(" + matches.size() + "): " + matches);
     Assert.assertEquals(matches.size(), 2);
     Assert.assertTrue(containsConstraint(matches, constraint1));
     Assert.assertTrue(containsConstraint(matches, constraint5));
@@ -244,7 +237,6 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
 
     msgAttr = ClusterConstraints.toConstraintAttributes(msg2);
     matches = constraint.match(msgAttr);
-    System.out.println(msg2 + " matches(" + matches.size() + "): " + matches);
     Assert.assertEquals(matches.size(), 5);
     Assert.assertTrue(containsConstraint(matches, constraint0));
     Assert.assertTrue(containsConstraint(matches, constraint1));
@@ -253,16 +245,15 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     Assert.assertTrue(containsConstraint(matches, constraint4));
 
     matches = throttleStage.selectConstraints(matches, msgAttr);
-    System.out.println(msg2 + " matches(" + matches.size() + "): " + matches);
     Assert.assertEquals(matches.size(), 2);
     Assert.assertTrue(containsConstraint(matches, constraint1));
     Assert.assertTrue(containsConstraint(matches, constraint3));
 
     // test messageThrottleStage
     ClusterEvent event = new ClusterEvent(ClusterEventType.Unknown);
-    ClusterDataCache cache = new ClusterDataCache(clusterName);
+    ResourceControllerDataProvider cache = new ResourceControllerDataProvider(clusterName);
     event.addAttribute(AttributeName.helixmanager.name(), manager);
-    event.addAttribute(AttributeName.ClusterDataCache.name(), cache);
+    event.addAttribute(AttributeName.ControllerDataProvider.name(), cache);
 
     Pipeline dataRefresh = new Pipeline();
     dataRefresh.addStage(new ReadClusterDataStage());
@@ -286,7 +277,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
         createMessage(MessageType.STATE_TRANSITION, "msgId-006", "OFFLINE", "SLAVE", "TestDB",
             "localhost_1");
 
-    List<Message> selectMessages = new ArrayList<Message>();
+    List<Message> selectMessages = new ArrayList<>();
     selectMessages.add(msg1);
     selectMessages.add(msg2);
     selectMessages.add(msg3);
@@ -309,6 +300,7 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     Assert.assertTrue(throttleMessages.contains(msg3));
     Assert.assertTrue(throttleMessages.contains(msg4));
 
+    deleteLiveInstances(clusterName);
     deleteCluster(clusterName);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
@@ -321,6 +313,4 @@ public class TestMessageThrottleStage extends ZkUnitTestBase {
     }
     return false;
   }
-
-  // add pending message test case
 }

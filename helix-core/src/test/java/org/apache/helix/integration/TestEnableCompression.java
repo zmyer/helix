@@ -46,7 +46,6 @@ import org.testng.annotations.Test;
 public class TestEnableCompression extends ZkTestBase {
   @Test()
   public void testEnableCompressionResource() throws Exception {
-    // Logger.getRootLogger().setLevel(Level.INFO);
     String className = TestHelper.getTestClassName();
     String methodName = TestHelper.getTestMethodName();
     String clusterName = className + "_" + methodName;
@@ -104,13 +103,12 @@ public class TestEnableCompression extends ZkTestBase {
       participants[i].syncStart();
     }
 
-    boolean result =
-        ClusterStateVerifier.verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR,
-            clusterName), 120000);
+    boolean result = ClusterStateVerifier
+        .verifyByPolling(new BestPossAndExtViewZkVerifier(ZK_ADDR, clusterName), 120000L);
     Assert.assertTrue(result);
 
-    List<String> compressedPaths = new ArrayList<String>();
-    findCompressedZNodes(zkClient, "/", compressedPaths);
+    List<String> compressedPaths = new ArrayList<>();
+    findCompressedZNodes(zkClient, "/" + clusterName, compressedPaths);
 
     System.out.println("compressed paths:" + compressedPaths);
     // ONLY IDEALSTATE and EXTERNAL VIEW must be compressed
@@ -126,10 +124,12 @@ public class TestEnableCompression extends ZkTestBase {
       participants[i].syncStop();
     }
 
+    deleteCluster(clusterName);
     System.out.println("END " + clusterName + " at " + new Date(System.currentTimeMillis()));
   }
 
-  private void findCompressedZNodes(HelixZkClient zkClient, String path, List<String> compressedPaths) {
+  private void findCompressedZNodes(HelixZkClient zkClient, String path,
+      List<String> compressedPaths) {
     List<String> children = zkClient.getChildren(path);
     if (children != null && children.size() > 0) {
       for (String child : children) {
@@ -138,10 +138,9 @@ public class TestEnableCompression extends ZkTestBase {
       }
     } else {
       byte[] data = zkClient.readData(path);
-      if (data != null && GZipCompressionUtil.isCompressed(data)) {
+      if (GZipCompressionUtil.isCompressed(data)) {
         compressedPaths.add(path);
       }
     }
-
   }
 }

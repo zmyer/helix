@@ -19,8 +19,13 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import org.I0Itec.zkclient.DataUpdater;
 import org.apache.helix.BaseDataAccessor;
+import org.apache.helix.HelixException;
 import org.apache.helix.InstanceType;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.ZNRecord;
@@ -29,20 +34,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
-// TODO: 2018/6/4 by zmyer
 public final class ZKUtil {
-    private static Logger logger = LoggerFactory.getLogger(ZKUtil.class);
-    private static int RETRYLIMIT = 3;
+  private static Logger logger = LoggerFactory.getLogger(ZKUtil.class);
+  private static int RETRYLIMIT = 3;
 
-    private ZKUtil() {
-    }
+  private ZKUtil() {
+  }
 
   public static boolean isClusterSetup(String clusterName, HelixZkClient zkClient) {
     if (clusterName == null) {
@@ -50,44 +48,45 @@ public final class ZKUtil {
       return false;
     }
 
-        if (zkClient == null) {
-            logger.info("Fail to check cluster setup : zookeeper client is null!");
-            return false;
-        }
-        ArrayList<String> requiredPaths = new ArrayList<String>();
-        requiredPaths.add(PropertyPathBuilder.idealState(clusterName));
-        requiredPaths.add(PropertyPathBuilder.clusterConfig(clusterName));
-        requiredPaths.add(PropertyPathBuilder.instanceConfig(clusterName));
-        requiredPaths.add(PropertyPathBuilder.resourceConfig(clusterName));
-        requiredPaths.add(PropertyPathBuilder.propertyStore(clusterName));
-        requiredPaths.add(PropertyPathBuilder.liveInstance(clusterName));
-        requiredPaths.add(PropertyPathBuilder.instance(clusterName));
-        requiredPaths.add(PropertyPathBuilder.externalView(clusterName));
-        requiredPaths.add(PropertyPathBuilder.controller(clusterName));
-        requiredPaths.add(PropertyPathBuilder.stateModelDef(clusterName));
-        requiredPaths.add(PropertyPathBuilder.controllerMessage(clusterName));
-        requiredPaths.add(PropertyPathBuilder.controllerError(clusterName));
-        requiredPaths.add(PropertyPathBuilder.controllerStatusUpdate(clusterName));
-        requiredPaths.add(PropertyPathBuilder.controllerHistory(clusterName));
-        boolean isValid = true;
-
-        BaseDataAccessor<Object> baseAccessor = new ZkBaseDataAccessor<Object>(zkClient);
-        boolean[] ret = baseAccessor.exists(requiredPaths, 0);
-        StringBuilder errorMsg = new StringBuilder();
-
-        for (int i = 0; i < ret.length; i++) {
-            if (!ret[i]) {
-                isValid = false;
-                errorMsg.append(("Invalid cluster setup, missing znode path: " + requiredPaths.get(i)) + "\n");
-            }
-        }
-
-        if (!isValid) {
-            logger.debug(errorMsg.toString());
-        }
-
-        return isValid;
+    if (zkClient == null) {
+      logger.info("Fail to check cluster setup : zookeeper client is null!");
+      return false;
     }
+    ArrayList<String> requiredPaths = new ArrayList<String>();
+    requiredPaths.add(PropertyPathBuilder.idealState(clusterName));
+    requiredPaths.add(PropertyPathBuilder.clusterConfig(clusterName));
+    requiredPaths.add(PropertyPathBuilder.instanceConfig(clusterName));
+    requiredPaths.add(PropertyPathBuilder.resourceConfig(clusterName));
+    requiredPaths.add(PropertyPathBuilder.propertyStore(clusterName));
+    requiredPaths.add(PropertyPathBuilder.liveInstance(clusterName));
+    requiredPaths.add(PropertyPathBuilder.instance(clusterName));
+    requiredPaths.add(PropertyPathBuilder.externalView(clusterName));
+    requiredPaths.add(PropertyPathBuilder.controller(clusterName));
+    requiredPaths.add(PropertyPathBuilder.stateModelDef(clusterName));
+    requiredPaths.add(PropertyPathBuilder.controllerMessage(clusterName));
+    requiredPaths.add(PropertyPathBuilder.controllerError(clusterName));
+    requiredPaths.add(PropertyPathBuilder.controllerStatusUpdate(clusterName));
+    requiredPaths.add(PropertyPathBuilder.controllerHistory(clusterName));
+    boolean isValid = true;
+
+    BaseDataAccessor<Object> baseAccessor = new ZkBaseDataAccessor<Object>(zkClient);
+    boolean[] ret = baseAccessor.exists(requiredPaths, 0);
+    StringBuilder errorMsg = new StringBuilder();
+
+    for (int i = 0; i < ret.length; i++) {
+      if (!ret[i]) {
+        isValid = false;
+        errorMsg
+            .append(("Invalid cluster setup, missing znode path: " + requiredPaths.get(i)) + "\n");
+      }
+    }
+
+    if (!isValid) {
+      logger.debug(errorMsg.toString());
+    }
+
+    return isValid;
+  }
 
   public static boolean isInstanceSetup(HelixZkClient zkclient, String clusterName, String instanceName,
       InstanceType type) {
@@ -107,20 +106,20 @@ public final class ZKUtil {
         }
       }
 
-            if (isValid) {
-                // Create the instance history node if it does not exist.
-                // This is for back-compatibility.
-                String historyPath = PropertyPathBuilder.instanceHistory(clusterName, instanceName);
-                if (!zkclient.exists(historyPath)) {
-                    zkclient.createPersistent(historyPath, true);
-                }
-
-            }
-            return isValid;
+      if (isValid) {
+        // Create the instance history node if it does not exist.
+        // This is for back-compatibility.
+        String historyPath = PropertyPathBuilder.instanceHistory(clusterName, instanceName);
+        if (!zkclient.exists(historyPath)) {
+          zkclient.createPersistent(historyPath, true);
         }
 
-        return true;
+      }
+      return isValid;
     }
+
+    return true;
+  }
 
   public static void createChildren(HelixZkClient client, String parentPath, List<ZNRecord> list) {
     client.createPersistent(parentPath, true);
@@ -134,10 +133,10 @@ public final class ZKUtil {
   public static void createChildren(HelixZkClient client, String parentPath, ZNRecord nodeRecord) {
     client.createPersistent(parentPath, true);
 
-        String id = nodeRecord.getId();
-        String temp = parentPath + "/" + id;
-        client.createPersistent(temp, nodeRecord);
-    }
+    String id = nodeRecord.getId();
+    String temp = parentPath + "/" + id;
+    client.createPersistent(temp, nodeRecord);
+  }
 
   public static void dropChildren(HelixZkClient client, String parentPath, List<ZNRecord> list) {
     // TODO: check if parentPath exists
@@ -162,20 +161,21 @@ public final class ZKUtil {
       return Collections.emptyList();
     }
 
-        List<ZNRecord> childRecords = new ArrayList<ZNRecord>();
-        for (String child : children) {
-            String childPath = path + "/" + child;
-            Stat newStat = new Stat();
-            ZNRecord record = client.readDataAndStat(childPath, newStat, true);
-            if (record != null) {
-                record.setVersion(newStat.getVersion());
-                record.setCreationTime(newStat.getCtime());
-                record.setModifiedTime(newStat.getMtime());
-                childRecords.add(record);
-            }
-        }
-        return childRecords;
+    List<ZNRecord> childRecords = new ArrayList<ZNRecord>();
+    for (String child : children) {
+      String childPath = path + "/" + child;
+      Stat newStat = new Stat();
+      ZNRecord record = client.readDataAndStat(childPath, newStat, true);
+      if (record != null) {
+        record.setVersion(newStat.getVersion());
+        record.setCreationTime(newStat.getCtime());
+        record.setModifiedTime(newStat.getMtime());
+        record.setEphemeralOwner(newStat.getEphemeralOwner());
+        childRecords.add(record);
+      }
     }
+    return childRecords;
+  }
 
   public static void updateIfExists(HelixZkClient client, String path, final ZNRecord record,
       boolean mergeOnUpdate) {
@@ -277,18 +277,18 @@ public final class ZKUtil {
           newRecord.merge(record);
           client.create(path, null, mode);
 
-                    client.asyncSetData(path, newRecord, -1, null);
-                } else {
-                    client.create(path, null, mode);
+          client.asyncSetData(path, newRecord, -1, null);
+        } else {
+          client.create(path, null, mode);
 
-                    client.asyncSetData(path, record, -1, null);
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Exception in async create or update " + path + ". Exception: " + e.getMessage()
-                    + ". Give up.");
+          client.asyncSetData(path, record, -1, null);
         }
+      }
+    } catch (Exception e) {
+      logger.error("Exception in async create or update " + path + ". Exception: " + e.getMessage()
+          + ". Give up.");
     }
+  }
 
   public static void createOrReplace(HelixZkClient client, String path, final ZNRecord record,
       final boolean persistent) {
@@ -316,7 +316,8 @@ public final class ZKUtil {
     }
   }
 
-  public static void subtract(HelixZkClient client, String path, final ZNRecord recordTosubtract) {
+  public static void subtract(HelixZkClient client, final String path,
+      final ZNRecord recordTosubtract) {
     int retryCount = 0;
     while (retryCount < RETRYLIMIT) {
       try {
@@ -324,6 +325,10 @@ public final class ZKUtil {
           DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
             @Override
             public ZNRecord update(ZNRecord currentData) {
+              if (currentData == null) {
+                throw new HelixException(
+                    String.format("subtract DataUpdater: ZNode at path %s is not found!", path));
+              }
               currentData.subtract(recordTosubtract);
               return currentData;
             }
@@ -337,5 +342,5 @@ public final class ZKUtil {
       }
     }
 
-    }
+  }
 }

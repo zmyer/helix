@@ -20,43 +20,47 @@ package org.apache.helix.common.caches;
  */
 
 import com.google.common.collect.Maps;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixProperty;
 import org.apache.helix.PropertyKey;
+import org.apache.helix.common.controllers.ControlContextProvider;
+import org.apache.helix.controller.LogUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-
-public abstract class AbstractDataCache {
+public abstract class AbstractDataCache<T extends HelixProperty> {
   private static Logger LOG = LoggerFactory.getLogger(AbstractDataCache.class.getName());
-  private String _eventId = "NO_ID";
+  public static final String UNKNOWN_CLUSTER = "UNKNOWN_CLUSTER";
+  public static final String UNKNOWN_EVENT_ID = "NO_ID";
+  public static final String UNKNOWN_PIPELINE = "UNKNOWN_PIPELINE";
 
-  public String getEventId() {
-    return _eventId;
-  }
+  protected ControlContextProvider _controlContextProvider;
 
-  public void setEventId(String eventId) {
-    _eventId = eventId;
+  public AbstractDataCache(ControlContextProvider controlContextProvider) {
+    _controlContextProvider = controlContextProvider;
   }
 
   /**
    * Selectively fetch Helix Properties from ZK by comparing the version of local cached one with the one on ZK.
    * If version on ZK is newer, fetch it from zk and update local cache.
    * @param accessor the HelixDataAccessor
-   * @param reloadKeys keys needs to be reload
+   * @param reloadKeysIn keys needs to be reload
    * @param cachedKeys keys already exists in the cache
    * @param cachedPropertyMap cached map of propertykey -> property object
-   * @param <T> the type of metadata
+   * @param reloadedKeys keys actually reloaded; may include more keys than reloadKeysIn
    * @return updated properties map
    */
-  protected <T extends HelixProperty> Map<PropertyKey, T> refreshProperties(
-      HelixDataAccessor accessor, List<PropertyKey> reloadKeys, List<PropertyKey> cachedKeys,
-      Map<PropertyKey, T> cachedPropertyMap) {
+  protected Map<PropertyKey, T> refreshProperties(
+      HelixDataAccessor accessor, Set<PropertyKey> reloadKeysIn, List<PropertyKey> cachedKeys,
+      Map<PropertyKey, T> cachedPropertyMap, Set<PropertyKey> reloadedKeys) {
     // All new entries from zk not cached locally yet should be read from ZK.
+    List<PropertyKey> reloadKeys = new ArrayList<>(reloadKeysIn);
     Map<PropertyKey, T> refreshedPropertyMap = Maps.newHashMap();
     List<HelixProperty.Stat> stats = accessor.getPropertyStats(cachedKeys);
     for (int i = 0; i < cachedKeys.size(); i++) {
@@ -77,7 +81,8 @@ public abstract class AbstractDataCache {
       }
     }
 
-
+    reloadedKeys.clear();
+    reloadedKeys.addAll(reloadKeys);
 
     List<T> reloadedProperty = accessor.getProperty(reloadKeys, true);
     Iterator<PropertyKey> csKeyIter = reloadKeys.iterator();
@@ -90,7 +95,7 @@ public abstract class AbstractDataCache {
       }
     }
 
-    LOG.info(reloadKeys.size() + " properties refreshed from zk.");
+    LogUtil.logInfo(LOG, genEventInfo(), String.format("%s properties refreshed from ZK.", reloadKeys.size()));
     if (LOG.isDebugEnabled()) {
       LOG.debug("refreshed keys: " + reloadKeys);
     }
@@ -98,8 +103,43 @@ public abstract class AbstractDataCache {
     return refreshedPropertyMap;
   }
 
+  protected String genEventInfo() {
+    return String.format("%s::%s::%s", _controlContextProvider.getClusterName(),
+        _controlContextProvider.getPipelineName(), _controlContextProvider.getClusterEventId());
+  }
+
   public AbstractDataSnapshot getSnapshot() {
     throw new HelixException(String.format("DataCache %s does not support generating snapshot.",
         getClass().getSimpleName()));
+  }
+
+  // for backward compatibility, used in scenarios where we only initialize child
+  // classes with cluster name
+  protected static ControlContextProvider createDefaultControlContextProvider(
+      final String clusterName) {
+    return new ControlContextProvider() {
+      private String _clusterName = clusterName;
+      private String _eventId = UNKNOWN_EVENT_ID;
+
+      @Override
+      public String getClusterName() {
+        return _clusterName;
+      }
+
+      @Override
+      public String getClusterEventId() {
+        return _eventId;
+      }
+
+      @Override
+      public void setClusterEventId(String eventId) {
+        _eventId = eventId;
+      }
+
+      @Override
+      public String getPipelineName() {
+        return UNKNOWN_PIPELINE;
+      }
+    };
   }
 }

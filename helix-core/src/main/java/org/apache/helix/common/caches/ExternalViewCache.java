@@ -38,8 +38,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Cache to hold all ExternalViews of a cluster.
+ * Deprecated - use {@link PropertyCache<ExternalView>} instead
  */
-public class ExternalViewCache extends AbstractDataCache {
+@Deprecated
+public class ExternalViewCache extends AbstractDataCache<ExternalView> {
   private static final Logger LOG = LoggerFactory.getLogger(ExternalViewCache.class.getName());
 
   protected Map<String, ExternalView> _externalViewMap;
@@ -54,6 +56,7 @@ public class ExternalViewCache extends AbstractDataCache {
   }
 
   protected ExternalViewCache(String clusterName, PropertyType type) {
+    super(createDefaultControlContextProvider(clusterName));
     _clusterName = clusterName;
     _externalViewMap = Collections.emptyMap();
     _externalViewCache = Collections.emptyMap();
@@ -92,8 +95,8 @@ public class ExternalViewCache extends AbstractDataCache {
     reloadKeys.removeAll(cachedKeys);
 
     Map<PropertyKey, ExternalView> updatedMap =
-        refreshProperties(accessor, new LinkedList<>(reloadKeys), new ArrayList<>(cachedKeys),
-            cachedExternalViewMap);
+        refreshProperties(accessor, reloadKeys, new ArrayList<>(cachedKeys),
+            cachedExternalViewMap, new HashSet<>());
     Map<String, ExternalView> newExternalViewMap = Maps.newHashMap();
     for (ExternalView externalView : updatedMap.values()) {
       newExternalViewMap.put(externalView.getResourceName(), externalView);

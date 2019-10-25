@@ -28,8 +28,6 @@ import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
 import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
@@ -40,8 +38,6 @@ import org.testng.annotations.BeforeClass;
  */
 
 public class ZkStandAloneCMTestBase extends ZkTestBase {
-  private static Logger LOG = LoggerFactory.getLogger(ZkStandAloneCMTestBase.class);
-
   protected static final int NODE_NR = 5;
   protected static final int START_PORT = 12918;
   protected static final String STATE_MODEL = "MasterSlave";
@@ -60,7 +56,7 @@ public class ZkStandAloneCMTestBase extends ZkTestBase {
 
   @BeforeClass
   public void beforeClass() throws Exception {
-    // Logger.getRootLogger().setLevel(Level.INFO);
+    super.beforeClass();
     System.out.println("START " + CLASS_NAME + " at " + new Date(System.currentTimeMillis()));
 
     // setup storage cluster
@@ -95,7 +91,7 @@ public class ZkStandAloneCMTestBase extends ZkTestBase {
 
   @AfterClass
   public void afterClass() throws Exception {
-    /**
+    /*
      * shutdown order: 1) disconnect the controller 2) disconnect participants
      */
     if (_controller != null && _controller.isConnected()) {

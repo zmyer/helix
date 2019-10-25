@@ -31,8 +31,8 @@ import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.InstanceType;
 import org.apache.helix.common.ZkTestBase;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.rebalancer.strategy.CrushEdRebalanceStrategy;
-import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.integration.DelayedTransitionBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
@@ -126,9 +126,7 @@ public class TestP2PNoDuplicatedMessage extends ZkTestBase {
   public void afterClass() throws Exception {
     _controller.syncStop();
     for (MockParticipantManager p : _participants) {
-      if (p.isConnected()) {
-        p.syncStop();
-      }
+      p.syncStop();
     }
     deleteCluster(CLUSTER_NAME);
     System.out.println("END " + CLASS_NAME + " at " + new Date(System.currentTimeMillis()));
@@ -184,13 +182,13 @@ public class TestP2PNoDuplicatedMessage extends ZkTestBase {
   }
 
   private void verifyP2PDisabled() {
-    ClusterDataCache dataCache = new ClusterDataCache(CLUSTER_NAME);
+    ResourceControllerDataProvider dataCache = new ResourceControllerDataProvider(CLUSTER_NAME);
     dataCache.refresh(_accessor);
     Map<String, LiveInstance> liveInstanceMap = dataCache.getLiveInstances();
 
     for (LiveInstance instance : liveInstanceMap.values()) {
       Map<String, CurrentState> currentStateMap =
-          dataCache.getCurrentState(instance.getInstanceName(), instance.getSessionId());
+          dataCache.getCurrentState(instance.getInstanceName(), instance.getEphemeralOwner());
       Assert.assertNotNull(currentStateMap);
       for (CurrentState currentState : currentStateMap.values()) {
         for (String partition : currentState.getPartitionStateMap().keySet()) {
@@ -210,13 +208,13 @@ public class TestP2PNoDuplicatedMessage extends ZkTestBase {
   static int p2pTrigged = 0;
 
   private void verifyP2PEnabled(long startTime) {
-    ClusterDataCache dataCache = new ClusterDataCache(CLUSTER_NAME);
+    ResourceControllerDataProvider dataCache = new ResourceControllerDataProvider(CLUSTER_NAME);
     dataCache.refresh(_accessor);
     Map<String, LiveInstance> liveInstanceMap = dataCache.getLiveInstances();
 
     for (LiveInstance instance : liveInstanceMap.values()) {
       Map<String, CurrentState> currentStateMap =
-          dataCache.getCurrentState(instance.getInstanceName(), instance.getSessionId());
+          dataCache.getCurrentState(instance.getInstanceName(), instance.getEphemeralOwner());
       Assert.assertNotNull(currentStateMap);
       for (CurrentState currentState : currentStateMap.values()) {
         for (String partition : currentState.getPartitionStateMap().keySet()) {

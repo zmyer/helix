@@ -73,6 +73,8 @@ public class TestZkHelixAdmin extends TaskTestBase {
     idealState.setRebalanceMode(IdealState.RebalanceMode.SEMI_AUTO);
     _admin.setResourceIdealState(CLUSTER_NAME, WorkflowGenerator.DEFAULT_TGT_DB, idealState);
 
+    Assert.assertTrue(_clusterVerifier.verifyByPolling());
+
     String workflowName = TestHelper.getTestMethodName();
     Workflow.Builder builder = new Workflow.Builder(workflowName);
     JobConfig.Builder jobBuilder =
@@ -84,8 +86,14 @@ public class TestZkHelixAdmin extends TaskTestBase {
     Thread.sleep(2000L);
     JobContext jobContext =
         _driver.getJobContext(TaskUtil.getNamespacedJobName(workflowName, "JOB"));
-    Assert.assertEquals(jobContext.getPartitionState(0), null);
-    Assert.assertEquals(jobContext.getPartitionState(1), TaskPartitionState.COMPLETED);
-    Assert.assertEquals(jobContext.getPartitionState(2), null);
+    int n = idealState.getNumPartitions();
+    for ( int i = 0; i < n; i++) {
+      String targetPartition = jobContext.getTargetForPartition(i);
+      if (targetPartition.equals("TestDB_0") || targetPartition.equals("TestDB_2")) {
+        Assert.assertEquals(jobContext.getPartitionState(i), null);
+      } else {
+        Assert.assertEquals(jobContext.getPartitionState(i), TaskPartitionState.COMPLETED);
+      }
+    }
   }
 }

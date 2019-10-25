@@ -19,9 +19,14 @@ package org.apache.helix.integration;
  * under the License.
  */
 
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.NotificationContext;
+import org.apache.helix.TestHelper;
 import org.apache.helix.integration.common.ZkStandAloneCMTestBase;
+import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.mock.participant.MockMSStateModel;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
@@ -37,8 +42,8 @@ import org.testng.annotations.Test;
 public class TestBatchMessageHandling extends ZkStandAloneCMTestBase {
 
   @Test
-  public void testSubMessageFailed() throws InterruptedException {
-    TestOnlineOfflineStateModel._numOfSuccessBeforeFail = 6;
+  public void testSubMessageFailed() throws Exception {
+    TestOnlineOfflineStateModel._numOfSuccessBeforeFailure.set(6);
 
     // Let one instance handle all the batch messages.
     _participants[0].getStateMachineEngine().registerStateModelFactory("OnlineOffline",
@@ -47,17 +52,45 @@ public class TestBatchMessageHandling extends ZkStandAloneCMTestBase {
       _participants[i].syncStop();
     }
 
+    HelixDataAccessor dataAccessor = new ZKHelixDataAccessor(CLUSTER_NAME, _baseAccessor);
+    // Check that the Participants really stopped
+    boolean result = TestHelper.verify(() -> {
+      List<String> liveInstances =
+          dataAccessor.getChildNames(dataAccessor.keyBuilder().liveInstances());
+      for (int i = 1; i < _participants.length; i++) {
+        if (_participants[i].isConnected()
+            || liveInstances.contains(_participants[i].getInstanceName())) {
+          return false;
+        }
+      }
+      return true;
+    }, TestHelper.WAIT_DURATION);
+    Assert.assertTrue(result);
+
     // Add 1 db with batch message enabled. Each db has 10 partitions.
     // So it will have 1 batch message and 10 sub messages.
-
     String dbName = "TestDBSubMessageFail";
     IdealState idealState = new FullAutoModeISBuilder(dbName).setStateModel("OnlineOffline")
         .setStateModelFactoryName("TestFactory").setNumPartitions(10).setNumReplica(1).build();
     idealState.setBatchMessageMode(true);
     _gSetupTool.getClusterManagementTool().addResource(CLUSTER_NAME, dbName, idealState);
-    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, dbName, 1);
 
+    // Check that IdealState has really been added
+    result = TestHelper.verify(
+        () -> dataAccessor.getPropertyStat(dataAccessor.keyBuilder().idealStates(dbName)) != null,
+        TestHelper.WAIT_DURATION);
+    Assert.assertTrue(result);
+
+    for (int i = 0; i < 5; i++) {
+      IdealState is =
+          _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, dbName);
+      if (!idealState.equals(is)) {
+        Thread.sleep(1000L);
+      }
+    }
+    _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, dbName, 1);
     Assert.assertTrue(_clusterVerifier.verifyByPolling());
+    Thread.sleep(2000L);
 
     int numOfOnlines = 0;
     int numOfErrors = 0;
@@ -67,36 +100,31 @@ public class TestBatchMessageHandling extends ZkStandAloneCMTestBase {
       if (externalView.getStateMap(partition).values().contains("ONLINE")) {
         numOfOnlines++;
       }
-
       if (externalView.getStateMap(partition).values().contains("ERROR")) {
         numOfErrors++;
       }
     }
-
     Assert.assertEquals(numOfErrors, 4);
     Assert.assertEquals(numOfOnlines, 6);
   }
 
-  public static class TestOnlineOfflineStateModelFactory extends
-      StateModelFactory<TestOnlineOfflineStateModel> {
+  public static class TestOnlineOfflineStateModelFactory
+      extends StateModelFactory<TestOnlineOfflineStateModel> {
     @Override
-    public TestOnlineOfflineStateModel createNewStateModel(String resourceName, String stateUnitKey) {
-      TestOnlineOfflineStateModel model = new TestOnlineOfflineStateModel();
-      return model;
+    public TestOnlineOfflineStateModel createNewStateModel(String resourceName,
+        String stateUnitKey) {
+      return new TestOnlineOfflineStateModel();
     }
   }
 
   public static class TestOnlineOfflineStateModel extends StateModel {
     private static Logger LOG = LoggerFactory.getLogger(MockMSStateModel.class);
-    public static Integer _numOfSuccessBeforeFail;
+    static AtomicInteger _numOfSuccessBeforeFailure = new AtomicInteger();
 
-    public void onBecomeOnlineFromOffline(Message message,
-        NotificationContext context) {
-      synchronized (_numOfSuccessBeforeFail) {
-        if (_numOfSuccessBeforeFail-- > 0) {
-          LOG.info("State transition from Offline to Online");
-          return;
-        }
+    public void onBecomeOnlineFromOffline(Message message, NotificationContext context) {
+      if (_numOfSuccessBeforeFailure.getAndDecrement() > 0) {
+        LOG.info("State transition from Offline to Online");
+        return;
       }
       throw new HelixException("Number of Success reached");
     }

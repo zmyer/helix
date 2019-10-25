@@ -19,19 +19,25 @@ package org.apache.helix.task.assigner;
  * under the License.
  */
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.PriorityQueue;
 import org.apache.helix.model.LiveInstance;
+import org.apache.helix.task.AssignableInstanceManager;
 import org.apache.helix.task.TaskConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 public class ThreadCountBasedTaskAssigner implements TaskAssigner {
   private static final Logger logger = LoggerFactory.getLogger(ThreadCountBasedTaskAssigner.class);
   private static final int SCHED_QUEUE_INIT_CAPACITY = 200;
+
+  private AssignableInstanceManager _assignableInstanceManager;
 
   /**
    * Assigns given tasks to given AssignableInstances assuming the DEFAULT quota type for all tasks.
@@ -61,6 +67,20 @@ public class ThreadCountBasedTaskAssigner implements TaskAssigner {
   @Override
   public Map<String, TaskAssignResult> assignTasks(Iterable<AssignableInstance> assignableInstances,
       Iterable<TaskConfig> tasks, String quotaType) {
+    throw new NotImplementedException();
+  }
+
+  @Override
+  public Map<String, TaskAssignResult> assignTasks(
+      AssignableInstanceManager assignableInstanceManager, Collection<String> instances,
+      Iterable<TaskConfig> tasks, String quotaType) {
+    Iterable<AssignableInstance> assignableInstances = new HashSet<>();
+    // Only add the AssignableInstances that are also in instances
+    for (String instance : instances) {
+      ((HashSet<AssignableInstance>) assignableInstances)
+          .add(assignableInstanceManager.getAssignableInstance(instance));
+    }
+
     if (tasks == null || !tasks.iterator().hasNext()) {
       logger.warn("No task to assign!");
       return Collections.emptyMap();
@@ -116,7 +136,7 @@ public class ThreadCountBasedTaskAssigner implements TaskAssigner {
         lastFailure = result;
       } else {
         // If the task is successfully accepted by the instance, assign it to the instance
-        instance.assign(result);
+        assignableInstanceManager.assign(instance.getInstanceName(), result);
 
         // requeue the instance to rank again
         queue.offer(instance);
@@ -191,5 +211,9 @@ public class ThreadCountBasedTaskAssigner implements TaskAssigner {
       }
       return 0;
     }
+  }
+
+  public void init(AssignableInstanceManager assignableInstanceManager) {
+    _assignableInstanceManager = assignableInstanceManager;
   }
 }

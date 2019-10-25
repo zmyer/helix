@@ -28,6 +28,7 @@ import java.util.concurrent.Callable;
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixManager;
 import org.apache.helix.controller.LogUtil;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.pipeline.AbstractBaseStage;
 import org.apache.helix.controller.pipeline.StageException;
 import org.apache.helix.controller.rebalancer.AutoRebalancer;
@@ -38,6 +39,7 @@ import org.apache.helix.controller.rebalancer.SemiAutoRebalancer;
 import org.apache.helix.controller.rebalancer.internal.MappingCalculator;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
+import org.apache.helix.model.MaintenanceSignal;
 import org.apache.helix.model.Partition;
 import org.apache.helix.model.Resource;
 import org.apache.helix.model.ResourceAssignment;
@@ -45,7 +47,6 @@ import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.monitoring.mbeans.ClusterStatusMonitor;
 import org.apache.helix.monitoring.mbeans.ResourceMonitor;
 import org.apache.helix.task.TaskConstants;
-import org.apache.helix.task.TaskRebalancer;
 import org.apache.helix.util.HelixUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +55,6 @@ import org.slf4j.LoggerFactory;
  * For partition compute best possible (instance,state) pair based on
  * IdealState,StateModel,LiveInstance
  */
-// TODO: 2018/7/24 by zmyer
 public class BestPossibleStateCalcStage extends AbstractBaseStage {
   private static final Logger logger = LoggerFactory.getLogger(BestPossibleStateCalcStage.class.getName());
 
@@ -67,47 +67,41 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
         event.getAttribute(AttributeName.RESOURCES_TO_REBALANCE.name());
     final ClusterStatusMonitor clusterStatusMonitor =
         event.getAttribute(AttributeName.clusterStatusMonitor.name());
-    ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+    ResourceControllerDataProvider cache = event.getAttribute(AttributeName.ControllerDataProvider.name());
 
-        if (currentStateOutput == null || resourceMap == null || cache == null) {
-            throw new StageException(
-                    "Missing attributes in event:" + event + ". Requires CURRENT_STATE|RESOURCES|DataCache");
-        }
-
-        // Reset current INIT/RUNNING tasks on participants for throttling
-        cache.resetActiveTaskCount(currentStateOutput);
+    if (currentStateOutput == null || resourceMap == null || cache == null) {
+      throw new StageException(
+          "Missing attributes in event:" + event + ". Requires CURRENT_STATE|RESOURCES|DataCache");
+    }
 
     final BestPossibleStateOutput bestPossibleStateOutput =
         compute(event, resourceMap, currentStateOutput);
     event.addAttribute(AttributeName.BEST_POSSIBLE_STATE.name(), bestPossibleStateOutput);
 
-    if (!cache.isTaskCache()) {
-      final Map<String, InstanceConfig> instanceConfigMap = cache.getInstanceConfigMap();
-      final Map<String, StateModelDefinition> stateModelDefMap = cache.getStateModelDefMap();
-      asyncExecute(cache.getAsyncTasksThreadPool(), new Callable<Object>() {
-        @Override
-        public Object call() {
-          try {
-            if (clusterStatusMonitor != null) {
-              clusterStatusMonitor
-                  .setPerInstanceResourceStatus(bestPossibleStateOutput, instanceConfigMap,
-                      resourceMap, stateModelDefMap);
-            }
-          } catch (Exception e) {
-            LogUtil
-                .logError(logger, _eventId, "Could not update cluster status metrics!", e);
+    final Map<String, InstanceConfig> instanceConfigMap = cache.getInstanceConfigMap();
+    final Map<String, StateModelDefinition> stateModelDefMap = cache.getStateModelDefMap();
+    asyncExecute(cache.getAsyncTasksThreadPool(), new Callable<Object>() {
+      @Override
+      public Object call() {
+        try {
+          if (clusterStatusMonitor != null) {
+            clusterStatusMonitor
+                .setPerInstanceResourceStatus(bestPossibleStateOutput, instanceConfigMap,
+                    resourceMap, stateModelDefMap);
           }
-          return null;
+        } catch (Exception e) {
+          LogUtil
+              .logError(logger, _eventId, "Could not update cluster status metrics!", e);
         }
-      });
-    }
+        return null;
+      }
+    });
   }
 
-    // TODO: 2018/7/25 by zmyer
-    private BestPossibleStateOutput compute(ClusterEvent event, Map<String, Resource> resourceMap,
-            CurrentStateOutput currentStateOutput) {
-        ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
-        BestPossibleStateOutput output = new BestPossibleStateOutput();
+  private BestPossibleStateOutput compute(ClusterEvent event, Map<String, Resource> resourceMap,
+      CurrentStateOutput currentStateOutput) {
+    ResourceControllerDataProvider cache = event.getAttribute(AttributeName.ControllerDataProvider.name());
+    BestPossibleStateOutput output = new BestPossibleStateOutput();
 
     HelixManager helixManager = event.getAttribute(AttributeName.helixmanager.name());
     ClusterStatusMonitor clusterStatusMonitor =
@@ -148,7 +142,7 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
   }
 
   private void updateRebalanceStatus(final boolean hasFailure, final List<String> failedResources,
-      final HelixManager helixManager, final ClusterDataCache cache,
+      final HelixManager helixManager, final ResourceControllerDataProvider cache,
       final ClusterStatusMonitor clusterStatusMonitor, final String errorMessage) {
     asyncExecute(cache.getAsyncTasksThreadPool(), new Callable<Object>() {
       @Override
@@ -179,7 +173,7 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
 
   // Check whether the offline/disabled instance count in the cluster reaches the set limit,
   // if yes, pause the rebalancer, and throw exception to terminate rebalance cycle.
-  private boolean validateOfflineInstancesLimit(final ClusterDataCache cache,
+  private boolean validateOfflineInstancesLimit(final ResourceControllerDataProvider cache,
       final HelixManager manager) {
     int maxOfflineInstancesAllowed = cache.getClusterConfig().getMaxOfflineInstancesAllowed();
     if (maxOfflineInstancesAllowed >= 0) {
@@ -191,8 +185,8 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
         if (manager != null) {
           if (manager.getHelixDataAccessor()
               .getProperty(manager.getHelixDataAccessor().keyBuilder().maintenance()) == null) {
-            manager.getClusterManagmentTool()
-                .enableMaintenanceMode(manager.getClusterName(), true, errMsg);
+            manager.getClusterManagmentTool().autoEnableMaintenanceMode(manager.getClusterName(),
+                true, errMsg, MaintenanceSignal.AutoTriggerReason.MAX_OFFLINE_INSTANCES_EXCEEDED);
             LogUtil.logWarn(logger, _eventId, errMsg);
           }
         } else {
@@ -205,13 +199,13 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
     return true;
   }
 
-    private boolean computeResourceBestPossibleState(ClusterEvent event, ClusterDataCache cache,
-            CurrentStateOutput currentStateOutput, Resource resource, BestPossibleStateOutput output) {
-        // for each ideal state
-        // read the state model def
-        // for each resource
-        // get the preference list
-        // for each instanceName check if its alive then assign a state
+  private boolean computeResourceBestPossibleState(ClusterEvent event, ResourceControllerDataProvider cache,
+      CurrentStateOutput currentStateOutput, Resource resource, BestPossibleStateOutput output) {
+    // for each ideal state
+    // read the state model def
+    // for each resource
+    // get the preference list
+    // for each instanceName check if its alive then assign a state
 
     String resourceName = resource.getResourceName();
     LogUtil.logDebug(logger, _eventId, "Processing resource:" + resourceName);
@@ -229,13 +223,13 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
     if (idealState.getStateModelDefRef().equals(TaskConstants.STATE_MODEL_NAME)) {
       LogUtil.logWarn(logger, _eventId, String
           .format("Resource %s should not be processed by %s pipeline", resourceName,
-              cache.isTaskCache() ? "TASK" : "DEFAULT"));
+              cache.getPipelineName()));
       return false;
     }
 
-    Rebalancer rebalancer =
+    Rebalancer<ResourceControllerDataProvider> rebalancer =
         getRebalancer(idealState, resourceName, cache.isMaintenanceModeEnabled());
-    MappingCalculator mappingCalculator = getMappingCalculator(rebalancer, resourceName);
+    MappingCalculator<ResourceControllerDataProvider> mappingCalculator = getMappingCalculator(rebalancer, resourceName);
 
     if (rebalancer == null || mappingCalculator == null) {
       LogUtil.logError(logger, _eventId,
@@ -243,80 +237,71 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
               + " mappingCalculator: " + mappingCalculator);
     }
 
-        if (rebalancer != null && mappingCalculator != null) {
-            if (rebalancer instanceof TaskRebalancer) {
-                TaskRebalancer taskRebalancer = TaskRebalancer.class.cast(rebalancer);
-                taskRebalancer.setClusterStatusMonitor(
-                        (ClusterStatusMonitor) event.getAttribute(AttributeName.clusterStatusMonitor.name()));
-            }
+    if (rebalancer != null && mappingCalculator != null) {
+      ResourceAssignment partitionStateAssignment = null;
+      try {
+        HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
+        rebalancer.init(manager);
+        idealState =
+            rebalancer.computeNewIdealState(resourceName, idealState, currentStateOutput, cache);
 
-            ResourceAssignment partitionStateAssignment = null;
-            try {
-                HelixManager manager = event.getAttribute(AttributeName.helixmanager.name());
-                rebalancer.init(manager);
-                idealState =
-                        rebalancer.computeNewIdealState(resourceName, idealState, currentStateOutput, cache);
+        output.setPreferenceLists(resourceName, idealState.getPreferenceLists());
 
-                output.setPreferenceLists(resourceName, idealState.getPreferenceLists());
+        // Use the internal MappingCalculator interface to compute the final assignment
+        // The next release will support rebalancers that compute the mapping from start to finish
+        partitionStateAssignment = mappingCalculator
+            .computeBestPossiblePartitionState(cache, idealState, resource, currentStateOutput);
 
-                // Use the internal MappingCalculator interface to compute the final assignment
-                // The next release will support rebalancers that compute the mapping from start to finish
-                partitionStateAssignment = mappingCalculator
-                        .computeBestPossiblePartitionState(cache, idealState, resource, currentStateOutput);
-                for (Partition partition : resource.getPartitions()) {
-                    Map<String, String> newStateMap = partitionStateAssignment.getReplicaMap(partition);
-                    output.setState(resourceName, partition, newStateMap);
-                }
+        if (partitionStateAssignment == null) {
+          LogUtil.logWarn(logger, _eventId,
+              "PartitionStateAssignment is null, resource: " + resourceName);
+          return false;
+        }
+
+        for (Partition partition : resource.getPartitions()) {
+          Map<String, String> newStateMap = partitionStateAssignment.getReplicaMap(partition);
+          output.setState(resourceName, partition, newStateMap);
+        }
 
         // Check if calculation is done successfully
         return checkBestPossibleStateCalculation(idealState);
+      } catch (HelixException e) {
+        // No eligible instance is found.
+        LogUtil.logError(logger, _eventId, e.getMessage());
       } catch (Exception e) {
-        LogUtil
-            .logError(logger, _eventId, "Error computing assignment for resource " + resourceName + ". Skipping.", e);
-        // TODO : remove this part after debugging NPE
-        StringBuilder sb = new StringBuilder();
-
-                sb.append(String
-                        .format("HelixManager is null : %s\n", event.getAttribute("helixmanager") == null));
-                sb.append(String.format("Rebalancer is null : %s\n", rebalancer == null));
-                sb.append(String.format("Calculated idealState is null : %s\n", idealState == null));
-                sb.append(String.format("MappingCaculator is null : %s\n", mappingCalculator == null));
-                sb.append(
-                        String.format("PartitionAssignment is null : %s\n", partitionStateAssignment == null));
-                sb.append(String.format("Output is null : %s\n", output == null));
-
-        LogUtil.logError(logger, _eventId, sb.toString());
+        LogUtil.logError(logger, _eventId,
+            "Error computing assignment for resource " + resourceName + ". Skipping." , e);
       }
     }
     // Exception or rebalancer is not found
     return false;
   }
 
-    private boolean checkBestPossibleStateCalculation(IdealState idealState) {
-        // If replicas is 0, indicate the resource is not fully initialized or ready to be rebalanced
-        if (idealState.getRebalanceMode() == IdealState.RebalanceMode.FULL_AUTO && !idealState
-                .getReplicas().equals("0")) {
-            Map<String, List<String>> preferenceLists = idealState.getPreferenceLists();
-            if (preferenceLists == null || preferenceLists.isEmpty()) {
-                return false;
-            }
-            int emptyListCount = 0;
-            for (List<String> preferenceList : preferenceLists.values()) {
-                if (preferenceList.isEmpty()) {
-                    emptyListCount++;
-                }
-            }
-            // If all lists are empty, rebalance fails completely
-            return emptyListCount != preferenceLists.values().size();
-        } else {
-            // For non FULL_AUTO RebalanceMode, rebalancing is not controlled by Helix
-            return true;
+  private boolean checkBestPossibleStateCalculation(IdealState idealState) {
+    // If replicas is 0, indicate the resource is not fully initialized or ready to be rebalanced
+    if (idealState.getRebalanceMode() == IdealState.RebalanceMode.FULL_AUTO && !idealState
+        .getReplicas().equals("0")) {
+      Map<String, List<String>> preferenceLists = idealState.getPreferenceLists();
+      if (preferenceLists == null || preferenceLists.isEmpty()) {
+        return false;
+      }
+      int emptyListCount = 0;
+      for (List<String> preferenceList : preferenceLists.values()) {
+        if (preferenceList.isEmpty()) {
+          emptyListCount++;
         }
+      }
+      // If all lists are empty, rebalance fails completely
+      return emptyListCount != preferenceLists.values().size();
+    } else {
+      // For non FULL_AUTO RebalanceMode, rebalancing is not controlled by Helix
+      return true;
     }
+  }
 
-  private Rebalancer getRebalancer(IdealState idealState, String resourceName,
+  private Rebalancer<ResourceControllerDataProvider> getRebalancer(IdealState idealState, String resourceName,
       boolean isMaintenanceModeEnabled) {
-    Rebalancer customizedRebalancer = null;
+    Rebalancer<ResourceControllerDataProvider> customizedRebalancer = null;
     String rebalancerClassName = idealState.getRebalancerClassName();
     if (rebalancerClassName != null) {
       if (logger.isDebugEnabled()) {
@@ -332,7 +317,7 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
       }
     }
 
-    Rebalancer rebalancer = null;
+    Rebalancer<ResourceControllerDataProvider> rebalancer = null;
     switch (idealState.getRebalanceMode()) {
     case FULL_AUTO:
       if (isMaintenanceModeEnabled) {
@@ -346,7 +331,7 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
       }
       break;
     case SEMI_AUTO:
-      rebalancer = new SemiAutoRebalancer();
+      rebalancer = new SemiAutoRebalancer<>();
       break;
     case CUSTOMIZED:
       rebalancer = new CustomRebalancer();
@@ -361,11 +346,12 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
       break;
     }
 
-        return rebalancer;
-    }
+    return rebalancer;
+  }
 
-    private MappingCalculator getMappingCalculator(Rebalancer rebalancer, String resourceName) {
-        MappingCalculator mappingCalculator = null;
+  private MappingCalculator<ResourceControllerDataProvider> getMappingCalculator(
+      Rebalancer<ResourceControllerDataProvider> rebalancer, String resourceName) {
+    MappingCalculator<ResourceControllerDataProvider> mappingCalculator = null;
 
     if (rebalancer != null) {
       try {
@@ -377,7 +363,7 @@ public class BestPossibleStateCalcStage extends AbstractBaseStage {
       }
     }
     if (mappingCalculator == null) {
-      mappingCalculator = new SemiAutoRebalancer();
+      mappingCalculator = new SemiAutoRebalancer<>();
     }
 
     return mappingCalculator;

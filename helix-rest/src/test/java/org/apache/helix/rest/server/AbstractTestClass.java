@@ -29,11 +29,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.logging.Level;
+
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.Application;
 import javax.ws.rs.core.Response;
+
 import org.I0Itec.zkclient.ZkServer;
 import org.apache.helix.AccessOption;
 import org.apache.helix.BaseDataAccessor;
@@ -44,11 +47,16 @@ import org.apache.helix.TestHelper;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
+import org.apache.helix.integration.task.MockTask;
 import org.apache.helix.integration.task.TaskTestUtil;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
 import org.apache.helix.manager.zk.client.DedicatedZkClientFactory;
 import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.model.ClusterConfig;
+import org.apache.helix.model.IdealState;
+import org.apache.helix.model.InstanceConfig;
+import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.rest.common.ContextPropertyKeys;
 import org.apache.helix.rest.common.HelixRestNamespace;
 import org.apache.helix.rest.server.auditlog.AuditLog;
@@ -59,10 +67,14 @@ import org.apache.helix.store.HelixPropertyStore;
 import org.apache.helix.store.zk.ZkHelixPropertyStore;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.JobContext;
+import org.apache.helix.task.Task;
+import org.apache.helix.task.TaskCallbackContext;
 import org.apache.helix.task.TaskConstants;
 import org.apache.helix.task.TaskDriver;
+import org.apache.helix.task.TaskFactory;
 import org.apache.helix.task.TaskPartitionState;
 import org.apache.helix.task.TaskState;
+import org.apache.helix.task.TaskStateModelFactory;
 import org.apache.helix.task.TaskUtil;
 import org.apache.helix.task.Workflow;
 import org.apache.helix.task.WorkflowContext;
@@ -87,7 +99,8 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
   protected static final String WORKFLOW_PREFIX = "Workflow_";
   protected static final String JOB_PREFIX = "Job_";
   protected static int NUM_PARTITIONS = 10;
-  protected static int NUM_REPLICA = 3;
+  protected static int NUM_REPLICA = 2;
+  protected static int MIN_ACTIVE_REPLICA = 3;
   protected static ZkServer _zkServer;
   protected static HelixZkClient _gZkClient;
   protected static ClusterSetup _gSetupTool;
@@ -102,6 +115,10 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
   protected static final String TEST_NAMESPACE = "test-namespace";
   protected static HelixZkClient _gZkClientTestNS;
   protected static BaseDataAccessor<ZNRecord> _baseAccessorTestNS;
+  protected static final String STOPPABLE_CLUSTER = "StoppableTestCluster";
+  protected static final String TASK_TEST_CLUSTER = "TaskTestCluster";
+  protected static final List<String> STOPPABLE_INSTANCES =
+      Arrays.asList("instance0", "instance1", "instance2", "instance3", "instance4", "instance5");
 
   protected static Set<String> _clusters;
   protected static String _superCluster = "superCluster";
@@ -109,10 +126,12 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
   protected static Map<String, Set<String>> _liveInstancesMap = new HashMap<>();
   protected static Map<String, Set<String>> _resourcesMap = new HashMap<>();
   protected static Map<String, Map<String, Workflow>> _workflowMap = new HashMap<>();
+  protected static List<ClusterControllerManager> _clusterControllerManagers = new ArrayList<>();
+  protected static List<MockParticipantManager> _mockParticipantManagers = new ArrayList<>();
+  protected static MockAuditLogger _auditLogger = new MockAuditLogger();
+  protected static HelixRestServer _helixRestServer;
 
-  protected MockAuditLogger _auditLogger = new MockAuditLogger();
-
-  protected class MockAuditLogger implements AuditLogger {
+  protected static class MockAuditLogger implements AuditLogger {
     List<AuditLog> _auditLogList = new ArrayList<>();
 
     @Override
@@ -164,7 +183,6 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
       @Override
       public TestContainer create(final URI baseUri, DeploymentContext deploymentContext) {
         return new TestContainer() {
-          private HelixRestServer _helixRestServer;
 
           @Override
           public ClientConfig getClientConfig() {
@@ -178,24 +196,27 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
 
           @Override
           public void start() {
-            // Create namespace manifest map
-            List<HelixRestNamespace> namespaces = new ArrayList<>();
-            // Add test namespace
-            namespaces.add(new HelixRestNamespace(TEST_NAMESPACE, HelixRestNamespace.HelixMetadataStoreType.ZOOKEEPER,
-                _zkAddrTestNS, false));
-            // Add default namesapce
-            namespaces.add(new HelixRestNamespace(ZK_ADDR));
-            try {
-              _helixRestServer = new HelixRestServer(namespaces, baseUri.getPort(), baseUri.getPath(),
-                  Arrays.<AuditLogger>asList(_auditLogger));
-              _helixRestServer.start();
-            } catch (Exception ex) {
-              throw new TestContainerException(ex);
+            if (_helixRestServer == null) {
+              // Create namespace manifest map
+              List<HelixRestNamespace> namespaces = new ArrayList<>();
+              // Add test namespace
+              namespaces.add(new HelixRestNamespace(TEST_NAMESPACE,
+                  HelixRestNamespace.HelixMetadataStoreType.ZOOKEEPER, _zkAddrTestNS, false));
+              // Add default namesapce
+              namespaces.add(new HelixRestNamespace(ZK_ADDR));
+              try {
+                _helixRestServer =
+                    new HelixRestServer(namespaces, baseUri.getPort(), baseUri.getPath(),
+                        Arrays.<AuditLogger>asList(_auditLogger));
+                _helixRestServer.start();
+              } catch (Exception ex) {
+                throw new TestContainerException(ex);
+              }
             }
           }
+
           @Override
           public void stop() {
-            _helixRestServer.shutdown();
           }
         };
       }
@@ -234,6 +255,19 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
 
   @AfterSuite
   public void afterSuite() throws Exception {
+    // tear down orphan-ed threads
+    for (ClusterControllerManager cm : _clusterControllerManagers) {
+      if (cm != null && cm.isConnected()) {
+        cm.syncStop();
+      }
+    }
+
+    for (MockParticipantManager mm: _mockParticipantManagers) {
+      if (mm != null && mm.isConnected()) {
+        mm.syncStop();
+      }
+    }
+
     ZKClientPool.reset();
     if (_gZkClient != null) {
       _gZkClient.close();
@@ -253,23 +287,34 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
       TestHelper.stopZkServer(_zkServerTestNS);
       _zkServerTestNS = null;
     }
+
+    if (_helixRestServer != null) {
+      _helixRestServer.shutdown();
+      _helixRestServer = null;
+    }
   }
 
   protected void setup() throws Exception {
     _clusters = createClusters(3);
     _gSetupTool.addCluster(_superCluster, true);
+    _gSetupTool.addCluster(TASK_TEST_CLUSTER, true);
     _clusters.add(_superCluster);
+    _clusters.add(TASK_TEST_CLUSTER);
     for (String cluster : _clusters) {
       Set<String> instances = createInstances(cluster, 10);
       Set<String> liveInstances = startInstances(cluster, instances, 6);
+      ClusterConfig clusterConfig = new ClusterConfig(cluster);
+      clusterConfig.setFaultZoneType("helixZoneId");
+      _configAccessor.setClusterConfig(cluster, clusterConfig);
       createResourceConfigs(cluster, 8);
       _workflowMap.put(cluster, createWorkflows(cluster, 3));
       Set<String> resources = createResources(cluster, 8);
       _instancesMap.put(cluster, instances);
       _liveInstancesMap.put(cluster, liveInstances);
       _resourcesMap.put(cluster, resources);
-      startController(cluster);
+      _clusterControllerManagers.add(startController(cluster));
     }
+    preSetupForParallelInstancesStoppableTest(STOPPABLE_CLUSTER, STOPPABLE_INSTANCES);
   }
 
   protected Set<String> createInstances(String cluster, int numInstances) throws Exception {
@@ -287,6 +332,9 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
     for (int i = 0; i < numResources; i++) {
       String resource = cluster + "_db_" + i;
       _gSetupTool.addResourceToCluster(cluster, resource, NUM_PARTITIONS, "MasterSlave");
+      IdealState idealState = _gSetupTool.getClusterManagementTool().getResourceIdealState(cluster, resource);
+      idealState.setMinActiveReplicas(MIN_ACTIVE_REPLICA);
+      _gSetupTool.getClusterManagementTool().setResourceIdealState(cluster, resource, idealState);
       _gSetupTool.rebalanceStorageCluster(cluster, resource, NUM_REPLICA);
       resources.add(resource);
     }
@@ -312,7 +360,17 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
     int i = 0;
     for (String instance : instances) {
       MockParticipantManager participant = new MockParticipantManager(ZK_ADDR, cluster, instance);
+      Map<String, TaskFactory> taskFactoryReg = new HashMap<String, TaskFactory>();
+      taskFactoryReg.put(MockTask.TASK_COMMAND, new TaskFactory() {
+        @Override public Task createNewTask(TaskCallbackContext context) {
+          return new MockTask(context);
+        }
+      });
+      StateMachineEngine stateMachineEngine = participant.getStateMachineEngine();
+      stateMachineEngine.registerStateModelFactory("Task",
+          new TaskStateModelFactory(participant, taskFactoryReg));
       participant.syncStart();
+      _mockParticipantManagers.add(participant);
       liveInstances.add(instance);
       if (++i > numLiveinstances) {
         break;
@@ -405,8 +463,14 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
     return OBJECT_MAPPER.reader(ZNRecord.class).readValue(data);
   }
 
-  protected String get(String uri, int expectedReturnStatus, boolean expectBodyReturned) {
-    final Response response = target(uri).request().get();
+  protected String get(String uri, Map<String, String> queryParams, int expectedReturnStatus, boolean expectBodyReturned) {
+    WebTarget webTarget = target(uri);
+    if (queryParams != null) {
+      for (Map.Entry<String, String> entry : queryParams.entrySet()) {
+        webTarget = webTarget.queryParam(entry.getKey(), entry.getValue());
+      }
+    }
+    final Response response = webTarget.request().get();
     Assert.assertEquals(response.getStatus(), expectedReturnStatus);
 
     // NOT_FOUND will throw text based html
@@ -455,5 +519,37 @@ public class AbstractTestClass extends JerseyTestNg.ContainerPerClassTest {
 
   protected TaskDriver getTaskDriver(String clusterName) {
     return new TaskDriver(_gZkClient, clusterName);
+  }
+
+  private void preSetupForParallelInstancesStoppableTest(String clusterName, List<String> instances) {
+    _gSetupTool.addCluster(clusterName, true);
+    ClusterConfig clusterConfig = _configAccessor.getClusterConfig(clusterName);
+    clusterConfig.setFaultZoneType("helixZoneId");
+    clusterConfig.setPersistIntermediateAssignment(true);
+    _configAccessor.setClusterConfig(clusterName, clusterConfig);
+    // Create instance configs
+    List<InstanceConfig> instanceConfigs = new ArrayList<>();
+    for (int i = 0; i < instances.size() - 1; i++) {
+      InstanceConfig instanceConfig = new InstanceConfig(instances.get(i));
+      instanceConfig.setDomain("helixZoneId=zone1,host=instance" + i);
+      instanceConfigs.add(instanceConfig);
+    }
+    instanceConfigs.add(new InstanceConfig(instances.get(instances.size() - 1)));
+    instanceConfigs.get(instanceConfigs.size() - 1).setDomain("helixZoneId=zone2,host=instance5");
+
+    instanceConfigs.get(1).setInstanceEnabled(false);
+    instanceConfigs.get(3).setInstanceEnabledForPartition("FakeResource", "FakePartition", false);
+
+    for (InstanceConfig instanceConfig : instanceConfigs) {
+      _gSetupTool.getClusterManagementTool().addInstance(clusterName, instanceConfig);
+    }
+
+    // Start participant
+    startInstances(clusterName, new TreeSet<>(instances), 3);
+    createResources(clusterName, 1);
+    _clusterControllerManagers.add(startController(clusterName));
+
+    _clusters.add(STOPPABLE_CLUSTER);
+    _workflowMap.put(STOPPABLE_CLUSTER, createWorkflows(STOPPABLE_CLUSTER, 3));
   }
 }

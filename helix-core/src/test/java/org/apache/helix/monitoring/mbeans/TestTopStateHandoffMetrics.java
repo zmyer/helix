@@ -21,19 +21,21 @@ package org.apache.helix.monitoring.mbeans;
 
 import com.google.common.collect.Range;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.helix.HelixConstants;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.stages.AttributeName;
 import org.apache.helix.controller.stages.BaseStageTest;
-import org.apache.helix.controller.stages.ClusterDataCache;
 import org.apache.helix.controller.stages.CurrentStateComputationStage;
 import org.apache.helix.controller.stages.ReadClusterDataStage;
 import org.apache.helix.controller.stages.TopStateHandoffReportStage;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.CurrentState;
+import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.Message;
 import org.apache.helix.model.Resource;
 import org.codehaus.jackson.annotate.JsonCreator;
@@ -175,8 +177,10 @@ public class TestTopStateHandoffMetrics extends BaseStageTest {
         cfg.initialCurrentStates, cfg.currentStateWithMissingTopState, cfg.finalCurrentState,
         new MissingStatesDataCacheInject() {
           @Override
-          public void doInject(ClusterDataCache cache) {
-            cache.getLiveInstances().remove("localhost_1");
+          public void doInject(ResourceControllerDataProvider cache) {
+            Map<String, LiveInstance> liMap = new HashMap<>(cache.getLiveInstances());
+            liMap.remove("localhost_1");
+            cache.setLiveInstances(new ArrayList<>(liMap.values()));
           }
         }, 1, 0,
         expectedDuration,
@@ -199,9 +203,11 @@ public class TestTopStateHandoffMetrics extends BaseStageTest {
         cfg.initialCurrentStates, cfg.currentStateWithMissingTopState, cfg.finalCurrentState,
         new MissingStatesDataCacheInject() {
           @Override
-          public void doInject(ClusterDataCache cache) {
+          public void doInject(ResourceControllerDataProvider cache) {
             accessor.removeProperty(accessor.keyBuilder().liveInstance(downInstance));
-            cache.getLiveInstances().remove("localhost_0");
+            Map<String, LiveInstance> liMap = new HashMap<>(cache.getLiveInstances());
+            liMap.remove("localhost_0");
+            cache.setLiveInstances(new ArrayList<>(liMap.values()));
             cache.getInstanceOfflineTimeMap().put("localhost_0", lastOfflineTime);
             cache.notifyDataChange(HelixConstants.ChangeType.LIVE_INSTANCE);
           }
@@ -282,7 +288,7 @@ public class TestTopStateHandoffMetrics extends BaseStageTest {
     runStageAndVerify(
         Collections.EMPTY_MAP, cfg.currentStateWithMissingTopState, cfg.finalCurrentState,
         new MissingStatesDataCacheInject() {
-          @Override public void doInject(ClusterDataCache cache) {
+          @Override public void doInject(ResourceControllerDataProvider cache) {
             String topStateNode = null;
             for (String instance : cfg.initialCurrentStates.keySet()) {
               if (cfg.initialCurrentStates.get(instance).currentState.equals("MASTER")) {
@@ -391,7 +397,7 @@ public class TestTopStateHandoffMetrics extends BaseStageTest {
     setupCurrentStates(generateCurrentStateMap(currentStates));
     runStage(event, new ReadClusterDataStage());
     if (clusterDataInjection != null) {
-      ClusterDataCache cache = event.getAttribute(AttributeName.ClusterDataCache.name());
+      ResourceControllerDataProvider cache = event.getAttribute(AttributeName.ControllerDataProvider.name());
       clusterDataInjection.doInject(cache);
     }
     runStage(event, new CurrentStateComputationStage());
@@ -410,6 +416,8 @@ public class TestTopStateHandoffMetrics extends BaseStageTest {
       Range<Long> expectedMaxDuration,
       Range<Long> expectedHelixLatency
   ) {
+    event.addAttribute(AttributeName.ControllerDataProvider.name(),
+        new ResourceControllerDataProvider());
     runPipeLine(initialCurrentStates, missingTopStates, handOffCurrentStates, inject);
     ClusterStatusMonitor clusterStatusMonitor =
         event.getAttribute(AttributeName.clusterStatusMonitor.name());
@@ -432,6 +440,6 @@ public class TestTopStateHandoffMetrics extends BaseStageTest {
   }
 
   interface MissingStatesDataCacheInject {
-    void doInject(ClusterDataCache cache);
+    void doInject(ResourceControllerDataProvider cache);
   }
 }

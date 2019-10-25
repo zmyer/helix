@@ -1,10 +1,7 @@
 package org.apache.helix.tools.commandtools;
 
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import org.I0Itec.zkclient.DataUpdater;
 import org.apache.commons.cli.CommandLine;
@@ -22,7 +19,6 @@ import org.apache.helix.InstanceType;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.ZNRecord;
 import org.apache.helix.model.CurrentState;
-import org.apache.helix.model.LiveInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -81,14 +77,18 @@ public class CurrentStateCleanUp {
   public static void cleanupCurrentStatesForCluster(String zkConnectString, String clusterName,
       String instanceName, String session) throws Exception {
     HelixManager manager = HelixManagerFactory
-        .getZKHelixManager(clusterName, "Administorator", InstanceType.ADMINISTRATOR,
+        .getZKHelixManager(clusterName, "Administrator", InstanceType.ADMINISTRATOR,
             zkConnectString);
     manager.connect();
     try {
       HelixDataAccessor accessor = manager.getHelixDataAccessor();
 
       DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
-        @Override public ZNRecord update(ZNRecord currentData) {
+        @Override
+        public ZNRecord update(ZNRecord currentData) {
+          if (currentData == null) {
+            return null;
+          }
           Set<String> partitionToRemove = new HashSet<>();
           for (String partition : currentData.getMapFields().keySet()) {
             if (currentData.getMapField(partition).get("CURRENT_STATE")

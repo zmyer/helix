@@ -1,19 +1,37 @@
 package org.apache.helix.integration.task;
 
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import com.google.common.collect.ImmutableMap;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.helix.TestHelper;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.JobQueue;
-import org.apache.helix.task.Task;
 import org.apache.helix.task.TaskCallbackContext;
 import org.apache.helix.task.TaskConfig;
+import org.apache.helix.task.TaskDriver;
 import org.apache.helix.task.TaskFactory;
 import org.apache.helix.task.TaskResult;
 import org.apache.helix.task.TaskState;
@@ -36,6 +54,8 @@ public class TestStopWorkflow extends TaskTestBase {
 
   @Test
   public void testStopWorkflow() throws InterruptedException {
+    stopTestSetup(5);
+
     String jobQueueName = TestHelper.getTestMethodName();
     JobConfig.Builder jobBuilder = JobConfig.Builder.fromMap(WorkflowGenerator.DEFAULT_JOB_CONFIG)
         .setMaxAttemptsPerTask(1).setWorkflow(jobQueueName)
@@ -50,15 +70,17 @@ public class TestStopWorkflow extends TaskTestBase {
     _driver.pollForJobState(jobQueueName,
         TaskUtil.getNamespacedJobName(jobQueueName, "job2_will_fail"), TaskState.FAILED);
 
-    Assert.assertTrue(
-        _driver.getWorkflowContext(jobQueueName).getWorkflowState().equals(TaskState.IN_PROGRESS));
+    Assert.assertEquals(TaskState.IN_PROGRESS,
+        _driver.getWorkflowContext(jobQueueName).getWorkflowState());
 
     // Now stop the workflow, and it should be stopped because all jobs have completed or failed.
     _driver.waitToStop(jobQueueName, 4000);
     _driver.pollForWorkflowState(jobQueueName, TaskState.STOPPED);
 
-    Assert.assertTrue(
-        _driver.getWorkflowContext(jobQueueName).getWorkflowState().equals(TaskState.STOPPED));
+    Assert.assertEquals(TaskState.STOPPED,
+        _driver.getWorkflowContext(jobQueueName).getWorkflowState());
+
+    cleanupParticipants(5);
   }
 
   /**
@@ -77,9 +99,9 @@ public class TestStopWorkflow extends TaskTestBase {
 
     for (int i = 0; i < 1; i++) {
       List<TaskConfig> taskConfigs = new ArrayList<>();
-      taskConfigs.add(new TaskConfig("StopTask", new HashMap<String, String>()));
+      taskConfigs.add(new TaskConfig("StopTask", new HashMap<>()));
       JobConfig.Builder jobConfigBulider = new JobConfig.Builder().setCommand("Dummy")
-          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<String, String>());
+          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<>());
       workflowBuilder.addJob("JOB" + i, jobConfigBulider);
     }
 
@@ -90,8 +112,10 @@ public class TestStopWorkflow extends TaskTestBase {
     _driver.stop(workflowName);
     _driver.pollForWorkflowState(workflowName, TaskState.STOPPED);
 
-    Assert.assertEquals(_driver.getWorkflowContext(_manager, workflowName).getWorkflowState(),
+    Assert.assertEquals(TaskDriver.getWorkflowContext(_manager, workflowName).getWorkflowState(),
         TaskState.STOPPED);
+
+    cleanupParticipants(1);
   }
 
   /**
@@ -111,9 +135,9 @@ public class TestStopWorkflow extends TaskTestBase {
     // First create 50 jobs so that all 40 threads will be taken up
     for (int i = 0; i < 50; i++) {
       List<TaskConfig> taskConfigs = new ArrayList<>();
-      taskConfigs.add(new TaskConfig("StopTask", new HashMap<String, String>()));
+      taskConfigs.add(new TaskConfig("StopTask", new HashMap<>()));
       JobConfig.Builder jobConfigBulider = new JobConfig.Builder().setCommand("Dummy")
-          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<String, String>());
+          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<>());
       workflowBuilderToStop.addJob("JOB" + i, jobConfigBulider);
     }
 
@@ -124,7 +148,8 @@ public class TestStopWorkflow extends TaskTestBase {
     _driver.stop(workflowNameToStop);
 
     _driver.pollForWorkflowState(workflowNameToStop, TaskState.STOPPED);
-    Assert.assertEquals(_driver.getWorkflowContext(_manager, workflowNameToStop).getWorkflowState(),
+    Assert.assertEquals(
+        TaskDriver.getWorkflowContext(_manager, workflowNameToStop).getWorkflowState(),
         TaskState.STOPPED); // Check that the workflow has been stopped
 
     // Generate another workflow to be completed this time around
@@ -137,17 +162,20 @@ public class TestStopWorkflow extends TaskTestBase {
     // Create 20 jobs that should complete
     for (int i = 0; i < 20; i++) {
       List<TaskConfig> taskConfigs = new ArrayList<>();
-      taskConfigs.add(new TaskConfig("CompleteTask", new HashMap<String, String>()));
+      taskConfigs.add(new TaskConfig("CompleteTask", new HashMap<>()));
       JobConfig.Builder jobConfigBulider = new JobConfig.Builder().setCommand("Dummy")
-          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<String, String>());
+          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<>());
       workflowBuilderToComplete.addJob("JOB" + i, jobConfigBulider);
     }
 
     // Start the workflow to be completed
     _driver.start(workflowBuilderToComplete.build());
     _driver.pollForWorkflowState(workflowToComplete, TaskState.COMPLETED);
-    Assert.assertEquals(_driver.getWorkflowContext(_manager, workflowToComplete).getWorkflowState(),
+    Assert.assertEquals(
+        TaskDriver.getWorkflowContext(_manager, workflowToComplete).getWorkflowState(),
         TaskState.COMPLETED);
+
+    cleanupParticipants(1);
   }
 
   /**
@@ -167,9 +195,9 @@ public class TestStopWorkflow extends TaskTestBase {
     // 30 jobs run first
     for (int i = 0; i < 30; i++) {
       List<TaskConfig> taskConfigs = new ArrayList<>();
-      taskConfigs.add(new TaskConfig("StopTask", new HashMap<String, String>()));
+      taskConfigs.add(new TaskConfig("StopTask", new HashMap<>()));
       JobConfig.Builder jobConfigBulider = new JobConfig.Builder().setCommand("Dummy")
-          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<String, String>());
+          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<>());
       workflowBuilder_1.addJob("JOB" + i, jobConfigBulider);
     }
 
@@ -195,9 +223,9 @@ public class TestStopWorkflow extends TaskTestBase {
     int numJobs = 10;
     for (int i = 0; i < numJobs; i++) {
       List<TaskConfig> taskConfigs = new ArrayList<>();
-      taskConfigs.add(new TaskConfig("CompleteTask", new HashMap<String, String>()));
+      taskConfigs.add(new TaskConfig("CompleteTask", new HashMap<>()));
       JobConfig.Builder jobConfigBulider = new JobConfig.Builder().setCommand("Dummy")
-          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<String, String>());
+          .addTaskConfigs(taskConfigs).setJobCommandConfigMap(new HashMap<>());
       workflowBuilder_2.addJob("JOB" + i, jobConfigBulider);
     }
 
@@ -205,6 +233,8 @@ public class TestStopWorkflow extends TaskTestBase {
     _driver.start(workflowBuilder_2.build());
     Assert.assertEquals(_driver.pollForWorkflowState(workflowName_2, TaskState.COMPLETED),
         TaskState.COMPLETED);
+
+    cleanupParticipants(1);
   }
 
   /**
@@ -214,18 +244,8 @@ public class TestStopWorkflow extends TaskTestBase {
   private void stopTestSetup(int numNodes) {
     // Set task callbacks
     Map<String, TaskFactory> taskFactoryReg = new HashMap<>();
-    TaskFactory taskFactory = new TaskFactory() {
-      @Override
-      public Task createNewTask(TaskCallbackContext context) {
-        return new StopTask(context);
-      }
-    };
-    TaskFactory taskFactoryComplete = new TaskFactory() {
-      @Override
-      public Task createNewTask(TaskCallbackContext context) {
-        return new MockTask(context);
-      }
-    };
+    TaskFactory taskFactory = StopTask::new;
+    TaskFactory taskFactoryComplete = MockTask::new;
     taskFactoryReg.put("StopTask", taskFactory);
     taskFactoryReg.put("CompleteTask", taskFactoryComplete);
 
@@ -240,6 +260,14 @@ public class TestStopWorkflow extends TaskTestBase {
           new TaskStateModelFactory(_participants[i], taskFactoryReg));
 
       _participants[i].syncStart();
+    }
+  }
+
+  private void cleanupParticipants(int numNodes) {
+    for (int i = 0; i < numNodes; i++) {
+      if (_participants[i] != null && _participants[i].isConnected()) {
+        _participants[i].syncStop();
+      }
     }
   }
 

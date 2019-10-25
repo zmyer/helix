@@ -39,7 +39,6 @@ import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.store.ZNRecordJsonSerializer;
-import org.apache.helix.tools.ClusterStateVerifier;
 import org.apache.helix.tools.ClusterStateVerifier.BestPossAndExtViewZkVerifier;
 import org.apache.helix.tools.ClusterStateVerifier.MasterNbInExtViewVerifier;
 import org.testng.Assert;
@@ -48,14 +47,18 @@ import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
 public class TestHelixAdminCli extends ZkTestBase {
+  private static final long SLEEP_DURATION = 1000L;
   private String clusterName = TestHelper.getTestClassName();
-  String grandClusterName = clusterName + "_grand";
+  private String grandClusterName = clusterName + "_grand";
 
   @AfterMethod
   public void endTest(Method testMethod, ITestContext testContext) {
-    deleteCluster(clusterName);
-    deleteCluster(grandClusterName);
-
+    try {
+      deleteCluster(clusterName);
+      deleteCluster(grandClusterName);
+    } catch (Exception ignored) {
+      // OK
+    }
     super.endTest(testMethod, testContext);
   }
 
@@ -91,6 +94,9 @@ public class TestHelixAdminCli extends ZkTestBase {
     Assert.assertTrue(ZKUtil.isClusterSetup("\\ClusterTest", _gZkClient));
 
     // delete cluster without resource and instance
+    command = "-zkSvr localhost:2183 -dropCluster \"Klazt3rz";
+    ClusterSetup.processCommandLineArgs(command.split("\\s+"));
+
     command = "-zkSvr localhost:2183 -dropCluster \\ClusterTest";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
@@ -100,12 +106,13 @@ public class TestHelixAdminCli extends ZkTestBase {
     command = "-zkSvr localhost:2183 -dropCluster clusterTest";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
+    Assert.assertFalse(_gZkClient.exists("/Klazt3rz"));
     Assert.assertFalse(_gZkClient.exists("/clusterTest"));
     Assert.assertFalse(_gZkClient.exists("/\\ClusterTest"));
     Assert.assertFalse(_gZkClient.exists("/clusterTest1"));
   }
 
-  @Test (dependsOnMethods = "testAddCluster")
+  @Test(dependsOnMethods = "testAddCluster")
   public void testAddResource() throws Exception {
     String command = "-zkSvr localhost:2183 -addCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
@@ -130,7 +137,7 @@ public class TestHelixAdminCli extends ZkTestBase {
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
   }
 
-  @Test (dependsOnMethods = "testAddResource")
+  @Test(dependsOnMethods = "testAddResource")
   public void testAddInstance() throws Exception {
     String command = "-zkSvr localhost:2183 -addCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
@@ -140,9 +147,8 @@ public class TestHelixAdminCli extends ZkTestBase {
       ClusterSetup.processCommandLineArgs(command.split("\\s+"));
     }
 
-    command =
-        "-zkSvr localhost:2183 -addNode " + clusterName
-            + " localhost:1233;localhost:1234;localhost:1235;localhost:1236";
+    command = "-zkSvr localhost:2183 -addNode " + clusterName
+        + " localhost:1233;localhost:1234;localhost:1235;localhost:1236";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
     // delete enabled node
@@ -180,7 +186,7 @@ public class TestHelixAdminCli extends ZkTestBase {
     }
   }
 
-  @Test (dependsOnMethods = "testAddInstance")
+  @Test(dependsOnMethods = "testAddInstance")
   public void testRebalanceResource() throws Exception {
     String command = "-zkSvr localhost:2183 -addCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
@@ -211,7 +217,7 @@ public class TestHelixAdminCli extends ZkTestBase {
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
   }
 
-  @Test (dependsOnMethods = "testRebalanceResource")
+  @Test(dependsOnMethods = "testRebalanceResource")
   public void testStartCluster() throws Exception {
     final int n = 6;
 
@@ -225,8 +231,8 @@ public class TestHelixAdminCli extends ZkTestBase {
         "-zkSvr localhost:2183 -activateCluster " + clusterName + " nonExistGrandCluster true";
     try {
       ClusterSetup.processCommandLineArgs(command.split("\\s+"));
-      Assert.fail("add " + clusterName
-          + " to grandCluster should fail since grandCluster doesn't exists");
+      Assert.fail(
+          "add " + clusterName + " to grandCluster should fail since grandCluster doesn't exists");
     } catch (Exception e) {
       // OK
     }
@@ -257,7 +263,7 @@ public class TestHelixAdminCli extends ZkTestBase {
     }
 
     // verify leader node
-    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
+    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<>(_gZkClient);
     HelixDataAccessor accessor = new ZKHelixDataAccessor(grandClusterName, baseAccessor);
     LiveInstance controllerLeader = accessor.getProperty(accessor.keyBuilder().controllerLeader());
     Assert.assertNotNull(controllerLeader,
@@ -273,28 +279,37 @@ public class TestHelixAdminCli extends ZkTestBase {
       Thread.sleep(200);
       leader = accessor.getProperty(accessor.keyBuilder().controllerLeader());
     }
+    Assert.assertNotNull(leader);
     Assert.assertTrue(leader.getInstanceName().startsWith("controller_900"));
 
-    boolean verifyResult =
-        ClusterStateVerifier
-            .verifyByZkCallback(new MasterNbInExtViewVerifier(ZK_ADDR, clusterName));
+    boolean verifyResult = ClusterStateVerifier
+        .verifyByZkCallback(new MasterNbInExtViewVerifier(ZK_ADDR, clusterName));
     Assert.assertTrue(verifyResult);
 
-    verifyResult =
-        ClusterStateVerifier.verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR,
-            clusterName));
+    verifyResult = ClusterStateVerifier
+        .verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR, clusterName));
     Assert.assertTrue(verifyResult);
 
     // clean up
     for (ClusterDistributedController controller : controllers) {
       controller.syncStop();
     }
-    for (int i = 0; i < participants.length; i++) {
-      participants[i].syncStop();
+    for (ClusterDistributedController controller : controllers) {
+      if (controller.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
+    }
+    for (MockParticipantManager participant : participants) {
+      participant.syncStop();
+    }
+    for (MockParticipantManager participant : participants) {
+      if (participant.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
     }
   }
 
-  @Test (dependsOnMethods = "testStartCluster")
+  @Test(dependsOnMethods = "testStartCluster")
   public void testDropAddResource() throws Exception {
     final int n = 6;
 
@@ -307,7 +322,7 @@ public class TestHelixAdminCli extends ZkTestBase {
     Thread.sleep(500);
 
     // save ideal state
-    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
+    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<>(_gZkClient);
     HelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, baseAccessor);
     IdealState idealState = accessor.getProperty(accessor.keyBuilder().idealStates("db_11"));
     ZNRecordJsonSerializer serializer = new ZNRecordJsonSerializer();
@@ -325,29 +340,27 @@ public class TestHelixAdminCli extends ZkTestBase {
     command = "-zkSvr " + ZK_ADDR + " -dropResource " + clusterName + " db_11 ";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
-    boolean verifyResult =
-        ClusterStateVerifier.verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR,
-            clusterName));
+    boolean verifyResult = ClusterStateVerifier
+        .verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR, clusterName));
     Assert.assertTrue(verifyResult);
 
     command =
         "-zkSvr " + ZK_ADDR + " -addIdealState " + clusterName + " db_11 " + tmpIdealStateFile;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
-    verifyResult =
-        ClusterStateVerifier.verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR,
-            clusterName));
+    verifyResult = ClusterStateVerifier
+        .verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR, clusterName));
     Assert.assertTrue(verifyResult);
 
     IdealState idealState2 = accessor.getProperty(accessor.keyBuilder().idealStates("db_11"));
-    Assert.assertTrue(idealState2.getRecord().equals(idealState.getRecord()));
+    Assert.assertEquals(idealState.getRecord(), idealState2.getRecord());
 
     // clean up
-    for (int i = 0; i < controllers.length; i++) {
-      controllers[i].syncStop();
+    for (ClusterDistributedController controller : controllers) {
+      controller.syncStop();
     }
-    for (int i = 0; i < participants.length; i++) {
-      participants[i].syncStop();
+    for (MockParticipantManager participant : participants) {
+      participant.syncStop();
     }
   }
 
@@ -395,10 +408,10 @@ public class TestHelixAdminCli extends ZkTestBase {
       controllers[i].syncStart();
     }
 
-    Thread.sleep(100);
+    Thread.sleep(SLEEP_DURATION);
   }
 
-  @Test (dependsOnMethods = "testDropAddResource")
+  @Test(dependsOnMethods = "testDropAddResource")
   public void testInstanceOperations() throws Exception {
     final int n = 6;
 
@@ -454,22 +467,32 @@ public class TestHelixAdminCli extends ZkTestBase {
         "-zkSvr " + ZK_ADDR + " -swapInstance " + clusterName + " localhost_1232 localhost_12320";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
-    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
+    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<>(_gZkClient);
     HelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, baseAccessor);
     String path = accessor.keyBuilder().instanceConfig("localhost_1232").getPath();
-    Assert.assertFalse(_gZkClient.exists(path), path
-        + " should not exist since localhost_1232 has been swapped by localhost_12320");
+    Assert.assertFalse(_gZkClient.exists(path),
+        path + " should not exist since localhost_1232 has been swapped by localhost_12320");
 
     // clean up
-    for (int i = 0; i < controllers.length; i++) {
-      controllers[i].syncStop();
+    for (ClusterDistributedController controller : controllers) {
+      controller.syncStop();
     }
-    for (int i = 0; i < participants.length; i++) {
-      participants[i].syncStop();
+    for (ClusterDistributedController controller : controllers) {
+      if (controller.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
+    }
+    for (MockParticipantManager participant : participants) {
+      participant.syncStop();
+    }
+    for (MockParticipantManager participant : participants) {
+      if (participant.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
     }
   }
 
-  @Test (dependsOnMethods = "testInstanceOperations")
+  @Test(dependsOnMethods = "testInstanceOperations")
   public void testExpandCluster() throws Exception {
     final int n = 6;
 
@@ -483,9 +506,8 @@ public class TestHelixAdminCli extends ZkTestBase {
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
     Thread.sleep(500);
 
-    command =
-        "-zkSvr " + ZK_ADDR + " -addNode " + clusterName
-            + " localhost:12331;localhost:12341;localhost:12351;localhost:12361";
+    command = "-zkSvr " + ZK_ADDR + " -addNode " + clusterName
+        + " localhost:12331;localhost:12341;localhost:12351;localhost:12361";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
     command = "-zkSvr localhost:2183 -expandCluster " + clusterName;
@@ -498,29 +520,42 @@ public class TestHelixAdminCli extends ZkTestBase {
       newParticipants[i - 3].syncStart();
     }
 
-    boolean verifyResult =
-        ClusterStateVerifier
-            .verifyByZkCallback(new MasterNbInExtViewVerifier(ZK_ADDR, clusterName));
+    boolean verifyResult = ClusterStateVerifier
+        .verifyByZkCallback(new MasterNbInExtViewVerifier(ZK_ADDR, clusterName));
     Assert.assertTrue(verifyResult);
 
-    verifyResult =
-        ClusterStateVerifier.verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR,
-            clusterName));
+    verifyResult = ClusterStateVerifier
+        .verifyByZkCallback(new BestPossAndExtViewZkVerifier(ZK_ADDR, clusterName));
     Assert.assertTrue(verifyResult);
 
     // clean up
-    for (int i = 0; i < controllers.length; i++) {
-      controllers[i].syncStop();
+    for (ClusterDistributedController controller : controllers) {
+      controller.syncStop();
     }
-    for (int i = 0; i < participants.length; i++) {
-      participants[i].syncStop();
+    for (ClusterDistributedController controller : controllers) {
+      if (controller.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
     }
-    for (int i = 0; i < newParticipants.length; i++) {
-      newParticipants[i].syncStop();
+    for (MockParticipantManager participant : participants) {
+      participant.syncStop();
+    }
+    for (MockParticipantManager participant : participants) {
+      if (participant.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
+    }
+    for (MockParticipantManager newParticipant : newParticipants) {
+      newParticipant.syncStop();
+    }
+    for (MockParticipantManager newParticipant : newParticipants) {
+      if (newParticipant.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
     }
   }
 
-  @Test (dependsOnMethods = "testExpandCluster")
+  @Test(dependsOnMethods = "testExpandCluster")
   public void testDeactivateCluster() throws Exception {
     final int n = 6;
 
@@ -535,22 +570,14 @@ public class TestHelixAdminCli extends ZkTestBase {
     Thread.sleep(500);
 
     // deactivate cluster
-    command =
-        "-zkSvr " + ZK_ADDR + " -activateCluster " + clusterName + " " + grandClusterName
-            + " false";
+    command = "-zkSvr " + ZK_ADDR + " -activateCluster " + clusterName + " " + grandClusterName
+        + " false";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
-    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
+    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<>(_gZkClient);
     HelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, baseAccessor);
     final String path = accessor.keyBuilder().controllerLeader().getPath();
-    TestHelper.verify(new TestHelper.Verifier() {
-      @Override public boolean verify() throws Exception {
-        if (!_gZkClient.exists(path)) {
-          return true;
-        }
-        return false;
-      }
-    }, 5000);
+    TestHelper.verify(() -> !_gZkClient.exists(path), 10000L);
 
     Assert.assertFalse(_gZkClient.exists(path),
         "leader should be gone after deactivate the cluster");
@@ -563,23 +590,34 @@ public class TestHelixAdminCli extends ZkTestBase {
       // OK
     }
 
-    for (int i = 0; i < participants.length; i++) {
-      participants[i].syncStop();
+    for (MockParticipantManager participant : participants) {
+      participant.syncStop();
+    }
+    for (MockParticipantManager participant : participants) {
+      if (participant.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
     }
 
     command = "-zkSvr localhost:2183 -dropCluster " + clusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s"));
 
-    for (int i = 0; i < controllers.length; i++) {
-      controllers[i].syncStop();
+    for (ClusterDistributedController controller : controllers) {
+      controller.syncStop();
     }
+    for (ClusterDistributedController controller : controllers) {
+      if (controller.isConnected()) {
+        Thread.sleep(SLEEP_DURATION);
+      }
+    }
+
     command = "-zkSvr localhost:2183 -dropCluster " + grandClusterName;
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
   }
 
-  @Test (dependsOnMethods = "testDeactivateCluster")
+  @Test(dependsOnMethods = "testDeactivateCluster")
   public void testInstanceGroupTags() throws Exception {
-    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(_gZkClient);
+    BaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<>(_gZkClient);
     HelixDataAccessor accessor = new ZKHelixDataAccessor(clusterName, baseAccessor);
 
     String command = "-zkSvr " + ZK_ADDR + " -addCluster " + clusterName;
@@ -609,7 +647,7 @@ public class TestHelixAdminCli extends ZkTestBase {
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
     IdealState dbIs = accessor.getProperty(accessor.keyBuilder().idealStates("db_11"));
-    Set<String> hosts = new HashSet<String>();
+    Set<String> hosts = new HashSet<>();
     for (String p : dbIs.getPartitionSet()) {
       for (String hostName : dbIs.getInstanceStateMap(p).keySet()) {
         InstanceConfig config =
@@ -632,7 +670,7 @@ public class TestHelixAdminCli extends ZkTestBase {
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
     dbIs = accessor.getProperty(accessor.keyBuilder().idealStates("db_11"));
-    hosts = new HashSet<String>();
+    hosts = new HashSet<>();
     for (String p : dbIs.getPartitionSet()) {
       for (String hostName : dbIs.getInstanceStateMap(p).keySet()) {
         InstanceConfig config =
@@ -647,9 +685,8 @@ public class TestHelixAdminCli extends ZkTestBase {
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
 
     for (int i = 3; i <= 3; i++) {
-      command =
-          "-zkSvr " + ZK_ADDR + " -removeInstanceTag " + clusterName + " localhost_123" + i
-              + " tag2";
+      command = "-zkSvr " + ZK_ADDR + " -removeInstanceTag " + clusterName + " localhost_123" + i
+          + " tag2";
       ClusterSetup.processCommandLineArgs(command.split("\\s+"));
     }
 
@@ -661,7 +698,7 @@ public class TestHelixAdminCli extends ZkTestBase {
         "-zkSvr " + ZK_ADDR + " -rebalance " + clusterName + " db_11 3 -instanceGroupTag tag2";
     ClusterSetup.processCommandLineArgs(command.split("\\s+"));
     dbIs = accessor.getProperty(accessor.keyBuilder().idealStates("db_11"));
-    hosts = new HashSet<String>();
+    hosts = new HashSet<>();
     for (String p : dbIs.getPartitionSet()) {
       for (String hostName : dbIs.getInstanceStateMap(p).keySet()) {
         InstanceConfig config =

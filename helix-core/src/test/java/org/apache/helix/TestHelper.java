@@ -70,6 +70,7 @@ import org.testng.Assert;
 
 public class TestHelper {
   private static final Logger LOG = LoggerFactory.getLogger(TestHelper.class);
+  public static final long WAIT_DURATION = 20 * 1000L; // 20 seconds
 
   /**
    * Returns a unused random port.
@@ -301,7 +302,13 @@ public class TestHelper {
       try {
         setup.deleteCluster(clusterName);
       } catch (Exception ex) {
-        LOG.error("Failed to delete cluster " + clusterName, ex);
+        // Failed to delete, give some more time for connections to drop
+        try {
+          Thread.sleep(3000L);
+          setup.deleteCluster(clusterName);
+        } catch (Exception ignored) {
+          // OK - just ignore
+        }
       }
     }
   }

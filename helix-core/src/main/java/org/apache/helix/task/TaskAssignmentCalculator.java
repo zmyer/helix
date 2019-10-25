@@ -10,12 +10,9 @@ import java.util.Set;
 import java.util.SortedSet;
 import org.apache.helix.task.assigner.AssignableInstance;
 
-
-// TODO: 2018/7/25 by zmyer
 public abstract class TaskAssignmentCalculator {
   /**
    * Get all the partitions/tasks that belong to this job.
-   *
    * @param jobCfg the task configuration
    * @param jobCtx the task context
    * @param workflowCfg the workflow configuration
@@ -29,7 +26,6 @@ public abstract class TaskAssignmentCalculator {
 
   /**
    * Compute an assignment of tasks to instances
-   *
    * @param currStateOutput the current state of the instances
    * @param prevAssignment the previous task partition assignment
    * @param instances the instances
@@ -54,7 +50,7 @@ public abstract class TaskAssignmentCalculator {
    * @param jobConfig
    * @return
    */
-  String getQuotaType(WorkflowConfig workflowConfig, JobConfig jobConfig) {
+  public static String getQuotaType(WorkflowConfig workflowConfig, JobConfig jobConfig) {
     String workflowType = workflowConfig.getWorkflowType();
     if (workflowType == null || workflowType.equals("")) {
       // Workflow type is null, so we go by the job type

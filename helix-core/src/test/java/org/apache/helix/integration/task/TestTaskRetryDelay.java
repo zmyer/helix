@@ -36,7 +36,8 @@ public class TestTaskRetryDelay extends TaskTestBase {
     super.beforeClass();
   }
 
-  @Test public void testTaskRetryWithDelay() throws Exception {
+  @Test
+  public void testTaskRetryWithDelay() throws Exception {
     String jobResource = TestHelper.getTestMethodName();
     JobConfig.Builder jobBuilder = JobConfig.Builder.fromMap(WorkflowGenerator.DEFAULT_JOB_CONFIG);
     jobBuilder.setJobCommandConfigMap(WorkflowGenerator.DEFAULT_COMMAND_CONFIG)
@@ -53,11 +54,12 @@ public class TestTaskRetryDelay extends TaskTestBase {
     long startTime = _driver.getWorkflowContext(jobResource).getStartTime();
     long finishedTime = _driver.getWorkflowContext(jobResource).getFinishTime();
 
-    // It should finished at least 4 secs
+    // It should finish and take more than 2 secs with the retry delay built in
     Assert.assertTrue(finishedTime - startTime >= 2000L);
   }
 
-  @Test public void testTaskRetryWithoutDelay() throws Exception {
+  @Test
+  public void testTaskRetryWithoutDelay() throws Exception {
     String jobResource = TestHelper.getTestMethodName();
     JobConfig.Builder jobBuilder = JobConfig.Builder.fromMap(WorkflowGenerator.DEFAULT_JOB_CONFIG);
     jobBuilder.setJobCommandConfigMap(WorkflowGenerator.DEFAULT_COMMAND_CONFIG)
@@ -74,7 +76,7 @@ public class TestTaskRetryDelay extends TaskTestBase {
     long startTime = _driver.getWorkflowContext(jobResource).getStartTime();
     long finishedTime = _driver.getWorkflowContext(jobResource).getFinishTime();
 
-    // It should finished at less than 2 sec
+    // It should have finished within less than 2 sec
     Assert.assertTrue(finishedTime - startTime <= 2000L);
   }
 }
