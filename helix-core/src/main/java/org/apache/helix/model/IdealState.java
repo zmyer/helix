@@ -86,6 +86,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Deprecated.
+     *
      * @see {@link RebalanceMode}
      */
     @Deprecated
@@ -115,6 +116,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Instantiate an ideal state for a resource
+     *
      * @param resourceName the name of the resource
      */
     public IdealState(String resourceName) {
@@ -123,6 +125,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Instantiate an ideal state from a record
+     *
      * @param record ZNRecord corresponding to an ideal state
      */
     public IdealState(ZNRecord record) {
@@ -131,6 +134,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the associated resource
+     *
      * @return the name of the resource
      */
     public String getResourceName() {
@@ -139,6 +143,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the rebalance mode of the ideal state
+     *
      * @param mode {@link IdealStateModeProperty}
      */
     @Deprecated
@@ -150,6 +155,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the rebalance mode of the resource
+     *
      * @param rebalancerType
      */
     public void setRebalanceMode(RebalanceMode rebalancerType) {
@@ -160,6 +166,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the maximum number of partitions an instance can serve
+     *
      * @return the partition capacity of an instance for this resource, or Integer.MAX_VALUE
      */
     public int getMaxPartitionsPerInstance() {
@@ -169,6 +176,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Define a custom rebalancer that implements {@link Rebalancer}
+     *
      * @param rebalancerClassName the name of the custom rebalancing class
      */
     public void setRebalancerClassName(String rebalancerClassName) {
@@ -178,6 +186,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the name of the user-defined rebalancer associated with this resource
+     *
      * @return the rebalancer class name, or null if none is being used
      */
     public String getRebalancerClassName() {
@@ -206,6 +215,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the resource group name
+     *
      * @param resourceGroupName
      */
     public void setResourceGroupName(String resourceGroupName) {
@@ -214,6 +224,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the resource type
+     *
      * @param resourceType
      */
     public void setResourceType(String resourceType) {
@@ -222,6 +233,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the resource type
+     *
      * @return the resource type, or null if none is being set
      */
     public String getResourceType() {
@@ -230,6 +242,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the delay time (in ms) that Helix should move the partition after an instance goes offline.
+     *
      * @param delayInMilliseconds
      */
     public void setRebalanceDelay(long delayInMilliseconds) {
@@ -238,6 +251,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get rebalance delay time (in ms).
+     *
      * @return
      */
     public long getRebalanceDelay() {
@@ -256,6 +270,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Whether the delay rebalance is enabled.
+     *
      * @return
      */
     public boolean isDelayRebalanceEnabled() {
@@ -318,6 +333,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the maximum number of partitions of this resource that an instance can serve
+     *
      * @param max the maximum number of partitions supported
      */
     public void setMaxPartitionsPerInstance(int max) {
@@ -326,6 +342,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the rebalancing mode on this resource
+     *
      * @return {@link IdealStateModeProperty}
      */
     @Deprecated
@@ -336,6 +353,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the rebalancing mode on this resource
+     *
      * @return {@link RebalanceMode}
      */
     public RebalanceMode getRebalanceMode() {
@@ -351,9 +369,10 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the preferred instance placement and state for a partition replica
+     *
      * @param partitionName the replica to set
-     * @param instanceName the assigned instance
-     * @param state the replica state in this instance
+     * @param instanceName  the assigned instance
+     * @param state         the replica state in this instance
      */
     public void setPartitionState(String partitionName, String instanceName, String state) {
         Map<String, String> mapField = _record.getMapField(partitionName);
@@ -365,6 +384,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get all of the partitions
+     *
      * @return a set of partition names
      */
     // TODO: 2018/7/25 by zmyer
@@ -384,7 +404,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the current mapping of a partition.
-     *
+     * <p>
      * CAUTION: In FULL-AUTO mode, this method
      * could return empty map if neither {@link ClusterConfig#setPersistBestPossibleAssignment(Boolean)}
      * nor {@link ClusterConfig#setPersistIntermediateAssignment(Boolean)} is set to true.
@@ -417,35 +437,35 @@ public class IdealState extends HelixProperty {
      */
     public Set<String> getInstanceSet(String partitionName) {
         switch (getRebalanceMode()) {
-        case FULL_AUTO:
-        case SEMI_AUTO:
-        case USER_DEFINED:
-        case TASK:
-            List<String> prefList = _record.getListField(partitionName);
-            if (prefList != null && !prefList.isEmpty()) {
-                return new TreeSet<String>(prefList);
-            } else {
+            case FULL_AUTO:
+            case SEMI_AUTO:
+            case USER_DEFINED:
+            case TASK:
+                List<String> prefList = _record.getListField(partitionName);
+                if (prefList != null && !prefList.isEmpty()) {
+                    return new TreeSet<String>(prefList);
+                } else {
+                    Map<String, String> stateMap = _record.getMapField(partitionName);
+                    if (stateMap != null && !stateMap.isEmpty()) {
+                        return new TreeSet<String>(stateMap.keySet());
+                    } else {
+                        logger.warn(partitionName + " does NOT exist");
+                    }
+                }
+                break;
+
+            case CUSTOMIZED:
                 Map<String, String> stateMap = _record.getMapField(partitionName);
-                if (stateMap != null && !stateMap.isEmpty()) {
+                if (stateMap != null) {
                     return new TreeSet<String>(stateMap.keySet());
                 } else {
                     logger.warn(partitionName + " does NOT exist");
                 }
-            }
-            break;
-
-        case CUSTOMIZED:
-            Map<String, String> stateMap = _record.getMapField(partitionName);
-            if (stateMap != null) {
-                return new TreeSet<String>(stateMap.keySet());
-            } else {
-                logger.warn(partitionName + " does NOT exist");
-            }
-            break;
-        case NONE:
-        default:
-            logger.warn("Invalid ideal state mode: " + getResourceName());
-            break;
+                break;
+            case NONE:
+            default:
+                logger.warn("Invalid ideal state mode: " + getResourceName());
+                break;
         }
 
         return Collections.emptySet();
@@ -453,6 +473,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the preference list of a partition
+     *
      * @param partitionName the name of the partition
      * @return a list of instances that can serve replicas of the partition
      */
@@ -470,7 +491,7 @@ public class IdealState extends HelixProperty {
      * Set the preference list of a partition
      *
      * @param partitionName the name of the partition
-     * @param instanceList the instance preference list
+     * @param instanceList  the instance preference list
      */
     public void setPreferenceList(String partitionName, List<String> instanceList) {
         _record.setListField(partitionName, instanceList);
@@ -496,6 +517,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the state model associated with this resource
+     *
      * @return an identifier of the state model
      */
     // TODO: 2018/7/25 by zmyer
@@ -505,6 +527,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the state model associated with this resource
+     *
      * @param stateModel state model identifier
      */
     public void setStateModelDefRef(String stateModel) {
@@ -513,6 +536,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the number of partitions of this resource
+     *
      * @param numPartitions the number of partitions
      */
     public void setNumPartitions(int numPartitions) {
@@ -521,6 +545,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the number of partitions of this resource
+     *
      * @return the number of partitions
      */
     public int getNumPartitions() {
@@ -548,6 +573,7 @@ public class IdealState extends HelixProperty {
     /**
      * Set the number of replicas for each partition of this resource. There are documented special
      * values for the replica count, so this is a String.
+     *
      * @param replicas replica count (as a string)
      */
     public void setReplicas(String replicas) {
@@ -556,6 +582,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the number of replicas for each partition of this resource
+     *
      * @return number of replicas (as a string)
      */
     public String getReplicas() {
@@ -567,36 +594,36 @@ public class IdealState extends HelixProperty {
         if (replica == null) {
             String firstPartition = null;
             switch (getRebalanceMode()) {
-            case SEMI_AUTO:
-                if (_record.getListFields().size() == 0) {
+                case SEMI_AUTO:
+                    if (_record.getListFields().size() == 0) {
+                        replica = "0";
+                    } else {
+                        firstPartition = new ArrayList<String>(_record.getListFields().keySet()).get(0);
+                        replica =
+                                Integer.toString(firstPartition == null ? 0 : _record.getListField(firstPartition)
+                                        .size());
+                    }
+                    logger
+                            .warn("could NOT find number of replicas in idealState. Use size of the first list instead. replica: "
+                                    + replica + ", 1st partition: " + firstPartition);
+                    break;
+                case CUSTOMIZED:
+                    if (_record.getMapFields().size() == 0) {
+                        replica = "0";
+                    } else {
+                        firstPartition = new ArrayList<String>(_record.getMapFields().keySet()).get(0);
+                        replica =
+                                Integer.toString(firstPartition == null ? 0 : _record.getMapField(firstPartition)
+                                        .size());
+                    }
+                    logger
+                            .warn("could NOT find replicas in idealState. Use size of the first map instead. replica: "
+                                    + replica + ", 1st partition: " + firstPartition);
+                    break;
+                default:
                     replica = "0";
-                } else {
-                    firstPartition = new ArrayList<String>(_record.getListFields().keySet()).get(0);
-                    replica =
-                            Integer.toString(firstPartition == null ? 0 : _record.getListField(firstPartition)
-                                    .size());
-                }
-                logger
-                        .warn("could NOT find number of replicas in idealState. Use size of the first list instead. replica: "
-                                + replica + ", 1st partition: " + firstPartition);
-                break;
-            case CUSTOMIZED:
-                if (_record.getMapFields().size() == 0) {
-                    replica = "0";
-                } else {
-                    firstPartition = new ArrayList<String>(_record.getMapFields().keySet()).get(0);
-                    replica =
-                            Integer.toString(firstPartition == null ? 0 : _record.getMapField(firstPartition)
-                                    .size());
-                }
-                logger
-                        .warn("could NOT find replicas in idealState. Use size of the first map instead. replica: "
-                                + replica + ", 1st partition: " + firstPartition);
-                break;
-            default:
-                replica = "0";
-                logger.error("could NOT determine replicas. set to 0");
-                break;
+                    logger.error("could NOT determine replicas. set to 0");
+                    break;
             }
         }
 
@@ -629,6 +656,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the state model factory associated with this resource
+     *
      * @param name state model factory name
      */
     public void setStateModelFactoryName(String name) {
@@ -637,6 +665,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Get the state model factory associated with this resource
+     *
      * @return state model factory name
      */
     public String getStateModelFactoryName() {
@@ -646,6 +675,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set the frequency with which to rebalance
+     *
      * @return the rebalancing timer period
      */
     public long getRebalanceTimerPeriod() {
@@ -695,6 +725,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Set a tag to check to enforce assignment to certain instances
+     *
      * @param groupTag the instance group tag
      */
     public void setInstanceGroupTag(String groupTag) {
@@ -703,6 +734,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Check for a tag that will restrict assignment to instances with a matching tag
+     *
      * @return the group tag, or null if none is present
      */
     public String getInstanceGroupTag() {
@@ -713,30 +745,30 @@ public class IdealState extends HelixProperty {
     private RebalanceMode normalizeRebalanceMode(IdealStateModeProperty mode) {
         RebalanceMode property;
         switch (mode) {
-        case AUTO_REBALANCE:
-            property = RebalanceMode.FULL_AUTO;
-            break;
-        case AUTO:
-            property = RebalanceMode.SEMI_AUTO;
-            break;
-        case CUSTOMIZED:
-            property = RebalanceMode.CUSTOMIZED;
-            break;
-        default:
-            String rebalancerName = getRebalancerClassName();
-            if (rebalancerName != null) {
-                if (rebalancerName.equals(JobRebalancer.class.getName())
-                        || rebalancerName.equals(WorkflowRebalancer.class.getName())
-                        || rebalancerName.equals(GenericTaskRebalancer.class.getName())
-                        || rebalancerName.equals(FixedTargetTaskRebalancer.class.getName())) {
-                    property = RebalanceMode.TASK;
-                } else {
-                    property = RebalanceMode.USER_DEFINED;
-                }
-            } else {
+            case AUTO_REBALANCE:
+                property = RebalanceMode.FULL_AUTO;
+                break;
+            case AUTO:
                 property = RebalanceMode.SEMI_AUTO;
-            }
-            break;
+                break;
+            case CUSTOMIZED:
+                property = RebalanceMode.CUSTOMIZED;
+                break;
+            default:
+                String rebalancerName = getRebalancerClassName();
+                if (rebalancerName != null) {
+                    if (rebalancerName.equals(JobRebalancer.class.getName())
+                            || rebalancerName.equals(WorkflowRebalancer.class.getName())
+                            || rebalancerName.equals(GenericTaskRebalancer.class.getName())
+                            || rebalancerName.equals(FixedTargetTaskRebalancer.class.getName())) {
+                        property = RebalanceMode.TASK;
+                    } else {
+                        property = RebalanceMode.USER_DEFINED;
+                    }
+                } else {
+                    property = RebalanceMode.SEMI_AUTO;
+                }
+                break;
         }
         return property;
     }
@@ -744,25 +776,26 @@ public class IdealState extends HelixProperty {
     private IdealStateModeProperty denormalizeRebalanceMode(RebalanceMode rebalancerType) {
         IdealStateModeProperty property;
         switch (rebalancerType) {
-        case FULL_AUTO:
-            property = IdealStateModeProperty.AUTO_REBALANCE;
-            break;
-        case SEMI_AUTO:
-            property = IdealStateModeProperty.AUTO;
-            break;
-        case CUSTOMIZED:
-            property = IdealStateModeProperty.CUSTOMIZED;
-            break;
-        default:
-            property = IdealStateModeProperty.AUTO;
-            break;
+            case FULL_AUTO:
+                property = IdealStateModeProperty.AUTO_REBALANCE;
+                break;
+            case SEMI_AUTO:
+                property = IdealStateModeProperty.AUTO;
+                break;
+            case CUSTOMIZED:
+                property = IdealStateModeProperty.CUSTOMIZED;
+                break;
+            default:
+                property = IdealStateModeProperty.AUTO;
+                break;
         }
         return property;
     }
 
     /**
      * Parse a RebalanceMode from a string. It can also understand IdealStateModeProperty values.
-     * @param mode string containing a RebalanceMode value
+     *
+     * @param mode        string containing a RebalanceMode value
      * @param defaultMode the mode to use if the string is not valid
      * @return converted RebalanceMode value
      */
@@ -785,6 +818,7 @@ public class IdealState extends HelixProperty {
     /**
      * Get if the resource is enabled or not
      * By default, it's enabled
+     *
      * @return true if enabled; false otherwise
      */
     public boolean isEnabled() {
@@ -793,6 +827,7 @@ public class IdealState extends HelixProperty {
 
     /**
      * Enable/Disable the resource
+     *
      * @param enabled
      */
     public void enable(boolean enabled) {

@@ -22,6 +22,7 @@ package org.apache.helix.rest.server;
 
 import java.util.HashMap;
 import java.util.Map;
+
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
@@ -38,88 +39,88 @@ import org.apache.helix.task.TaskDriver;
 import org.apache.helix.tools.ClusterSetup;
 
 public class ServerContext {
-  private final String _zkAddr;
-  private HelixZkClient _zkClient;
-  private ZKHelixAdmin _zkHelixAdmin;
-  private ClusterSetup _clusterSetup;
-  private ConfigAccessor _configAccessor;
+    private final String _zkAddr;
+    private HelixZkClient _zkClient;
+    private ZKHelixAdmin _zkHelixAdmin;
+    private ClusterSetup _clusterSetup;
+    private ConfigAccessor _configAccessor;
 
-  // 1 Cluster name will correspond to 1 helix data accessor
-  private final Map<String, HelixDataAccessor> _helixDataAccessorPool;
+    // 1 Cluster name will correspond to 1 helix data accessor
+    private final Map<String, HelixDataAccessor> _helixDataAccessorPool;
 
-  // 1 Cluster name will correspond to 1 task driver
-  private final Map<String, TaskDriver> _taskDriverPool;
+    // 1 Cluster name will correspond to 1 task driver
+    private final Map<String, TaskDriver> _taskDriverPool;
 
-  public ServerContext(String zkAddr) {
-    _zkAddr = zkAddr;
+    public ServerContext(String zkAddr) {
+        _zkAddr = zkAddr;
 
-    // We should NOT initiate _zkClient and anything that depends on _zkClient in
-    // constructor, as it is reasonable to start up HelixRestServer first and then
-    // ZooKeeper. In this case, initializing _zkClient will fail and HelixRestServer
-    // cannot be started correctly.
-    _helixDataAccessorPool = new HashMap<>();
-    _taskDriverPool = new HashMap<>();
-  }
-
-  public HelixZkClient getHelixZkClient() {
-    if (_zkClient == null) {
-      HelixZkClient.ZkClientConfig clientConfig = new HelixZkClient.ZkClientConfig();
-      clientConfig.setZkSerializer(new ZNRecordSerializer());
-      _zkClient = SharedZkClientFactory
-          .getInstance().buildZkClient(new HelixZkClient.ZkConnectionConfig(_zkAddr), clientConfig);
+        // We should NOT initiate _zkClient and anything that depends on _zkClient in
+        // constructor, as it is reasonable to start up HelixRestServer first and then
+        // ZooKeeper. In this case, initializing _zkClient will fail and HelixRestServer
+        // cannot be started correctly.
+        _helixDataAccessorPool = new HashMap<>();
+        _taskDriverPool = new HashMap<>();
     }
-    return _zkClient;
-  }
 
-  @Deprecated
-  public ZkClient getZkClient() {
-    return (ZkClient) getHelixZkClient();
-  }
-
-  public HelixAdmin getHelixAdmin() {
-    if (_zkHelixAdmin == null) {
-      _zkHelixAdmin = new ZKHelixAdmin(getHelixZkClient());
+    public HelixZkClient getHelixZkClient() {
+        if (_zkClient == null) {
+            HelixZkClient.ZkClientConfig clientConfig = new HelixZkClient.ZkClientConfig();
+            clientConfig.setZkSerializer(new ZNRecordSerializer());
+            _zkClient = SharedZkClientFactory
+                    .getInstance().buildZkClient(new HelixZkClient.ZkConnectionConfig(_zkAddr), clientConfig);
+        }
+        return _zkClient;
     }
-    return _zkHelixAdmin;
-  }
 
-  public ClusterSetup getClusterSetup() {
-    if (_clusterSetup == null) {
-      _clusterSetup = new ClusterSetup(getHelixZkClient(), getHelixAdmin());
+    @Deprecated
+    public ZkClient getZkClient() {
+        return (ZkClient) getHelixZkClient();
     }
-    return _clusterSetup;
-  }
 
-  public TaskDriver getTaskDriver(String clusterName) {
-    synchronized (_taskDriverPool) {
-      if (!_taskDriverPool.containsKey(clusterName)) {
-        _taskDriverPool.put(clusterName, new TaskDriver(getHelixZkClient(), clusterName));
-      }
-      return _taskDriverPool.get(clusterName);
+    public HelixAdmin getHelixAdmin() {
+        if (_zkHelixAdmin == null) {
+            _zkHelixAdmin = new ZKHelixAdmin(getHelixZkClient());
+        }
+        return _zkHelixAdmin;
     }
-  }
 
-  public ConfigAccessor getConfigAccessor() {
-    if (_configAccessor == null) {
-      _configAccessor = new ConfigAccessor(getHelixZkClient());
+    public ClusterSetup getClusterSetup() {
+        if (_clusterSetup == null) {
+            _clusterSetup = new ClusterSetup(getHelixZkClient(), getHelixAdmin());
+        }
+        return _clusterSetup;
     }
-    return _configAccessor;
-  }
 
-  public HelixDataAccessor getDataAccssor(String clusterName) {
-    synchronized (_helixDataAccessorPool) {
-      if (!_helixDataAccessorPool.containsKey(clusterName)) {
-        ZkBaseDataAccessor<ZNRecord> baseDataAccessor = new ZkBaseDataAccessor<>(getHelixZkClient());
-        _helixDataAccessorPool.put(clusterName,
-            new ZKHelixDataAccessor(clusterName, InstanceType.ADMINISTRATOR, baseDataAccessor));
-      }
-      return _helixDataAccessorPool.get(clusterName);
+    public TaskDriver getTaskDriver(String clusterName) {
+        synchronized (_taskDriverPool) {
+            if (!_taskDriverPool.containsKey(clusterName)) {
+                _taskDriverPool.put(clusterName, new TaskDriver(getHelixZkClient(), clusterName));
+            }
+            return _taskDriverPool.get(clusterName);
+        }
     }
-  }
 
-  public void close() {
-    if (_zkClient != null) {
-      _zkClient.close();
+    public ConfigAccessor getConfigAccessor() {
+        if (_configAccessor == null) {
+            _configAccessor = new ConfigAccessor(getHelixZkClient());
+        }
+        return _configAccessor;
     }
-  }
+
+    public HelixDataAccessor getDataAccssor(String clusterName) {
+        synchronized (_helixDataAccessorPool) {
+            if (!_helixDataAccessorPool.containsKey(clusterName)) {
+                ZkBaseDataAccessor<ZNRecord> baseDataAccessor = new ZkBaseDataAccessor<>(getHelixZkClient());
+                _helixDataAccessorPool.put(clusterName,
+                        new ZKHelixDataAccessor(clusterName, InstanceType.ADMINISTRATOR, baseDataAccessor));
+            }
+            return _helixDataAccessorPool.get(clusterName);
+        }
+    }
+
+    public void close() {
+        if (_zkClient != null) {
+            _zkClient.close();
+        }
+    }
 }

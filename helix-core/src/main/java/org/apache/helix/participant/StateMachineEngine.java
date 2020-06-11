@@ -33,44 +33,49 @@ public interface StateMachineEngine extends MultiTypeMessageHandlerFactory {
      * Register a default state model factory for a state model definition
      * A state model definition could be, for example:
      * "MasterSlave", "OnlineOffline", "LeaderStandby", etc.
+     *
      * @param stateModelDef
      * @param factory
      * @return
      */
     public boolean registerStateModelFactory(String stateModelDef,
-            StateModelFactory<? extends StateModel> factory);
+                                             StateModelFactory<? extends StateModel> factory);
 
     /**
      * Register a state model factory with a name for a state model definition
+     *
      * @param stateModelDef
      * @param factory
      * @param factoryName
      * @return
      */
     public boolean registerStateModelFactory(String stateModelDef,
-            StateModelFactory<? extends StateModel> factory, String factoryName);
+                                             StateModelFactory<? extends StateModel> factory, String factoryName);
 
     /**
      * Remove the default state model factory for a state model definition
+     *
      * @param stateModelDef
      * @param factory
      * @return
      */
     public boolean removeStateModelFactory(String stateModelDef,
-            StateModelFactory<? extends StateModel> factory);
+                                           StateModelFactory<? extends StateModel> factory);
 
     /**
      * Remove the state model factory with a name for a state model definition
+     *
      * @param stateModelDef
      * @param factory
      * @param factoryName
      * @return
      */
     public boolean removeStateModelFactory(String stateModelDef,
-            StateModelFactory<? extends StateModel> factory, String factoryName);
+                                           StateModelFactory<? extends StateModel> factory, String factoryName);
 
     /**
      * Get a default state model factory for a state model definition.
+     *
      * @param stateModelName
      * @return
      */
@@ -78,10 +83,11 @@ public interface StateMachineEngine extends MultiTypeMessageHandlerFactory {
 
     /**
      * Get a default state model factory for a state model definition.
+     *
      * @param stateModelName
      * @param factoryName
      * @return
      */
     public StateModelFactory<? extends StateModel> getStateModelFactory(String stateModelName,
-            String factoryName);
+                                                                        String factoryName);
 }
