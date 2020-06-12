@@ -20,7 +20,7 @@ package org.apache.helix.util;
  */
 
 import org.apache.helix.manager.zk.ZNRecordSerializer;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.zookeeper.impl.client.ZkClient;
 import org.apache.zookeeper.ZooKeeper.States;
 
 import java.util.Map;

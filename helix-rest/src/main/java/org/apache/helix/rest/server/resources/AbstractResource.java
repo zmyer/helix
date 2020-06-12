@@ -30,6 +30,7 @@ import javax.ws.rs.core.Application;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+
 import org.apache.helix.HelixException;
 import org.apache.helix.rest.server.auditlog.AuditLog;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -61,12 +62,21 @@ public class AbstractResource {
     enablePartitions,
     disablePartitions,
     update,
+    add,
     delete,
     stoppable,
     rebalance,
     reset,
     resetPartitions,
-    removeInstanceTag
+    removeInstanceTag,
+    addResource,
+    addWagedResource,
+    getResource,
+    validateWeight,
+    enableWagedRebalance,
+    enableWagedRebalanceForAllResources,
+    getInstance,
+    getAllInstances
   }
 
   @Context
@@ -86,6 +96,11 @@ public class AbstractResource {
 
   protected Response serverError() {
     return Response.serverError().build();
+  }
+
+  protected Response serverError(String errorMsg) {
+    return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(errorMsgToJson(errorMsg))
+        .build();
   }
 
   protected Response serverError(Exception ex) {

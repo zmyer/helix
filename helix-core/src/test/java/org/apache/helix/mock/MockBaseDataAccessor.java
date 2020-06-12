@@ -24,12 +24,13 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.I0Itec.zkclient.DataUpdater;
-import org.I0Itec.zkclient.IZkChildListener;
-import org.I0Itec.zkclient.IZkDataListener;
+
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.HelixException;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.zkclient.DataUpdater;
+import org.apache.helix.zookeeper.zkclient.IZkChildListener;
+import org.apache.helix.zookeeper.zkclient.IZkDataListener;
 import org.apache.zookeeper.data.Stat;
 
 public class MockBaseDataAccessor implements BaseDataAccessor<ZNRecord> {
@@ -148,6 +149,7 @@ public class MockBaseDataAccessor implements BaseDataAccessor<ZNRecord> {
     return zNode != null ? zNode.getRecord() : null;
   }
 
+  @Deprecated
   @Override
   public List<ZNRecord> get(List<String> paths, List<Stat> stats, int options) {
     return get(paths, stats, options, false);
@@ -164,8 +166,15 @@ public class MockBaseDataAccessor implements BaseDataAccessor<ZNRecord> {
     return records;
   }
 
+  @Deprecated
   @Override
   public List<ZNRecord> getChildren(String parentPath, List<Stat> stats, int options) {
+    return getChildren(parentPath, stats, options, 0, 0);
+  }
+
+  @Override
+  public List<ZNRecord> getChildren(String parentPath, List<Stat> stats, int options,
+      int retryCount, int retryInterval) throws HelixException {
     List<ZNRecord> children = new ArrayList<>();
     for (String key : _recordMap.keySet()) {
       if (key.startsWith(parentPath)) {
@@ -184,12 +193,6 @@ public class MockBaseDataAccessor implements BaseDataAccessor<ZNRecord> {
       }
     }
     return children;
-  }
-
-  @Override
-  public List<ZNRecord> getChildren(String parentPath, List<Stat> stats, int options,
-      int retryCount, int retryInterval) throws HelixException {
-    return getChildren(parentPath, stats, options);
   }
 
   @Override
@@ -257,6 +260,9 @@ public class MockBaseDataAccessor implements BaseDataAccessor<ZNRecord> {
   @Override public void reset() {
     _recordMap.clear();
   }
+
+  @Override
+  public void close() { }
 
   @Override public boolean set(String path, ZNRecord record, int options, int expectVersion) {
     return set(path, record, options);

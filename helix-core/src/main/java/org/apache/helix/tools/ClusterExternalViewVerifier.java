@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.pipeline.Stage;
 import org.apache.helix.controller.pipeline.StageContext;
@@ -34,7 +35,7 @@ import org.apache.helix.controller.stages.ClusterEvent;
 import org.apache.helix.controller.stages.ClusterEventType;
 import org.apache.helix.controller.stages.CurrentStateComputationStage;
 import org.apache.helix.controller.stages.ResourceComputationStage;
-import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.Partition;
 import org.slf4j.Logger;
@@ -155,7 +156,7 @@ public class ClusterExternalViewVerifier extends ClusterVerifier {
 
     BestPossibleStateOutput bestPossbileStates = calculateBestPossibleState(cache);
     Map<String, ExternalView> externalViews =
-        _accessor.getChildValuesMap(_keyBuilder.externalViews());
+        _accessor.getChildValuesMap(_keyBuilder.externalViews(), true);
 
     // TODO all ideal-states should be included in external-views
 

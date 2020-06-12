@@ -21,6 +21,7 @@ package org.apache.helix.participant;
 
 import java.util.Set;
 import java.util.UUID;
+
 import org.apache.helix.ClusterMessagingService;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixAdmin;
@@ -31,11 +32,16 @@ import org.apache.helix.InstanceType;
 import org.apache.helix.LiveInstanceInfoProvider;
 import org.apache.helix.PreConnectCallback;
 import org.apache.helix.PropertyKey;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.api.listeners.ClusterConfigChangeListener;
 import org.apache.helix.api.listeners.ConfigChangeListener;
 import org.apache.helix.api.listeners.ControllerChangeListener;
 import org.apache.helix.api.listeners.CurrentStateChangeListener;
+import org.apache.helix.api.listeners.CustomizedStateChangeListener;
+import org.apache.helix.api.listeners.CustomizedStateConfigChangeListener;
+import org.apache.helix.api.listeners.CustomizedStateRootChangeListener;
+import org.apache.helix.api.listeners.CustomizedViewChangeListener;
+import org.apache.helix.api.listeners.CustomizedViewRootChangeListener;
 import org.apache.helix.api.listeners.ExternalViewChangeListener;
 import org.apache.helix.api.listeners.IdealStateChangeListener;
 import org.apache.helix.api.listeners.InstanceConfigChangeListener;
@@ -47,7 +53,7 @@ import org.apache.helix.controller.pipeline.Pipeline;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollector;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
 import org.apache.helix.messaging.DefaultMessagingService;
 import org.apache.helix.model.HelixConfigScope.ConfigScopeProperty;
 import org.apache.helix.store.zk.ZkHelixPropertyStore;
@@ -121,6 +127,13 @@ public class MockZKHelixManager implements HelixManager {
   }
 
   @Override
+  public void addCustomizedStateConfigChangeListener(CustomizedStateConfigChangeListener listener)
+      throws Exception {
+    // TODO Auto-generated method stub
+
+  }
+
+  @Override
   public void addClusterfigChangeListener(ClusterConfigChangeListener listener)
       throws Exception {
     // TODO Auto-generated method stub
@@ -158,9 +171,33 @@ public class MockZKHelixManager implements HelixManager {
   }
 
   @Override
+  public void addCustomizedStateRootChangeListener(CustomizedStateRootChangeListener listener,
+      String instanceName) throws Exception {
+    // TODO Auto-generated method stub
+
+  }
+
+  @Override
+  public void addCustomizedStateChangeListener(CustomizedStateChangeListener listener,
+      String instanceName, String customizedStateType) throws Exception {
+    // TODO Auto-generated method stub
+
+  }
+
+  @Override
   public void addExternalViewChangeListener(ExternalViewChangeListener listener) throws Exception {
     // TODO Auto-generated method stub
 
+  }
+
+  @Override
+  public void addCustomizedViewChangeListener(CustomizedViewChangeListener listener, String customizedStateType) throws Exception {
+    // TODO Auto-generated method stub
+
+  }
+
+  public void addCustomizedViewRootChangeListener(CustomizedViewRootChangeListener listener) throws Exception {
+    // TODO Auto-generated method stub
   }
 
   @Override

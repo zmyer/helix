@@ -36,6 +36,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+
+import org.apache.helix.AccessOption;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.Criteria;
 import org.apache.helix.HelixConstants;
@@ -68,6 +70,8 @@ import org.apache.helix.participant.statemachine.StateModel;
 import org.apache.helix.participant.statemachine.StateModelFactory;
 import org.apache.helix.util.HelixUtil;
 import org.apache.helix.util.StatusUpdateUtil;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.zkclient.DataUpdater;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -523,12 +527,27 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
   private void updateMessageState(List<Message> readMsgs, HelixDataAccessor accessor,
       String instanceName) {
     Builder keyBuilder = accessor.keyBuilder();
-    List<PropertyKey> readMsgKeys = new ArrayList<>();
+    List<String> readMsgPaths = new ArrayList<>();
+    List<DataUpdater<ZNRecord>> updaters = new ArrayList<>();
     for (Message msg : readMsgs) {
-      readMsgKeys.add(msg.getKey(keyBuilder, instanceName));
+      readMsgPaths.add(msg.getKey(keyBuilder, instanceName).getPath());
       _knownMessageIds.add(msg.getId());
+      /**
+       * We use the updater to avoid race condition between writing message to zk as READ state and removing message after ST is done
+       * If there is no message at this path, meaning the message is removed so we do not write the message
+       */
+      updaters.add(new DataUpdater<ZNRecord>() {
+        @Override
+        public ZNRecord update(ZNRecord currentData) {
+          if (currentData == null) {
+            LOG.warn("Message {} targets at {} has already been removed before it is set as READ on instance {}", msg.getId(), msg.getTgtName(), instanceName);
+            return null;
+          }
+          return msg.getRecord();
+        }
+      });
     }
-    accessor.setChildren(readMsgKeys, readMsgs);
+    accessor.updateChildren(readMsgPaths, updaters, AccessOption.PERSISTENT);
   }
 
   private void shutdownAndAwaitTermination(ExecutorService pool) {
@@ -700,7 +719,15 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
       }
     }
 
-    List<Message> newMessages = accessor.getProperty(keys);
+    /**
+     * Do not throw exception on partial message read.
+     * 1. There is no way to resolve the error on the participant side. And once it fails here, we
+     * are running the risk of ignoring the message change event. And the participant might be stuck.
+     * 2. Even this is a partial read, we have another chance to retry in the business logic since
+     * as long as the participant processes messages, it will touch the message folder and triggers
+     * another message event.
+     */
+    List<Message> newMessages = accessor.getProperty(keys, false);
     // Message may be removed before get read, clean up null messages.
     Iterator<Message> messageIterator = newMessages.iterator();
     while(messageIterator.hasNext()) {
@@ -817,7 +844,8 @@ public class HelixTaskExecutor implements MessageListener, TaskExecutor {
           LOG.info(String.format("Controller received PARTICIPANT_SESSION_CHANGE msg from src: %s",
               message.getMsgSrc()));
           PropertyKey key = new Builder(manager.getClusterName()).liveInstances();
-          List<LiveInstance> liveInstances = manager.getHelixDataAccessor().getChildValues(key);
+          List<LiveInstance> liveInstances =
+              manager.getHelixDataAccessor().getChildValues(key, true);
           _controller.onLiveInstanceChange(liveInstances, changeContext);
           reportAndRemoveMessage(message, accessor, instanceName, ProcessedMessageState.COMPLETED);
           continue;

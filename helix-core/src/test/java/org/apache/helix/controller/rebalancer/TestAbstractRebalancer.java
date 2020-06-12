@@ -22,6 +22,7 @@ package org.apache.helix.controller.rebalancer;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
 import org.apache.helix.model.ClusterConfig;
@@ -48,12 +49,12 @@ public class TestAbstractRebalancer {
           .setCurrentState("test", partition, instance, currentStateMap.get(instance));
     }
     Map<String, String> bestPossibleMap = rebalancer
-        .computeBestPossibleStateForPartition(new HashSet<String>(liveInstances),
+        .computeBestPossibleStateForPartition(new HashSet<>(liveInstances),
             BuiltInStateModelDefinitions.valueOf(stateModelName).getStateModelDefinition(),
-            preferenceList, currentStateOutput, new HashSet<String>(disabledInstancesForPartition),
+            preferenceList, currentStateOutput, new HashSet<>(disabledInstancesForPartition),
             new IdealState("test"), new ClusterConfig("TestCluster"), partition);
 
-    Assert.assertTrue(bestPossibleMap.equals(expectedBestPossibleMap));
+    Assert.assertEquals(bestPossibleMap, expectedBestPossibleMap);
   }
 
   @DataProvider(name = "TestComputeBestPossibleStateInput")

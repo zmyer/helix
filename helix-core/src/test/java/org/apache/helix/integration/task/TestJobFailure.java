@@ -19,13 +19,14 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Sets;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 import org.apache.helix.TestHelper;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
@@ -73,7 +74,7 @@ public final class TestJobFailure extends TaskSynchronizedTestBase {
   @Test(dataProvider = "testJobFailureInput")
   public void testNormalJobFailure(String comment, List<String> taskStates,
       List<String> expectedTaskEndingStates, String expectedJobEndingStates,
-      String expectedWorkflowEndingStates) throws InterruptedException {
+      String expectedWorkflowEndingStates) throws Exception {
     final String JOB_NAME = "test_job";
     final String WORKFLOW_NAME = TestHelper.getTestMethodName() + testNum++;
     System.out.println("Test case comment: " + comment);
@@ -117,8 +118,15 @@ public final class TestJobFailure extends TaskSynchronizedTestBase {
   }
 
   private Map<String, Map<String, String>> createPartitionConfig(List<String> taskStates,
-      List<String> expectedTaskEndingStates) {
+      List<String> expectedTaskEndingStates) throws Exception {
     Map<String, Map<String, String>> targetPartitionConfigs = new HashMap<>();
+    // Make sure external view has been created for the resource
+    Assert.assertTrue(TestHelper.verify(() -> {
+      ExternalView externalView =
+          _manager.getClusterManagmentTool().getResourceExternalView(CLUSTER_NAME, DB_NAME);
+      return externalView != null;
+    }, TestHelper.WAIT_DURATION));
+
     ExternalView externalView =
         _manager.getClusterManagmentTool().getResourceExternalView(CLUSTER_NAME, DB_NAME);
     Set<String> partitionSet = externalView.getPartitionSet();

@@ -19,328 +19,725 @@ package org.apache.helix.model;
  * under the License.
  */
 
-import org.apache.helix.HelixProperty;
-import org.apache.helix.ZNRecord;
-import org.apache.helix.api.config.HelixConfigProperty;
-import org.apache.helix.api.config.RebalanceConfig;
-import org.apache.helix.api.config.StateTransitionTimeoutConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import java.io.IOException;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import org.apache.helix.HelixProperty;
+import org.apache.helix.api.config.HelixConfigProperty;
+import org.apache.helix.api.config.RebalanceConfig;
+import org.apache.helix.api.config.StateTransitionTimeoutConfig;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.codehaus.jackson.map.ObjectMapper;
+import org.codehaus.jackson.type.TypeReference;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Resource configurations
  */
-// TODO: 2018/7/25 by zmyer
 public class ResourceConfig extends HelixProperty {
+  /**
+   * Configurable characteristics of a resource
+   */
+  public enum ResourceConfigProperty {
+    MONITORING_DISABLED, // Resource-level config, do not create Mbean and report any status for the resource.
+    NUM_PARTITIONS,
+    STATE_MODEL_DEF_REF,
+    STATE_MODEL_FACTORY_NAME,
+    REPLICAS,
+    MIN_ACTIVE_REPLICAS,
+    MAX_PARTITIONS_PER_INSTANCE,
+    INSTANCE_GROUP_TAG,
+    HELIX_ENABLED,
+    RESOURCE_GROUP_NAME,
+    RESOURCE_TYPE,
+    GROUP_ROUTING_ENABLED,
+    EXTERNAL_VIEW_DISABLED,
+    DELAY_REBALANCE_ENABLED,
+    PARTITION_CAPACITY_MAP
+  }
+
+  public enum ResourceConfigConstants {
+    ANY_LIVEINSTANCE
+  }
+
+  private static final Logger _logger = LoggerFactory.getLogger(ResourceConfig.class.getName());
+  private static final ObjectMapper _objectMapper = new ObjectMapper();
+
+  public static final String DEFAULT_PARTITION_KEY = "DEFAULT";
+
+  /**
+   * Instantiate for a specific instance
+   *
+   * @param resourceId the instance identifier
+   */
+  public ResourceConfig(String resourceId) {
+    super(resourceId);
+  }
+
+  /**
+   * Instantiate with a pre-populated record
+   *
+   * @param record a ZNRecord corresponding to an instance configuration
+   */
+  public ResourceConfig(ZNRecord record) {
+    super(record);
+  }
+
+  /**
+   * Instantiate with a pre-populated record with new record id
+   * @param record a ZNRecord corresponding to an instance configuration
+   * @param id     new ZNRecord ID
+   */
+  public ResourceConfig(ZNRecord record, String id) {
+    super(record, id);
+  }
+
+  public ResourceConfig(String resourceId, Boolean monitorDisabled, int numPartitions,
+      String stateModelDefRef, String stateModelFactoryName, String numReplica,
+      int minActiveReplica, int maxPartitionsPerInstance, String instanceGroupTag,
+      Boolean helixEnabled, String resourceGroupName, String resourceType,
+      Boolean groupRoutingEnabled, Boolean externalViewDisabled, RebalanceConfig rebalanceConfig,
+      StateTransitionTimeoutConfig stateTransitionTimeoutConfig,
+      Map<String, List<String>> listFields, Map<String, Map<String, String>> mapFields,
+      Boolean p2pMessageEnabled) {
+    this(resourceId, monitorDisabled, numPartitions, stateModelDefRef, stateModelFactoryName,
+        numReplica, minActiveReplica, maxPartitionsPerInstance, instanceGroupTag, helixEnabled,
+        resourceGroupName, resourceType, groupRoutingEnabled, externalViewDisabled, rebalanceConfig,
+        stateTransitionTimeoutConfig, listFields, mapFields, p2pMessageEnabled, null);
+  }
+
+  private ResourceConfig(String resourceId, Boolean monitorDisabled, int numPartitions,
+    String stateModelDefRef, String stateModelFactoryName, String numReplica,
+    int minActiveReplica, int maxPartitionsPerInstance, String instanceGroupTag,
+        Boolean helixEnabled, String resourceGroupName, String resourceType,
+        Boolean groupRoutingEnabled, Boolean externalViewDisabled,
+        RebalanceConfig rebalanceConfig, StateTransitionTimeoutConfig stateTransitionTimeoutConfig,
+        Map<String, List<String>> listFields, Map<String, Map<String, String>> mapFields,
+        Boolean p2pMessageEnabled, Map<String, Map<String, Integer>> partitionCapacityMap) {
+    super(resourceId);
+
+    if (monitorDisabled != null) {
+      _record.setBooleanField(ResourceConfigProperty.MONITORING_DISABLED.name(), monitorDisabled);
+    }
+
+    if (p2pMessageEnabled != null) {
+      _record.setBooleanField(HelixConfigProperty.P2P_MESSAGE_ENABLED.name(), p2pMessageEnabled);
+    }
+
+    if (numPartitions > 0) {
+      _record.setIntField(ResourceConfigProperty.NUM_PARTITIONS.name(), numPartitions);
+    }
+
+    if (stateModelDefRef != null) {
+      _record.setSimpleField(ResourceConfigProperty.STATE_MODEL_DEF_REF.name(), stateModelDefRef);
+    }
+
+    if (stateModelFactoryName != null) {
+      _record.setSimpleField(ResourceConfigProperty.STATE_MODEL_FACTORY_NAME.name(), stateModelFactoryName);
+    }
+
+    if (numReplica != null) {
+      _record.setSimpleField(ResourceConfigProperty.REPLICAS.name(), numReplica);
+    }
+
+    if (minActiveReplica >= 0) {
+      _record.setIntField(ResourceConfigProperty.MIN_ACTIVE_REPLICAS.name(), minActiveReplica);
+    }
+
+    if (maxPartitionsPerInstance >= 0) {
+      _record.setIntField(ResourceConfigProperty.MAX_PARTITIONS_PER_INSTANCE.name(), maxPartitionsPerInstance);
+    }
+
+    if (instanceGroupTag != null) {
+      _record.setSimpleField(ResourceConfigProperty.INSTANCE_GROUP_TAG.name(), instanceGroupTag);
+    }
+
+    if (helixEnabled != null) {
+      _record.setBooleanField(ResourceConfigProperty.HELIX_ENABLED.name(), helixEnabled);
+    }
+
+    if (resourceGroupName != null) {
+      _record.setSimpleField(ResourceConfigProperty.RESOURCE_GROUP_NAME.name(), resourceGroupName);
+    }
+
+    if (resourceType != null) {
+      _record.setSimpleField(ResourceConfigProperty.RESOURCE_TYPE.name(), resourceType);
+    }
+
+    if (groupRoutingEnabled != null) {
+      _record.setBooleanField(ResourceConfigProperty.GROUP_ROUTING_ENABLED.name(),
+          groupRoutingEnabled);
+    }
+
+    if (externalViewDisabled != null) {
+      _record.setBooleanField(ResourceConfigProperty.EXTERNAL_VIEW_DISABLED.name(),
+          externalViewDisabled);
+    }
+
+    if (rebalanceConfig != null) {
+      putSimpleConfigs(rebalanceConfig.getConfigsMap());
+    }
+
+    if (stateTransitionTimeoutConfig != null) {
+      putMapConfig(StateTransitionTimeoutConfig.StateTransitionTimeoutProperty.TIMEOUT.name(),
+          stateTransitionTimeoutConfig.getTimeoutMap());
+    }
+
+    if (listFields != null) {
+      _record.setListFields(listFields);
+    }
+
+    if (mapFields != null) {
+      _record.setMapFields(mapFields);
+    }
+
+    if (partitionCapacityMap != null) {
+      try {
+        setPartitionCapacityMap(partitionCapacityMap);
+      } catch (IOException e) {
+        throw new IllegalArgumentException(
+            "Failed to set partition capacity. Invalid capacity configuration.");
+      }
+    }
+  }
+
+
+  /**
+   * Get the value of DisableMonitoring set.
+   *
+   * @return the MonitoringDisabled is true or false
+   */
+  public Boolean isMonitoringDisabled() {
+    return _record.getBooleanField(ResourceConfigProperty.MONITORING_DISABLED.toString(), false);
+  }
+
+  /**
+   * Whether the P2P state transition message is enabled for this resource.
+   * By default it is disabled if not set.
+   *
+   * @return
+   */
+  public boolean isP2PMessageEnabled() {
+    return _record.getBooleanField(HelixConfigProperty.P2P_MESSAGE_ENABLED.name(), false);
+  }
+
+  /**
+   * Get the associated resource
+   * @return the name of the resource
+   */
+  public String getResourceName() {
+    return _record.getId();
+  }
+
+  /**
+   * Get the number of partitions of this resource
+   * @return the number of partitions
+   */
+  public int getNumPartitions() {
+    return _record.getIntField(ResourceConfigProperty.NUM_PARTITIONS.name(), 0);
+  }
+
+  /**
+   * Get the state model associated with this resource
+   * @return an identifier of the state model
+   */
+  public String getStateModelDefRef() {
+    return _record.getSimpleField(ResourceConfigProperty.STATE_MODEL_DEF_REF.name());
+  }
+
+  /**
+   * Get the state model factory associated with this resource
+   * @return state model factory name
+   */
+  public String getStateModelFactoryName() {
+    return _record.getSimpleField(ResourceConfigProperty.STATE_MODEL_FACTORY_NAME.name());
+  }
+
+  /**
+   * Get the number of replicas for each partition of this resource
+   * @return number of replicas (as a string)
+   */
+  public String getNumReplica() {
+    // TODO: use IdealState.getNumbReplica()?
+    return _record.getSimpleField(ResourceConfigProperty.REPLICAS.name());
+  }
+
+  /**
+   * Get the number of minimal active partitions for this resource.
+   *
+   * @return
+   */
+  public int getMinActiveReplica() {
+    return _record.getIntField(ResourceConfigProperty.MIN_ACTIVE_REPLICAS.name(), -1);
+  }
+
+  public int getMaxPartitionsPerInstance() {
+    return _record.getIntField(ResourceConfigProperty.MAX_PARTITIONS_PER_INSTANCE.toString(),
+        Integer.MAX_VALUE);
+  }
+
+  /**
+   * Check for a tag that will restrict assignment to instances with a matching tag
+   * @return the group tag, or null if none is present
+   */
+  public String getInstanceGroupTag() {
+    return _record.getSimpleField(ResourceConfigProperty.INSTANCE_GROUP_TAG.toString());
+  }
+
+  /**
+   * Get if the resource is enabled or not
+   * By default, it's enabled
+   * @return true if enabled; false otherwise
+   */
+  public Boolean isEnabled() {
+    return _record.getBooleanField(ResourceConfigProperty.HELIX_ENABLED.name(), true);
+  }
+
+  /**
+   * Get the resource type
+   * @return the resource type, or null if none is being set
+   */
+  public String getResourceType() {
+    return _record.getSimpleField(ResourceConfigProperty.RESOURCE_TYPE.name());
+  }
+
+  /**
+   * Get the resource group name
+   *
+   * @return
+   */
+  public String getResourceGroupName() {
+    return _record.getSimpleField(ResourceConfigProperty.RESOURCE_GROUP_NAME.name());
+  }
+
+  /**
+   * Get if the resource group routing feature is enabled or not
+   * By default, it's disabled
+   *
+   * @return true if enabled; false otherwise
+   */
+  public Boolean isGroupRoutingEnabled() {
+    return _record.getBooleanField(ResourceConfigProperty.GROUP_ROUTING_ENABLED.name(), false);
+  }
+
+  /**
+   * If the external view for this resource is disabled. by default, it is false.
+   *
+   * @return true if the external view should be disabled for this resource.
+   */
+  public Boolean isExternalViewDisabled() {
+    return _record.getBooleanField(ResourceConfigProperty.EXTERNAL_VIEW_DISABLED.name(), false);
+  }
+
+  /**
+   * Get rebalance config for this resource.
+   * @return
+   */
+  public RebalanceConfig getRebalanceConfig() {
+    RebalanceConfig rebalanceConfig = new RebalanceConfig(_record);
+    return rebalanceConfig;
+  }
+
+  public StateTransitionTimeoutConfig getStateTransitionTimeoutConfig() {
+    return StateTransitionTimeoutConfig.fromRecord(_record);
+  }
+
+
+  /**
+   * Get the user-specified preference lists for all partitions
+   *
+   * @return map of lists of instances for all partitions in this resource.
+   */
+  public Map<String, List<String>> getPreferenceLists() {
+    return _record.getListFields();
+  }
+
+  /**
+   * Get the user-specified preference list of a partition
+   * @param partitionName the name of the partition
+   * @return a list of instances that can serve replicas of the partition
+   */
+  public List<String> getPreferenceList(String partitionName) {
+    List<String> instanceStateList = _record.getListField(partitionName);
+
+    if (instanceStateList != null) {
+      return instanceStateList;
+    }
+
+    return null;
+  }
+
+  /**
+   * Set the user-specified preference lists for all partitions in this resource.
+   *
+   * @param instanceLists the map of instance preference lists.N
+   */
+  public void setPreferenceLists(Map<String, List<String>> instanceLists) {
+    _record.setListFields(instanceLists);
+  }
+
+  /**
+   * Get the partition capacity information from a JSON among the map fields.
+   * <PartitionName or DEFAULT_PARTITION_KEY, <Capacity Key, Capacity Number>>
+   *
+   * @return data map if it exists, or empty map
+   * @throws IOException - when JSON conversion fails
+   */
+  public Map<String, Map<String, Integer>> getPartitionCapacityMap() throws IOException {
+    Map<String, String> partitionCapacityData =
+        _record.getMapField(ResourceConfigProperty.PARTITION_CAPACITY_MAP.name());
+    Map<String, Map<String, Integer>> partitionCapacityMap = new HashMap<>();
+    if (partitionCapacityData != null) {
+      for (String partition : partitionCapacityData.keySet()) {
+        Map<String, Integer> capacities = _objectMapper
+            .readValue(partitionCapacityData.get(partition),
+                new TypeReference<Map<String, Integer>>() {
+                });
+        partitionCapacityMap.put(partition, capacities);
+      }
+    }
+    return partitionCapacityMap;
+  }
+
+  /**
+   * Set the partition capacity information with a map <PartitionName or DEFAULT_PARTITION_KEY, <Capacity Key, Capacity Number>>
+   *
+   * @param partitionCapacityMap - map of partition capacity data
+   * @throws IllegalArgumentException - when any of the data value is a negative number or map is incomplete
+   * @throws IOException              - when JSON parsing fails
+   */
+  public void setPartitionCapacityMap(Map<String, Map<String, Integer>> partitionCapacityMap)
+      throws IllegalArgumentException, IOException {
+    if (partitionCapacityMap == null) {
+      throw new IllegalArgumentException("Capacity Map is null");
+    }
+    if (!partitionCapacityMap.containsKey(DEFAULT_PARTITION_KEY)) {
+      throw new IllegalArgumentException(String
+          .format("The default partition capacity with the default key %s is required.",
+              DEFAULT_PARTITION_KEY));
+    }
+
+    Map<String, String> newCapacityRecord = new HashMap<>();
+    for (String partition : partitionCapacityMap.keySet()) {
+      Map<String, Integer> capacities = partitionCapacityMap.get(partition);
+      // Verify the input is valid
+      if (capacities.isEmpty()) {
+        throw new IllegalArgumentException("Capacity Data is empty");
+      }
+      if (capacities.entrySet().stream().anyMatch(entry -> entry.getValue() < 0)) {
+        throw new IllegalArgumentException(
+            String.format("Capacity Data contains a negative value:%s", capacities.toString()));
+      }
+      newCapacityRecord.put(partition, _objectMapper.writeValueAsString(capacities));
+    }
+
+    _record.setMapField(ResourceConfigProperty.PARTITION_CAPACITY_MAP.name(), newCapacityRecord);
+  }
+
+  /**
+   * Put a set of simple configs.
+   *
+   * @param configsMap
+   */
+  public void putSimpleConfigs(Map<String, String> configsMap) {
+    getRecord().getSimpleFields().putAll(configsMap);
+  }
+
+  /**
+   * Get all simple configurations.
+   *
+   * @return all simple configurations.
+   */
+  public Map<String, String> getSimpleConfigs() {
+    return Collections.unmodifiableMap(getRecord().getSimpleFields());
+  }
+
+  /**
+   * Put a single simple config value.
+   *
+   * @param configKey
+   * @param configVal
+   */
+  public void putSimpleConfig(String configKey, String configVal) {
+    getRecord().getSimpleFields().put(configKey, configVal);
+  }
+
+  /**
+   * Get a single simple config value.
+   *
+   * @param configKey
+   * @return configuration value, or NULL if not exist.
+   */
+  public String getSimpleConfig(String configKey) {
+    return getRecord().getSimpleFields().get(configKey);
+  }
+
+  /**
+   * Put a single map config.
+   *
+   * @param configKey
+   * @param configValMap
+   */
+  public void putMapConfig(String configKey, Map<String, String> configValMap) {
+    getRecord().setMapField(configKey, configValMap);
+  }
+
+  /**
+   * Get a single map config.
+   *
+   * @param configKey
+   * @return configuration value map, or NULL if not exist.
+   */
+  public Map<String, String> getMapConfig(String configKey) {
+    return getRecord().getMapField(configKey);
+  }
+
+  /**
+   * Determine whether the given config key is in the simple config
+   * @param configKey The key to check whether exists
+   * @return True if exists, otherwise false
+   */
+  public boolean simpleConfigContains(String configKey) {
+    return getRecord().getSimpleFields().containsKey(configKey);
+  }
+
+  /**
+   * Determine whether the given config key is the map config
+   * @param configKey The key to check whether exists
+   * @return True if exists, otherwise false
+   */
+  public boolean mapConfigContains(String configKey) {
+    return getRecord().getMapFields().containsKey(configKey);
+  }
+
+  /**
+   * Get the stored map fields
+   * @return a map of map fields
+   */
+  public Map<String, Map<String, String>> getMapConfigs() {
+    return getRecord().getMapFields();
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (obj instanceof ResourceConfig) {
+      ResourceConfig that = (ResourceConfig) obj;
+
+      if (this.getId().equals(that.getId())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @Override
+  public int hashCode() {
+    return getId().hashCode();
+  }
+
+  @Override
+  public boolean isValid() {
+    return true;
+  }
+
+  public static class Builder {
+    private String _resourceId;
+    private Boolean _monitorDisabled;
+    private int _numPartitions;
+    private String _stateModelDefRef;
+    private String _stateModelFactoryName;
+    private String _numReplica;
+    private int _minActiveReplica = -1;
+    private int _maxPartitionsPerInstance = -1;
+    private String _instanceGroupTag;
+    private Boolean _helixEnabled;
+    private String _resourceGroupName;
+    private String _resourceType;
+    private Boolean _groupRoutingEnabled;
+    private Boolean _externalViewDisabled;
+    private Boolean _p2pMessageEnabled;
+    private RebalanceConfig _rebalanceConfig;
+    private StateTransitionTimeoutConfig _stateTransitionTimeoutConfig;
+    private Map<String, List<String>> _preferenceLists;
+    private Map<String, Map<String, String>> _mapFields;
+    private Map<String, Map<String, Integer>> _partitionCapacityMap;
+
+    public Builder(String resourceId) {
+      _resourceId = resourceId;
+    }
+
+    public Builder setMonitorDisabled(boolean monitorDisabled) {
+      _monitorDisabled = monitorDisabled;
+      return this;
+    }
+
     /**
-     * Configurable characteristics of a resource
-     */
-    public enum ResourceConfigProperty {
-        MONITORING_DISABLED,
-        // Resource-level config, do not create Mbean and report any status for the resource.
-        NUM_PARTITIONS,
-        STATE_MODEL_DEF_REF,
-        STATE_MODEL_FACTORY_NAME,
-        REPLICAS,
-        MIN_ACTIVE_REPLICAS,
-        MAX_PARTITIONS_PER_INSTANCE,
-        INSTANCE_GROUP_TAG,
-        HELIX_ENABLED,
-        RESOURCE_GROUP_NAME,
-        RESOURCE_TYPE,
-        GROUP_ROUTING_ENABLED,
-        EXTERNAL_VIEW_DISABLED,
-        DELAY_REBALANCE_ENABLED
-    }
-
-    public enum ResourceConfigConstants {
-        ANY_LIVEINSTANCE
-    }
-
-    private static final Logger _logger = LoggerFactory.getLogger(ResourceConfig.class.getName());
-
-    /**
-     * Instantiate for a specific instance
-     *
-     * @param resourceId the instance identifier
-     */
-    public ResourceConfig(String resourceId) {
-        super(resourceId);
-    }
-
-    /**
-     * Instantiate with a pre-populated record
-     *
-     * @param record a ZNRecord corresponding to an instance configuration
-     */
-    public ResourceConfig(ZNRecord record) {
-        super(record);
-    }
-
-    /**
-     * Instantiate with a pre-populated record with new record id
-     * @param record a ZNRecord corresponding to an instance configuration
-     * @param id     new ZNRecord ID
-     */
-    public ResourceConfig(ZNRecord record, String id) {
-        super(record, id);
-    }
-
-    public ResourceConfig(String resourceId, Boolean monitorDisabled, int numPartitions,
-            String stateModelDefRef, String stateModelFactoryName, String numReplica,
-            int minActiveReplica, int maxPartitionsPerInstance, String instanceGroupTag,
-            Boolean helixEnabled, String resourceGroupName, String resourceType,
-            Boolean groupRoutingEnabled, Boolean externalViewDisabled,
-            RebalanceConfig rebalanceConfig, StateTransitionTimeoutConfig stateTransitionTimeoutConfig,
-            Map<String, List<String>> listFields, Map<String, Map<String, String>> mapFields,
-            Boolean p2pMessageEnabled) {
-        super(resourceId);
-
-        if (monitorDisabled != null) {
-            _record.setBooleanField(ResourceConfigProperty.MONITORING_DISABLED.name(), monitorDisabled);
-        }
-
-        if (p2pMessageEnabled != null) {
-            _record.setBooleanField(HelixConfigProperty.P2P_MESSAGE_ENABLED.name(), p2pMessageEnabled);
-        }
-
-        if (numPartitions > 0) {
-            _record.setIntField(ResourceConfigProperty.NUM_PARTITIONS.name(), numPartitions);
-        }
-
-        if (stateModelDefRef != null) {
-            _record.setSimpleField(ResourceConfigProperty.STATE_MODEL_DEF_REF.name(), stateModelDefRef);
-        }
-
-        if (stateModelFactoryName != null) {
-            _record.setSimpleField(ResourceConfigProperty.STATE_MODEL_FACTORY_NAME.name(), stateModelFactoryName);
-        }
-
-        if (numReplica != null) {
-            _record.setSimpleField(ResourceConfigProperty.REPLICAS.name(), numReplica);
-        }
-
-        if (minActiveReplica >= 0) {
-            _record.setIntField(ResourceConfigProperty.MIN_ACTIVE_REPLICAS.name(), minActiveReplica);
-        }
-
-        if (maxPartitionsPerInstance >= 0) {
-            _record.setIntField(ResourceConfigProperty.MAX_PARTITIONS_PER_INSTANCE.name(), maxPartitionsPerInstance);
-        }
-
-        if (instanceGroupTag != null) {
-            _record.setSimpleField(ResourceConfigProperty.INSTANCE_GROUP_TAG.name(), instanceGroupTag);
-        }
-
-        if (helixEnabled != null) {
-            _record.setBooleanField(ResourceConfigProperty.HELIX_ENABLED.name(), helixEnabled);
-        }
-
-        if (resourceGroupName != null) {
-            _record.setSimpleField(ResourceConfigProperty.RESOURCE_GROUP_NAME.name(), resourceGroupName);
-        }
-
-        if (resourceType != null) {
-            _record.setSimpleField(ResourceConfigProperty.RESOURCE_TYPE.name(), resourceType);
-        }
-
-        if (groupRoutingEnabled != null) {
-            _record.setBooleanField(ResourceConfigProperty.GROUP_ROUTING_ENABLED.name(),
-                    groupRoutingEnabled);
-        }
-
-        if (externalViewDisabled != null) {
-            _record.setBooleanField(ResourceConfigProperty.EXTERNAL_VIEW_DISABLED.name(),
-                    externalViewDisabled);
-        }
-
-        if (rebalanceConfig != null) {
-            putSimpleConfigs(rebalanceConfig.getConfigsMap());
-        }
-
-        if (stateTransitionTimeoutConfig != null) {
-            putMapConfig(StateTransitionTimeoutConfig.StateTransitionTimeoutProperty.TIMEOUT.name(),
-                    stateTransitionTimeoutConfig.getTimeoutMap());
-        }
-
-        if (listFields != null) {
-            _record.setListFields(listFields);
-        }
-
-        if (mapFields != null) {
-            _record.setMapFields(mapFields);
-        }
-    }
-
-
-    /**
-     * Get the value of DisableMonitoring set.
-     *
-     * @return the MonitoringDisabled is true or false
-     */
-    public Boolean isMonitoringDisabled() {
-        return _record.getBooleanField(ResourceConfigProperty.MONITORING_DISABLED.toString(), false);
-    }
-
-    /**
-     * Whether the P2P state transition message is enabled for this resource.
+     * Enable/Disable the p2p state transition message for this resource.
      * By default it is disabled if not set.
      *
-     * @return
+     * @param enabled
      */
-    public boolean isP2PMessageEnabled() {
-        return _record.getBooleanField(HelixConfigProperty.P2P_MESSAGE_ENABLED.name(), false);
+    public Builder setP2PMessageEnabled(boolean enabled) {
+      _p2pMessageEnabled = enabled;
+      return this;
     }
 
-    /**
-     * Get the associated resource
-     * @return the name of the resource
-     */
-    public String getResourceName() {
-        return _record.getId();
+    public Boolean isMonitorDisabled() {
+      return _monitorDisabled;
     }
 
-    /**
-     * Get the number of partitions of this resource
-     * @return the number of partitions
-     */
+    public String getResourceId() {
+      return _resourceId;
+    }
+
     public int getNumPartitions() {
-        return _record.getIntField(ResourceConfigProperty.NUM_PARTITIONS.name(), 0);
+      return _numPartitions;
     }
 
-    /**
-     * Get the state model associated with this resource
-     * @return an identifier of the state model
-     */
+    public Builder setNumPartitions(int numPartitions) {
+      _numPartitions = numPartitions;
+      return this;
+    }
+
     public String getStateModelDefRef() {
-        return _record.getSimpleField(ResourceConfigProperty.STATE_MODEL_DEF_REF.name());
+      return _stateModelDefRef;
     }
 
-    /**
-     * Get the state model factory associated with this resource
-     * @return state model factory name
-     */
+    public Builder setStateModelDefRef(String stateModelDefRef) {
+      _stateModelDefRef = stateModelDefRef;
+      return this;
+    }
+
     public String getStateModelFactoryName() {
-        return _record.getSimpleField(ResourceConfigProperty.STATE_MODEL_FACTORY_NAME.name());
+      return _stateModelFactoryName;
     }
 
-    /**
-     * Get the number of replicas for each partition of this resource
-     * @return number of replicas (as a string)
-     */
+    public Builder setStateModelFactoryName(String stateModelFactoryName) {
+      _stateModelFactoryName = stateModelFactoryName;
+      return this;
+    }
+
     public String getNumReplica() {
-        // TODO: use IdealState.getNumbReplica()?
-        return _record.getSimpleField(ResourceConfigProperty.REPLICAS.name());
+      return _numReplica;
     }
 
-    /**
-     * Get the number of minimal active partitions for this resource.
-     *
-     * @return
-     */
+    public Builder setNumReplica(String numReplica) {
+      _numReplica = numReplica;
+      return this;
+    }
+
+    public Builder setNumReplica(int numReplica) {
+      return setNumReplica(String.valueOf(numReplica));
+    }
+
     public int getMinActiveReplica() {
-        return _record.getIntField(ResourceConfigProperty.MIN_ACTIVE_REPLICAS.name(), -1);
+      return _minActiveReplica;
+    }
+
+    public Builder setMinActiveReplica(int minActiveReplica) {
+      _minActiveReplica = minActiveReplica;
+      return this;
     }
 
     public int getMaxPartitionsPerInstance() {
-        return _record.getIntField(ResourceConfigProperty.MAX_PARTITIONS_PER_INSTANCE.toString(),
-                Integer.MAX_VALUE);
+      return _maxPartitionsPerInstance;
     }
 
-    /**
-     * Check for a tag that will restrict assignment to instances with a matching tag
-     * @return the group tag, or null if none is present
-     */
+    public Builder setMaxPartitionsPerInstance(int maxPartitionsPerInstance) {
+      _maxPartitionsPerInstance = maxPartitionsPerInstance;
+      return this;
+    }
+
     public String getInstanceGroupTag() {
-        return _record.getSimpleField(ResourceConfigProperty.INSTANCE_GROUP_TAG.toString());
+      return _instanceGroupTag;
     }
 
-    /**
-     * Get if the resource is enabled or not
-     * By default, it's enabled
-     * @return true if enabled; false otherwise
-     */
-    public Boolean isEnabled() {
-        return _record.getBooleanField(ResourceConfigProperty.HELIX_ENABLED.name(), true);
+    public Builder setInstanceGroupTag(String instanceGroupTag) {
+      _instanceGroupTag = instanceGroupTag;
+      return this;
     }
 
-    /**
-     * Get the resource type
-     * @return the resource type, or null if none is being set
-     */
+    public Boolean isHelixEnabled() {
+      return _helixEnabled;
+    }
+
+    public Builder setHelixEnabled(boolean helixEnabled) {
+      _helixEnabled = helixEnabled;
+      return this;
+    }
+
     public String getResourceType() {
-        return _record.getSimpleField(ResourceConfigProperty.RESOURCE_TYPE.name());
+      return _resourceType;
     }
 
-    /**
-     * Get the resource group name
-     *
-     * @return
-     */
+    public Builder setResourceType(String resourceType) {
+      _resourceType = resourceType;
+      return this;
+    }
+
     public String getResourceGroupName() {
-        return _record.getSimpleField(ResourceConfigProperty.RESOURCE_GROUP_NAME.name());
+      return _resourceGroupName;
     }
 
-    /**
-     * Get if the resource group routing feature is enabled or not
-     * By default, it's disabled
-     *
-     * @return true if enabled; false otherwise
-     */
+    public Builder setResourceGroupName(String resourceGroupName) {
+      _resourceGroupName = resourceGroupName;
+      return this;
+    }
+
     public Boolean isGroupRoutingEnabled() {
-        return _record.getBooleanField(ResourceConfigProperty.GROUP_ROUTING_ENABLED.name(), false);
+      return _groupRoutingEnabled;
     }
 
-    /**
-     * If the external view for this resource is disabled. by default, it is false.
-     *
-     * @return true if the external view should be disabled for this resource.
-     */
+    public Builder setGroupRoutingEnabled(boolean groupRoutingEnabled) {
+      _groupRoutingEnabled = groupRoutingEnabled;
+      return this;
+    }
+
     public Boolean isExternalViewDisabled() {
-        return _record.getBooleanField(ResourceConfigProperty.EXTERNAL_VIEW_DISABLED.name(), false);
+      return _externalViewDisabled;
     }
 
-    /**
-     * Get rebalance config for this resource.
-     * @return
-     */
+    public Builder setExternalViewDisabled(boolean externalViewDisabled) {
+      _externalViewDisabled = externalViewDisabled;
+      return this;
+    }
+
+    public Builder setRebalanceConfig(RebalanceConfig rebalanceConfig) {
+      _rebalanceConfig = rebalanceConfig;
+      return this;
+    }
+
     public RebalanceConfig getRebalanceConfig() {
-        RebalanceConfig rebalanceConfig = new RebalanceConfig(_record);
-        return rebalanceConfig;
+      return _rebalanceConfig;
+    }
+
+    public Builder setStateTransitionTimeoutConfig(
+        StateTransitionTimeoutConfig stateTransitionTimeoutConfig) {
+      _stateTransitionTimeoutConfig = stateTransitionTimeoutConfig;
+      return this;
     }
 
     public StateTransitionTimeoutConfig getStateTransitionTimeoutConfig() {
-        return StateTransitionTimeoutConfig.fromRecord(_record);
+      return _stateTransitionTimeoutConfig;
     }
 
-
     /**
-     * Get the user-specified preference lists for all partitions
+     * Set the user-specified preference list of a partition
      *
-     * @return map of lists of instances for all partitions in this resource.
-     */
-    public Map<String, List<String>> getPreferenceLists() {
-        return _record.getListFields();
-    }
-
-    /**
-     * Get the user-specified preference list of a partition
      * @param partitionName the name of the partition
-     * @return a list of instances that can serve replicas of the partition
+     * @param instanceList the instance preference list
      */
-    public List<String> getPreferenceList(String partitionName) {
-        List<String> instanceStateList = _record.getListField(partitionName);
-
-        if (instanceStateList != null) {
-            return instanceStateList;
-        }
-
-        return null;
+    public Builder setPreferenceList(String partitionName, List<String> instanceList) {
+      if (_preferenceLists == null) {
+        _preferenceLists = new TreeMap<>();
+      }
+      _preferenceLists.put(partitionName, instanceList);
+      return this;
     }
 
     /**
@@ -348,381 +745,168 @@ public class ResourceConfig extends HelixProperty {
      *
      * @param instanceLists the map of instance preference lists.N
      */
-    public void setPreferenceLists(Map<String, List<String>> instanceLists) {
-        _record.setListFields(instanceLists);
+    public Builder setPreferenceLists(Map<String, List<String>> instanceLists) {
+      _preferenceLists = new TreeMap<>(instanceLists);
+      return this;
     }
 
-    /**
-     * Put a set of simple configs.
-     *
-     * @param configsMap
-     */
-    public void putSimpleConfigs(Map<String, String> configsMap) {
-        getRecord().getSimpleFields().putAll(configsMap);
+    public Map<String, List<String>> getPreferenceLists() {
+      return _preferenceLists;
     }
 
-    /**
-     * Get all simple configurations.
-     *
-     * @return all simple configurations.
-     */
-    public Map<String, String> getSimpleConfigs() {
-        return Collections.unmodifiableMap(getRecord().getSimpleFields());
+    public Builder setPartitionCapacity(Map<String, Integer> defaultCapacity) {
+      setPartitionCapacity(DEFAULT_PARTITION_KEY, defaultCapacity);
+      return this;
     }
 
-    /**
-     * Put a single simple config value.
-     *
-     * @param configKey
-     * @param configVal
-     */
-    public void putSimpleConfig(String configKey, String configVal) {
-        getRecord().getSimpleFields().put(configKey, configVal);
+    public Builder setPartitionCapacity(String partition, Map<String, Integer> capacity) {
+      if (_partitionCapacityMap == null) {
+        _partitionCapacityMap = new HashMap<>();
+      }
+      _partitionCapacityMap.put(partition, capacity);
+      return this;
     }
 
-    /**
-     * Get a single simple config value.
-     *
-     * @param configKey
-     * @return configuration value, or NULL if not exist.
-     */
-    public String getSimpleConfig(String configKey) {
-        return getRecord().getSimpleFields().get(configKey);
+    public Map<String, Integer> getPartitionCapacity(String partition) {
+      return _partitionCapacityMap.get(partition);
     }
 
-    /**
-     * Put a single map config.
-     *
-     * @param configKey
-     * @param configValMap
-     */
-    public void putMapConfig(String configKey, Map<String, String> configValMap) {
-        getRecord().setMapField(configKey, configValMap);
+    public Builder setMapField(String key, Map<String, String> fields) {
+      if (_mapFields == null) {
+        _mapFields = new TreeMap<>();
+      }
+      _mapFields.put(key, fields);
+      return this;
     }
 
-    /**
-     * Get a single map config.
-     *
-     * @param configKey
-     * @return configuration value map, or NULL if not exist.
-     */
-    public Map<String, String> getMapConfig(String configKey) {
-        return getRecord().getMapField(configKey);
+    public Builder setMapFields(Map<String, Map<String, String>> mapFields) {
+      _mapFields = mapFields;
+      return this;
     }
 
-    /**
-     * Determine whether the given config key is in the simple config
-     * @param configKey The key to check whether exists
-     * @return True if exists, otherwise false
-     */
-    public boolean simpleConfigContains(String configKey) {
-        return getRecord().getSimpleFields().containsKey(configKey);
+    public Map<String, Map<String, String>> getMapFields() {
+      return _mapFields;
     }
 
-    /**
-     * Determine whether the given config key is the map config
-     * @param configKey The key to check whether exists
-     * @return True if exists, otherwise false
-     */
-    public boolean mapConfigContains(String configKey) {
-        return getRecord().getMapFields().containsKey(configKey);
+    private void validate() {
+      if (_rebalanceConfig == null) {
+        throw new IllegalArgumentException("RebalanceConfig not set!");
+      } else {
+        if (!_rebalanceConfig.isValid()) {
+          throw new IllegalArgumentException("Invalid RebalanceConfig!");
+        }
+      }
+      if (_numPartitions <= 0) {
+        throw new IllegalArgumentException("Invalid number of partitions!");
+      }
+
+      if (_stateModelDefRef == null) {
+        throw new IllegalArgumentException("State Model Definition Reference is not set!");
+      }
+
+      if (_numReplica == null) {
+        throw new IllegalArgumentException("Number of replica is not set!");
+      } else {
+        if (!_numReplica.equals(ResourceConfigConstants.ANY_LIVEINSTANCE.name())) {
+          try {
+            Integer.parseInt(_numReplica);
+          } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Invalid number of replica!");
+          }
+        }
+      }
+
+      if (_partitionCapacityMap != null) {
+        if (_partitionCapacityMap.keySet().stream()
+            .noneMatch(partition -> partition.equals(DEFAULT_PARTITION_KEY))) {
+          throw new IllegalArgumentException(
+              "Partition capacity is configured without the DEFAULT capacity!");
+        }
+        if (_partitionCapacityMap.values().stream()
+            .anyMatch(capacity -> capacity.values().stream().anyMatch(value -> value < 0))) {
+          throw new IllegalArgumentException(
+              "Partition capacity is configured with negative capacity value!");
+        }
+      }
     }
 
-    /**
-     * Get the stored map fields
-     * @return a map of map fields
-     */
-    public Map<String, Map<String, String>> getMapConfigs() {
-        return getRecord().getMapFields();
+    public ResourceConfig build() {
+      // TODO: Reenable the validation in the future when ResourceConfig is ready.
+      // validate();
+
+      return new ResourceConfig(_resourceId, _monitorDisabled, _numPartitions, _stateModelDefRef,
+          _stateModelFactoryName, _numReplica, _minActiveReplica, _maxPartitionsPerInstance,
+          _instanceGroupTag, _helixEnabled, _resourceGroupName, _resourceType, _groupRoutingEnabled,
+          _externalViewDisabled, _rebalanceConfig, _stateTransitionTimeoutConfig, _preferenceLists,
+          _mapFields, _p2pMessageEnabled, _partitionCapacityMap);
     }
+  }
 
-    @Override
-    public boolean equals(Object obj) {
-        if (obj instanceof ResourceConfig) {
-            ResourceConfig that = (ResourceConfig) obj;
-
-            if (this.getId().equals(that.getId())) {
-                return true;
-            }
-        }
-        return false;
+  /**
+   * For backward compatibility, propagate the critical simple fields from the IdealState to
+   * the Resource Config.
+   * Eventually, Resource Config should be the only metadata node that contains the required information.
+   *
+   * Note that the config fields get updated in this method shall be fully compatible with ones in the IdealState.
+   *  1. The fields shall have exactly the same meaning.
+   *  2. The value shall be fully compatible, no additional calculation involved.
+   *  3. Resource Config items have a high priority.
+   */
+  public static ResourceConfig mergeIdealStateWithResourceConfig(
+      final ResourceConfig resourceConfig, final IdealState idealState) {
+    if (idealState == null) {
+      return resourceConfig;
     }
-
-    @Override
-    public int hashCode() {
-        return getId().hashCode();
+    ResourceConfig mergedResourceConfig;
+    if (resourceConfig != null) {
+      if (!resourceConfig.getResourceName().equals(idealState.getResourceName())) {
+        throw new IllegalArgumentException(String.format(
+            "Cannot merge the IdealState of resource %s with the ResourceConfig of resource %s",
+            resourceConfig.getResourceName(), idealState.getResourceName()));
+      }
+      // Copy the resource config to avoid the original value being modified unexpectedly.
+      mergedResourceConfig = new ResourceConfig(resourceConfig.getRecord());
+    } else {
+      // If no resource config specified, construct one based on the Idealstate.
+      mergedResourceConfig = new ResourceConfig(idealState.getResourceName());
     }
-
-    @Override
-    public boolean isValid() {
-        return true;
-    }
-
-
-    public static class Builder {
-        private String _resourceId;
-        private Boolean _monitorDisabled;
-        private int _numPartitions;
-        private String _stateModelDefRef;
-        private String _stateModelFactoryName;
-        private String _numReplica;
-        private int _minActiveReplica = -1;
-        private int _maxPartitionsPerInstance = -1;
-        private String _instanceGroupTag;
-        private Boolean _helixEnabled;
-        private String _resourceGroupName;
-        private String _resourceType;
-        private Boolean _groupRoutingEnabled;
-        private Boolean _externalViewDisabled;
-        private Boolean _p2pMessageEnabled;
-        private RebalanceConfig _rebalanceConfig;
-        private StateTransitionTimeoutConfig _stateTransitionTimeoutConfig;
-        private Map<String, List<String>> _preferenceLists;
-        private Map<String, Map<String, String>> _mapFields;
-
-        public Builder(String resourceId) {
-            _resourceId = resourceId;
-        }
-
-        public Builder setMonitorDisabled(boolean monitorDisabled) {
-            _monitorDisabled = monitorDisabled;
-            return this;
-        }
-
-        /**
-         * Enable/Disable the p2p state transition message for this resource.
-         * By default it is disabled if not set.
-         *
-         * @param enabled
-         */
-        public Builder setP2PMessageEnabled(boolean enabled) {
-            _p2pMessageEnabled = enabled;
-            return this;
-        }
-
-        public Boolean isMonitorDisabled() {
-            return _monitorDisabled;
-        }
-
-        public String getResourceId() {
-            return _resourceId;
-        }
-
-        public int getNumPartitions() {
-            return _numPartitions;
-        }
-
-        public Builder setNumPartitions(int numPartitions) {
-            _numPartitions = numPartitions;
-            return this;
-        }
-
-        public String getStateModelDefRef() {
-            return _stateModelDefRef;
-        }
-
-        public Builder setStateModelDefRef(String stateModelDefRef) {
-            _stateModelDefRef = stateModelDefRef;
-            return this;
-        }
-
-        public String getStateModelFactoryName() {
-            return _stateModelFactoryName;
-        }
-
-        public Builder setStateModelFactoryName(String stateModelFactoryName) {
-            _stateModelFactoryName = stateModelFactoryName;
-            return this;
-        }
-
-        public String getNumReplica() {
-            return _numReplica;
-        }
-
-        public Builder setNumReplica(String numReplica) {
-            _numReplica = numReplica;
-            return this;
-        }
-
-        public Builder setNumReplica(int numReplica) {
-            return setNumReplica(String.valueOf(numReplica));
-        }
-
-        public int getMinActiveReplica() {
-            return _minActiveReplica;
-        }
-
-        public Builder setMinActiveReplica(int minActiveReplica) {
-            _minActiveReplica = minActiveReplica;
-            return this;
-        }
-
-        public int getMaxPartitionsPerInstance() {
-            return _maxPartitionsPerInstance;
-        }
-
-        public Builder setMaxPartitionsPerInstance(int maxPartitionsPerInstance) {
-            _maxPartitionsPerInstance = maxPartitionsPerInstance;
-            return this;
-        }
-
-        public String getInstanceGroupTag() {
-            return _instanceGroupTag;
-        }
-
-        public Builder setInstanceGroupTag(String instanceGroupTag) {
-            _instanceGroupTag = instanceGroupTag;
-            return this;
-        }
-
-        public Boolean isHelixEnabled() {
-            return _helixEnabled;
-        }
-
-        public Builder setHelixEnabled(boolean helixEnabled) {
-            _helixEnabled = helixEnabled;
-            return this;
-        }
-
-        public String getResourceType() {
-            return _resourceType;
-        }
-
-        public Builder setResourceType(String resourceType) {
-            _resourceType = resourceType;
-            return this;
-        }
-
-        public String getResourceGroupName() {
-            return _resourceGroupName;
-        }
-
-        public Builder setResourceGroupName(String resourceGroupName) {
-            _resourceGroupName = resourceGroupName;
-            return this;
-        }
-
-        public Boolean isGroupRoutingEnabled() {
-            return _groupRoutingEnabled;
-        }
-
-        public Builder setGroupRoutingEnabled(boolean groupRoutingEnabled) {
-            _groupRoutingEnabled = groupRoutingEnabled;
-            return this;
-        }
-
-        public Boolean isExternalViewDisabled() {
-            return _externalViewDisabled;
-        }
-
-        public Builder setExternalViewDisabled(boolean externalViewDisabled) {
-            _externalViewDisabled = externalViewDisabled;
-            return this;
-        }
-
-        public Builder setRebalanceConfig(RebalanceConfig rebalanceConfig) {
-            _rebalanceConfig = rebalanceConfig;
-            return this;
-        }
-
-        public RebalanceConfig getRebalanceConfig() {
-            return _rebalanceConfig;
-        }
-
-        public Builder setStateTransitionTimeoutConfig(
-                StateTransitionTimeoutConfig stateTransitionTimeoutConfig) {
-            _stateTransitionTimeoutConfig = stateTransitionTimeoutConfig;
-            return this;
-        }
-
-        public StateTransitionTimeoutConfig getStateTransitionTimeoutConfig() {
-            return _stateTransitionTimeoutConfig;
-        }
-
-        /**
-         * Set the user-specified preference list of a partition
-         *
-         * @param partitionName the name of the partition
-         * @param instanceList the instance preference list
-         */
-        public Builder setPreferenceList(String partitionName, List<String> instanceList) {
-            if (_preferenceLists == null) {
-                _preferenceLists = new TreeMap<>();
-            }
-            _preferenceLists.put(partitionName, instanceList);
-            return this;
-        }
-
-        /**
-         * Set the user-specified preference lists for all partitions in this resource.
-         *
-         * @param instanceLists the map of instance preference lists.N
-         */
-        public Builder setPreferenceLists(Map<String, List<String>> instanceLists) {
-            _preferenceLists = new TreeMap<>(instanceLists);
-            return this;
-        }
-
-        public Map<String, List<String>> getPreferenceLists() {
-            return _preferenceLists;
-        }
-
-        public Builder setMapField(String key, Map<String, String> fields) {
-            if (_mapFields == null) {
-                _mapFields = new TreeMap<>();
-            }
-            _mapFields.put(key, fields);
-            return this;
-        }
-
-        public Builder setMapFields(Map<String, Map<String, String>> mapFields) {
-            _mapFields = mapFields;
-            return this;
-        }
-
-        public Map<String, Map<String, String>> getMapFields() {
-            return _mapFields;
-        }
-
-        private void validate() {
-            if (_rebalanceConfig == null) {
-                throw new IllegalArgumentException("RebalanceConfig not set!");
-            } else {
-                if (!_rebalanceConfig.isValid()) {
-                    throw new IllegalArgumentException("Invalid RebalanceConfig!");
-                }
-            }
-            if (_numPartitions <= 0) {
-                throw new IllegalArgumentException("Invalid number of partitions!");
-            }
-
-            if (_stateModelDefRef == null) {
-                throw new IllegalArgumentException("State Model Definition Reference is not set!");
-            }
-
-            if (_numReplica == null) {
-                throw new IllegalArgumentException("Number of replica is not set!");
-            } else {
-                if (!_numReplica.equals(ResourceConfigConstants.ANY_LIVEINSTANCE.name())) {
-                    try {
-                        Integer.parseInt(_numReplica);
-                    } catch (NumberFormatException ex) {
-                        throw new IllegalArgumentException("Invalid number of replica!");
-                    }
-                }
-            }
-        }
-
-        public ResourceConfig build() {
-            // TODO: Reenable the validation in the future when ResourceConfig is ready.
-            // validate();
-
-            return new ResourceConfig(_resourceId, _monitorDisabled, _numPartitions, _stateModelDefRef,
-                    _stateModelFactoryName, _numReplica, _minActiveReplica, _maxPartitionsPerInstance,
-                    _instanceGroupTag, _helixEnabled, _resourceGroupName, _resourceType, _groupRoutingEnabled,
-                    _externalViewDisabled, _rebalanceConfig, _stateTransitionTimeoutConfig, _preferenceLists,
-                    _mapFields, _p2pMessageEnabled);
-        }
-    }
+    // Fill the compatible Idealstate fields to the ResourceConfig if possible.
+    ZNRecord mergedZNRecord = mergedResourceConfig.getRecord();
+    mergedZNRecord
+        .setSimpleFieldIfAbsent(ResourceConfig.ResourceConfigProperty.INSTANCE_GROUP_TAG.name(),
+            idealState.getInstanceGroupTag());
+    mergedZNRecord.setIntFieldIfAbsent(
+        ResourceConfig.ResourceConfigProperty.MAX_PARTITIONS_PER_INSTANCE.name(),
+        idealState.getMaxPartitionsPerInstance());
+    mergedZNRecord.setIntFieldIfAbsent(ResourceConfigProperty.NUM_PARTITIONS.name(),
+        idealState.getNumPartitions());
+    mergedZNRecord
+        .setSimpleFieldIfAbsent(ResourceConfig.ResourceConfigProperty.STATE_MODEL_DEF_REF.name(),
+            idealState.getStateModelDefRef());
+    mergedZNRecord.setSimpleFieldIfAbsent(
+        ResourceConfig.ResourceConfigProperty.STATE_MODEL_FACTORY_NAME.name(),
+        idealState.getStateModelFactoryName());
+    mergedZNRecord.setSimpleFieldIfAbsent(ResourceConfig.ResourceConfigProperty.REPLICAS.name(),
+        idealState.getReplicas());
+    mergedZNRecord
+        .setIntFieldIfAbsent(ResourceConfig.ResourceConfigProperty.MIN_ACTIVE_REPLICAS.name(),
+            idealState.getMinActiveReplicas());
+    mergedZNRecord
+        .setBooleanFieldIfAbsent(ResourceConfig.ResourceConfigProperty.HELIX_ENABLED.name(),
+            idealState.isEnabled());
+    mergedZNRecord
+        .setSimpleFieldIfAbsent(ResourceConfig.ResourceConfigProperty.RESOURCE_GROUP_NAME.name(),
+            idealState.getResourceGroupName());
+    mergedZNRecord
+        .setSimpleFieldIfAbsent(ResourceConfig.ResourceConfigProperty.RESOURCE_TYPE.name(),
+            idealState.getResourceType());
+    mergedZNRecord.setBooleanFieldIfAbsent(
+        ResourceConfig.ResourceConfigProperty.EXTERNAL_VIEW_DISABLED.name(),
+        idealState.isExternalViewDisabled());
+    mergedZNRecord.setBooleanFieldIfAbsent(
+        ResourceConfig.ResourceConfigProperty.DELAY_REBALANCE_ENABLED.name(),
+        idealState.isDelayRebalanceEnabled());
+    return mergedResourceConfig;
+  }
 }
 

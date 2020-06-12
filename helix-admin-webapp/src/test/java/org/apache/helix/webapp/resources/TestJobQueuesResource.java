@@ -24,9 +24,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.google.common.collect.Lists;
-
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.integration.task.MockTask;
@@ -46,7 +45,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
 import org.yaml.snakeyaml.Yaml;
 
 public class TestJobQueuesResource extends AdminTestBase {

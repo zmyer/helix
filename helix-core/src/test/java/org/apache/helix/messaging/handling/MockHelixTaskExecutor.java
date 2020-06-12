@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.NotificationContext;
@@ -55,7 +56,7 @@ public class MockHelixTaskExecutor extends HelixTaskExecutor {
     HelixDataAccessor accessor = manager.getHelixDataAccessor();
     PropertyKey.Builder keyBuilder = accessor.keyBuilder();
     PropertyKey path = keyBuilder.currentStates(manager.getInstanceName(), manager.getSessionId());
-    Map<String, CurrentState> currentStateMap = accessor.getChildValuesMap(path);
+    Map<String, CurrentState> currentStateMap = accessor.getChildValuesMap(path, true);
 
     Set<String> seenPartitions = new HashSet<>();
     for (Message message : messages) {

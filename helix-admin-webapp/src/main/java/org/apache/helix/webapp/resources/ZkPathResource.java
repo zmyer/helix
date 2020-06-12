@@ -23,11 +23,9 @@ import java.util.Date;
 import java.util.List;
 
 import org.apache.helix.HelixException;
-import org.apache.helix.ZNRecord;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.impl.client.ZkClient;
 import org.apache.helix.webapp.RestAdminApplication;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.data.Stat;
 import org.restlet.data.MediaType;
 import org.restlet.data.Status;
@@ -35,6 +33,8 @@ import org.restlet.representation.Representation;
 import org.restlet.representation.StringRepresentation;
 import org.restlet.representation.Variant;
 import org.restlet.resource.ServerResource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ZkPathResource extends ServerResource {
   private final static Logger LOG = LoggerFactory.getLogger(ZkPathResource.class);

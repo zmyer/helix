@@ -19,38 +19,35 @@ package org.apache.helix.controller.pipeline;
  * under the License.
  */
 
-import org.apache.helix.controller.stages.ClusterEventType;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-// TODO: 2018/6/15 by zmyer
+import org.apache.helix.controller.stages.ClusterEventType;
+
 public class PipelineRegistry {
-    Map<ClusterEventType, List<Pipeline>> _map;
+  Map<ClusterEventType, List<Pipeline>> _map;
 
-    public PipelineRegistry() {
-        _map = new HashMap<>();
-    }
+  public PipelineRegistry() {
+    _map = new HashMap<>();
+  }
 
-    // TODO: 2018/7/25 by zmyer
-    public void register(ClusterEventType eventType, Pipeline... pipelines) {
-        if (!_map.containsKey(eventType)) {
-            _map.put(eventType, new ArrayList<Pipeline>());
-        }
-        List<Pipeline> list = _map.get(eventType);
-        for (Pipeline pipeline : pipelines) {
-            list.add(pipeline);
-        }
+  public void register(ClusterEventType eventType, Pipeline... pipelines) {
+    if (!_map.containsKey(eventType)) {
+      _map.put(eventType, new ArrayList<Pipeline>());
     }
+    List<Pipeline> list = _map.get(eventType);
+    for (Pipeline pipeline : pipelines) {
+      list.add(pipeline);
+    }
+  }
 
-    // TODO: 2018/7/26 by zmyer
-    public List<Pipeline> getPipelinesForEvent(ClusterEventType eventType) {
-        if (_map.containsKey(eventType)) {
-            return _map.get(eventType);
-        }
-        return Collections.emptyList();
+  public List<Pipeline> getPipelinesForEvent(ClusterEventType eventType) {
+    if (_map.containsKey(eventType)) {
+      return _map.get(eventType);
     }
+    return Collections.emptyList();
+  }
 }

@@ -28,11 +28,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.util.RebalanceUtil;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.common.DedupEventProcessor;
 import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
 import org.apache.helix.controller.pipeline.AsyncWorkerType;
@@ -291,14 +293,6 @@ public class TaskTestUtil {
     return cache;
   }
 
-  static void runStage(ClusterEvent event, Stage stage) throws Exception {
-    StageContext context = new StageContext();
-    stage.init(context);
-    stage.preProcess();
-    stage.process(event);
-    stage.postProcess();
-  }
-
   public static BestPossibleStateOutput calculateTaskSchedulingStage(WorkflowControllerDataProvider cache,
       HelixManager manager) throws Exception {
     ClusterEvent event = new ClusterEvent(ClusterEventType.Unknown);
@@ -330,7 +324,7 @@ public class TaskTestUtil {
     stages.add(new TaskGarbageCollectionStage());
 
     for (Stage stage : stages) {
-      runStage(event, stage);
+      RebalanceUtil.runStage(event, stage);
     }
 
     return event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
@@ -342,7 +336,7 @@ public class TaskTestUtil {
 
     long startTime = System.currentTimeMillis();
     while (true) {
-      List<Message> messages = accessor.getChildValues(propertyKey);
+      List<Message> messages = accessor.getChildValues(propertyKey, true);
       if (allTasksBlock(messages, numTask)) {
         return true;
       } else if (startTime + timeout < System.currentTimeMillis()) {

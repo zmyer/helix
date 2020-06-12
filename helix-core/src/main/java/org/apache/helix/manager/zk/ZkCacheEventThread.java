@@ -19,82 +19,78 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
-import org.I0Itec.zkclient.exception.ZkInterruptedException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
-// TODO: 2018/7/27 by zmyer
+import org.apache.helix.zookeeper.zkclient.exception.ZkInterruptedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 // copy from ZkEventThread
 public class ZkCacheEventThread extends Thread {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ZkCacheEventThread.class);
-    private final BlockingQueue<ZkCacheEvent> _events = new LinkedBlockingQueue<ZkCacheEvent>();
-    private static AtomicInteger _eventId = new AtomicInteger(0);
+  private static final Logger LOG = LoggerFactory.getLogger(ZkCacheEventThread.class);
+  private final BlockingQueue<ZkCacheEvent> _events = new LinkedBlockingQueue<ZkCacheEvent>();
+  private static AtomicInteger _eventId = new AtomicInteger(0);
 
-    // TODO: 2018/7/27 by zmyer
-    static abstract class ZkCacheEvent {
+  static abstract class ZkCacheEvent {
 
-        private final String _description;
+    private final String _description;
 
-        public ZkCacheEvent(String description) {
-            _description = description;
-        }
-
-        public abstract void run() throws Exception;
-
-        @Override
-        public String toString() {
-            return "ZkCacheEvent[" + _description + "]";
-        }
+    public ZkCacheEvent(String description) {
+      _description = description;
     }
 
-    ZkCacheEventThread(String name) {
-        setDaemon(true);
-        setName("ZkCache-EventThread-" + getId() + "-" + name);
-    }
+    public abstract void run() throws Exception;
 
-    // TODO: 2018/7/27 by zmyer
     @Override
-    public void run() {
-        LOG.info("Starting ZkCache event thread.");
-        try {
-            while (!isInterrupted()) {
-                ZkCacheEvent zkEvent = _events.take();
-                int eventId = _eventId.incrementAndGet();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Delivering event #" + eventId + " " + zkEvent);
-                }
-                try {
-                    zkEvent.run();
-                } catch (InterruptedException e) {
-                    interrupt();
-                } catch (ZkInterruptedException e) {
-                    interrupt();
-                } catch (ThreadDeath death) {
-                    throw death;
-                } catch (Throwable e) {
-                    LOG.error("Error handling event " + zkEvent, e);
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Delivering event #" + eventId + " done");
-                }
-            }
-        } catch (InterruptedException e) {
-            LOG.info("Terminate ZkClient event thread.");
-        }
+    public String toString() {
+      return "ZkCacheEvent[" + _description + "]";
     }
+  }
 
-    // TODO: 2018/7/27 by zmyer
-    public void send(ZkCacheEvent event) {
-        if (!isInterrupted()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("New event: " + event);
-            }
-            _events.add(event);
+  ZkCacheEventThread(String name) {
+    setDaemon(true);
+    setName("ZkCache-EventThread-" + getId() + "-" + name);
+  }
+
+  @Override
+  public void run() {
+    LOG.info("Starting ZkCache event thread.");
+    try {
+      while (!isInterrupted()) {
+        ZkCacheEvent zkEvent = _events.take();
+        int eventId = _eventId.incrementAndGet();
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Delivering event #" + eventId + " " + zkEvent);
         }
+        try {
+          zkEvent.run();
+        } catch (InterruptedException e) {
+          interrupt();
+        } catch (ZkInterruptedException e) {
+          interrupt();
+        } catch (ThreadDeath death) {
+          throw death;
+        } catch (Throwable e) {
+          LOG.error("Error handling event " + zkEvent, e);
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Delivering event #" + eventId + " done");
+        }
+      }
+    } catch (InterruptedException e) {
+      LOG.info("Terminate ZkClient event thread.");
     }
+  }
+
+  public void send(ZkCacheEvent event) {
+    if (!isInterrupted()) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("New event: " + event);
+      }
+      _events.add(event);
+    }
+  }
 }

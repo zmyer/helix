@@ -20,17 +20,19 @@ package org.apache.helix.rest.server.resources.helix;
  */
 
 import java.io.IOException;
+
+import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
-import org.apache.helix.ZNRecord;
-import org.apache.helix.manager.zk.ZkClient;
-import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.rest.common.ContextPropertyKeys;
 import org.apache.helix.rest.server.ServerContext;
 import org.apache.helix.rest.server.resources.AbstractResource;
 import org.apache.helix.task.TaskDriver;
 import org.apache.helix.tools.ClusterSetup;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.impl.client.ZkClient;
 
 
 /**
@@ -38,16 +40,16 @@ import org.apache.helix.tools.ClusterSetup;
  * such as cluster, instance, job, resource, workflow, etc in
  * metadata store.
  */
-public class AbstractHelixResource extends AbstractResource{
+public class AbstractHelixResource extends AbstractResource {
 
-  public HelixZkClient getHelixZkClient() {
+  public RealmAwareZkClient getRealmAwareZkClient() {
     ServerContext serverContext = getServerContext();
-    return serverContext.getHelixZkClient();
+    return serverContext.getRealmAwareZkClient();
   }
 
   @Deprecated
   public ZkClient getZkClient() {
-    return (ZkClient) getHelixZkClient();
+    return (ZkClient) getRealmAwareZkClient();
   }
 
   public HelixAdmin getHelixAdmin() {
@@ -72,14 +74,20 @@ public class AbstractHelixResource extends AbstractResource{
 
   public HelixDataAccessor getDataAccssor(String clusterName) {
     ServerContext serverContext = getServerContext();
-    return serverContext.getDataAccssor(clusterName);
+    return serverContext.getDataAccessor(clusterName);
   }
 
-  protected static ZNRecord toZNRecord(String data) throws IOException {
+  protected BaseDataAccessor<byte[]> getByteArrayDataAccessor() {
+    return getServerContext().getByteArrayZkBaseDataAccessor();
+  }
+
+  protected static ZNRecord toZNRecord(String data)
+      throws IOException {
     return OBJECT_MAPPER.reader(ZNRecord.class).readValue(data);
   }
 
   private ServerContext getServerContext() {
-    return (ServerContext) _application.getProperties().get(ContextPropertyKeys.SERVER_CONTEXT.name());
+    return (ServerContext) _application.getProperties()
+        .get(ContextPropertyKeys.SERVER_CONTEXT.name());
   }
 }

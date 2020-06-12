@@ -19,30 +19,6 @@ package org.apache.helix.tools.ClusterVerifiers;
  * under the License.
  */
 
-import org.apache.helix.HelixDefinedState;
-import org.apache.helix.PropertyKey;
-import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
-import org.apache.helix.controller.common.PartitionStateMap;
-import org.apache.helix.controller.pipeline.Stage;
-import org.apache.helix.controller.pipeline.StageContext;
-import org.apache.helix.controller.stages.AttributeName;
-import org.apache.helix.controller.stages.BestPossibleStateCalcStage;
-import org.apache.helix.controller.stages.BestPossibleStateOutput;
-import org.apache.helix.controller.stages.ClusterEvent;
-import org.apache.helix.controller.stages.ClusterEventType;
-import org.apache.helix.controller.stages.CurrentStateComputationStage;
-import org.apache.helix.controller.stages.ResourceComputationStage;
-import org.apache.helix.manager.zk.ZkClient;
-import org.apache.helix.manager.zk.client.HelixZkClient;
-import org.apache.helix.model.ExternalView;
-import org.apache.helix.model.IdealState;
-import org.apache.helix.model.Partition;
-import org.apache.helix.model.Resource;
-import org.apache.helix.model.StateModelDefinition;
-import org.apache.helix.task.TaskConstants;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -52,6 +28,33 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import org.apache.helix.HelixDefinedState;
+import org.apache.helix.HelixRebalanceException;
+import org.apache.helix.PropertyKey;
+import org.apache.helix.controller.common.PartitionStateMap;
+import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
+import org.apache.helix.controller.rebalancer.waged.RebalanceAlgorithm;
+import org.apache.helix.controller.stages.AttributeName;
+import org.apache.helix.controller.stages.BestPossibleStateCalcStage;
+import org.apache.helix.controller.stages.BestPossibleStateOutput;
+import org.apache.helix.controller.stages.ClusterEvent;
+import org.apache.helix.controller.stages.ClusterEventType;
+import org.apache.helix.controller.stages.CurrentStateComputationStage;
+import org.apache.helix.controller.stages.CurrentStateOutput;
+import org.apache.helix.controller.stages.ResourceComputationStage;
+import org.apache.helix.model.ClusterConfig;
+import org.apache.helix.model.ExternalView;
+import org.apache.helix.model.IdealState;
+import org.apache.helix.model.Partition;
+import org.apache.helix.model.Resource;
+import org.apache.helix.model.ResourceAssignment;
+import org.apache.helix.model.StateModelDefinition;
+import org.apache.helix.task.TaskConstants;
+import org.apache.helix.util.RebalanceUtil;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * verifier that the ExternalViews of given resources (or all resources in the cluster)
@@ -65,6 +68,15 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
   private final Set<String> _expectLiveInstances;
   private final ResourceControllerDataProvider _dataProvider;
 
+  /**
+   * Deprecated - please use the Builder to construct this class.
+   * @param zkAddr
+   * @param clusterName
+   * @param resources
+   * @param errStates
+   * @param expectLiveInstances
+   */
+  @Deprecated
   public BestPossibleExternalViewVerifier(String zkAddr, String clusterName, Set<String> resources,
       Map<String, Map<String, String>> errStates, Set<String> expectLiveInstances) {
     super(zkAddr, clusterName);
@@ -74,7 +86,16 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     _dataProvider = new ResourceControllerDataProvider();
   }
 
-  public BestPossibleExternalViewVerifier(HelixZkClient zkClient, String clusterName,
+  /**
+   * Deprecated - please use the Builder to construct this class.
+   * @param zkClient
+   * @param clusterName
+   * @param resources
+   * @param errStates
+   * @param expectLiveInstances
+   */
+  @Deprecated
+  public BestPossibleExternalViewVerifier(RealmAwareZkClient zkClient, String clusterName,
       Set<String> resources, Map<String, Map<String, String>> errStates,
       Set<String> expectLiveInstances) {
     super(zkClient, clusterName);
@@ -84,28 +105,52 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     _dataProvider = new ResourceControllerDataProvider();
   }
 
-  public static class Builder {
-    private String _clusterName;
+  private BestPossibleExternalViewVerifier(RealmAwareZkClient zkClient, String clusterName,
+      Map<String, Map<String, String>> errStates, Set<String> resources,
+      Set<String> expectLiveInstances) {
+    super(zkClient, clusterName);
+    // Deep copy data from Builder
+    _errStates = new HashMap<>();
+    if (errStates != null) {
+      errStates.forEach((k, v) -> _errStates.put(k, new HashMap<>(v)));
+    }
+    _resources = resources == null ? new HashSet<>() : new HashSet<>(resources);
+    _expectLiveInstances =
+        expectLiveInstances == null ? new HashSet<>() : new HashSet<>(expectLiveInstances);
+    _dataProvider = new ResourceControllerDataProvider();
+  }
+
+  public static class Builder extends ZkHelixClusterVerifier.Builder<Builder> {
+    private final String _clusterName;
     private Map<String, Map<String, String>> _errStates;
     private Set<String> _resources;
     private Set<String> _expectLiveInstances;
-    private String _zkAddr;
-    private HelixZkClient _zkClient;
+    private RealmAwareZkClient _zkClient;
 
     public Builder(String clusterName) {
       _clusterName = clusterName;
     }
 
     public BestPossibleExternalViewVerifier build() {
-      if (_clusterName == null || (_zkAddr == null && _zkClient == null)) {
-        throw new IllegalArgumentException("Cluster name or zookeeper info is missing!");
+      if (_clusterName == null) {
+        throw new IllegalArgumentException("Cluster name is missing!");
       }
 
       if (_zkClient != null) {
         return new BestPossibleExternalViewVerifier(_zkClient, _clusterName, _resources, _errStates,
             _expectLiveInstances);
       }
-      return new BestPossibleExternalViewVerifier(_zkAddr, _clusterName, _resources, _errStates,
+
+      if (_realmAwareZkConnectionConfig == null || _realmAwareZkClientConfig == null) {
+        // For backward-compatibility
+        return new BestPossibleExternalViewVerifier(_zkAddress, _clusterName, _resources,
+            _errStates, _expectLiveInstances);
+      }
+
+      validate();
+      return new BestPossibleExternalViewVerifier(
+          createZkClient(RealmAwareZkClient.RealmMode.SINGLE_REALM, _realmAwareZkConnectionConfig,
+              _realmAwareZkClientConfig, _zkAddress), _clusterName, _errStates, _resources,
           _expectLiveInstances);
     }
 
@@ -141,23 +186,10 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     }
 
     public String getZkAddr() {
-      return _zkAddr;
+      return _zkAddress;
     }
 
-    public Builder setZkAddr(String zkAddr) {
-      _zkAddr = zkAddr;
-      return this;
-    }
-
-    public HelixZkClient getHelixZkClient() {
-      return _zkClient;
-    }
-
-    @Deprecated
-    public ZkClient getZkClient() {
-      return (ZkClient) getHelixZkClient();
-    }
-    public Builder setZkClient(HelixZkClient zkClient) {
+    public Builder setZkClient(RealmAwareZkClient zkClient) {
       _zkClient = zkClient;
       return this;
     }
@@ -208,12 +240,14 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
       if (_expectLiveInstances != null && !_expectLiveInstances.isEmpty()) {
         Set<String> actualLiveNodes = _dataProvider.getLiveInstances().keySet();
         if (!_expectLiveInstances.equals(actualLiveNodes)) {
-          LOG.warn("Live instances are not as expected. Actual live nodes: " + actualLiveNodes.toString());
+          LOG.warn("Live instances are not as expected. Actual live nodes: " + actualLiveNodes
+              .toString());
           return false;
         }
       }
 
-      Map<String, ExternalView> extViews = _accessor.getChildValuesMap(keyBuilder.externalViews());
+      Map<String, ExternalView> extViews =
+          _accessor.getChildValuesMap(keyBuilder.externalViews(), true);
       if (extViews == null) {
         extViews = Collections.emptyMap();
       }
@@ -362,7 +396,7 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     ClusterEvent event = new ClusterEvent(ClusterEventType.StateVerifier);
     event.addAttribute(AttributeName.ControllerDataProvider.name(), cache);
 
-    runStage(event, new ResourceComputationStage());
+    RebalanceUtil.runStage(event, new ResourceComputationStage());
 
     if (resources != null && !resources.isEmpty()) {
       // Filtering out all non-required resources
@@ -376,20 +410,20 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
       event.addAttribute(AttributeName.RESOURCES_TO_REBALANCE.name(), resourceMapToRebalance);
     }
 
-    runStage(event, new CurrentStateComputationStage());
-    // TODO: be caution here, should be handled statelessly.
-    runStage(event, new BestPossibleStateCalcStage());
+    RebalanceUtil.runStage(event, new CurrentStateComputationStage());
+    // Note the readOnlyWagedRebalancer is just for one time usage
+    DryrunWagedRebalancer dryrunWagedRebalancer =
+        new DryrunWagedRebalancer(_zkClient.getServers(), cache.getClusterName(),
+            cache.getClusterConfig().getGlobalRebalancePreference());
+    event.addAttribute(AttributeName.STATEFUL_REBALANCER.name(), dryrunWagedRebalancer);
+    try {
+      RebalanceUtil.runStage(event, new BestPossibleStateCalcStage());
+    } finally {
+      dryrunWagedRebalancer.close();
+    }
 
     BestPossibleStateOutput output = event.getAttribute(AttributeName.BEST_POSSIBLE_STATE.name());
     return output;
-  }
-
-  private void runStage(ClusterEvent event, Stage stage) throws Exception {
-    StageContext context = new StageContext();
-    stage.init(context);
-    stage.preProcess();
-    stage.process(event);
-    stage.postProcess();
   }
 
   @Override
@@ -397,5 +431,21 @@ public class BestPossibleExternalViewVerifier extends ZkHelixClusterVerifier {
     String verifierName = getClass().getSimpleName();
     return verifierName + "(" + _clusterName + "@" + _zkClient + "@resources["
        + (_resources != null ? Arrays.toString(_resources.toArray()) : "") + "])";
+  }
+
+  private class DryrunWagedRebalancer extends org.apache.helix.controller.rebalancer.waged.ReadOnlyWagedRebalancer {
+    public DryrunWagedRebalancer(String metadataStoreAddress, String clusterName,
+        Map<ClusterConfig.GlobalRebalancePreferenceKey, Integer> preferences) {
+      super(metadataStoreAddress, clusterName, preferences);
+    }
+
+    @Override
+    protected Map<String, ResourceAssignment> computeBestPossibleAssignment(
+        ResourceControllerDataProvider clusterData, Map<String, Resource> resourceMap,
+        Set<String> activeNodes, CurrentStateOutput currentStateOutput,
+        RebalanceAlgorithm algorithm) throws HelixRebalanceException {
+      return getBestPossibleAssignment(getAssignmentMetadataStore(), currentStateOutput,
+          resourceMap.keySet());
+    }
   }
 }

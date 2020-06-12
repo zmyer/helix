@@ -21,13 +21,13 @@ package org.apache.helix.manager.zk;
 
 import java.util.List;
 
-import org.I0Itec.zkclient.exception.ZkInterruptedException;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixTimerTask;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.controller.GenericHelixController;
 import org.apache.helix.messaging.DefaultMessagingService;
 import org.apache.helix.messaging.handling.MultiTypeMessageHandlerFactory;
+import org.apache.helix.zookeeper.zkclient.exception.ZkInterruptedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,6 +82,7 @@ public class ControllerManagerHelper {
       _manager.addInstanceConfigChangeListener(controller);
       _manager.addResourceConfigChangeListener(controller);
       _manager.addClusterfigChangeListener(controller);
+      _manager.addCustomizedStateConfigChangeListener(controller);
       _manager.addLiveInstanceChangeListener(controller);
       _manager.addIdealStateChangeListener(controller);
     } catch (ZkInterruptedException e) {
@@ -99,6 +100,7 @@ public class ControllerManagerHelper {
      */
     _manager.removeListener(keyBuilder.idealStates(), controller);
     _manager.removeListener(keyBuilder.liveInstances(), controller);
+    _manager.removeListener(keyBuilder.customizedStateConfig(), controller);
     _manager.removeListener(keyBuilder.clusterConfig(), controller);
     _manager.removeListener(keyBuilder.resourceConfigs(), controller);
     _manager.removeListener(keyBuilder.instanceConfigs(), controller);

@@ -23,21 +23,25 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.PropertyType;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.model.CloudConfig;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ClusterConstraints;
 import org.apache.helix.model.ConstraintItem;
+import org.apache.helix.model.CustomizedStateConfig;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.HelixConfigScope;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.MaintenanceSignal;
+import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.StateModelDefinition;
 
 public class MockHelixAdmin implements HelixAdmin {
@@ -101,6 +105,10 @@ public class MockHelixAdmin implements HelixAdmin {
 
     path = PropertyPathBuilder.resourceConfig(clusterName);
     _baseDataAccessor.create(path, new ZNRecord(clusterName), 0);
+
+    path = PropertyPathBuilder.customizedStateConfig(clusterName);
+    _baseDataAccessor.create(path, new ZNRecord(clusterName), 0);
+
     // PROPERTY STORE
     path = PropertyPathBuilder.propertyStore(clusterName);
     _baseDataAccessor.create(path, new ZNRecord(clusterName), 0);
@@ -137,6 +145,27 @@ public class MockHelixAdmin implements HelixAdmin {
   }
 
   @Override public void addClusterToGrandCluster(String clusterName, String grandCluster) {
+
+  }
+
+  @Override
+  public void addCustomizedStateConfig(String clusterName,
+      CustomizedStateConfig customizedStateConfig) {
+
+  }
+
+  @Override
+  public void removeCustomizedStateConfig(String clusterName) {
+
+  }
+
+  @Override
+  public void addTypeToCustomizedStateConfig(String clusterName, String type) {
+
+  }
+
+  @Override
+  public void removeTypeFromCustomizedStateConfig(String clusterName, String type) {
 
   }
 
@@ -190,6 +219,9 @@ public class MockHelixAdmin implements HelixAdmin {
         .set(PropertyPathBuilder.instanceMessage(clusterName, nodeId), new ZNRecord(nodeId), 0);
     _baseDataAccessor
         .set(PropertyPathBuilder.instanceCurrentState(clusterName, nodeId), new ZNRecord(nodeId),
+            0);
+    _baseDataAccessor
+        .set(PropertyPathBuilder.instanceCustomizedState(clusterName, nodeId), new ZNRecord(nodeId),
             0);
     _baseDataAccessor
         .set(PropertyPathBuilder.instanceError(clusterName, nodeId), new ZNRecord(nodeId), 0);
@@ -312,6 +344,16 @@ public class MockHelixAdmin implements HelixAdmin {
 
   }
 
+  @Override
+  public void addCloudConfig(String clusterName, CloudConfig cloudConfig) {
+
+  }
+
+  @Override
+  public void removeCloudConfig(String clusterName) {
+
+  }
+
   @Override public List<String> getStateModelDefs(String clusterName) {
     return null;
   }
@@ -426,5 +468,26 @@ public class MockHelixAdmin implements HelixAdmin {
 
   @Override public void close() {
 
+  }
+
+  @Override
+  public boolean addResourceWithWeight(String clusterName, IdealState idealState, ResourceConfig resourceConfig) {
+    return false;
+  }
+
+  @Override
+  public boolean enableWagedRebalance(String clusterName, List<String> resourceNames) {
+    return false;
+  }
+
+  @Override
+  public Map<String, Boolean> validateResourcesForWagedRebalance(String clusterName, List<String> resourceNames) {
+    return null;
+  }
+
+  @Override
+  public Map<String, Boolean> validateInstancesForWagedRebalance(String clusterName,
+      List<String> instancesNames) {
+    return null;
   }
 }

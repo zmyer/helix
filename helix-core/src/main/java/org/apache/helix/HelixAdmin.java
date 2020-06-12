@@ -22,14 +22,17 @@ package org.apache.helix;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import org.apache.helix.model.CloudConfig;
 import org.apache.helix.model.ClusterConstraints;
 import org.apache.helix.model.ClusterConstraints.ConstraintType;
 import org.apache.helix.model.ConstraintItem;
+import org.apache.helix.model.CustomizedStateConfig;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.HelixConfigScope;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.MaintenanceSignal;
+import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.StateModelDefinition;
 
 /*
@@ -102,6 +105,31 @@ public interface HelixAdmin {
    * @param grandCluster
    */
   void addClusterToGrandCluster(String clusterName, String grandCluster);
+
+  /** Add a CustomizedStateConfig to a cluster
+   * @param clusterName
+   * @param customizedStateConfig
+   */
+  void addCustomizedStateConfig(String clusterName,
+      CustomizedStateConfig customizedStateConfig);
+
+  /**
+   * Remove CustomizedStateConfig from specific cluster
+   * @param clusterName
+   */
+  void removeCustomizedStateConfig(String clusterName);
+
+  /**
+   * Add a type to CustomizedStateConfig of specific cluster
+   * @param clusterName
+   */
+  void addTypeToCustomizedStateConfig(String clusterName, String type);
+
+  /**
+   * Remove a type from CustomizedStateConfig of specific cluster
+   * @param clusterName
+   */
+  void removeTypeFromCustomizedStateConfig(String clusterName, String type);
 
   /**
    * Add a resource to a cluster, using the default ideal state mode AUTO
@@ -380,6 +408,19 @@ public interface HelixAdmin {
   void dropResource(String clusterName, String resourceName);
 
   /**
+   * Add cloud config to the cluster.
+   * @param clusterName
+   * @param cloudConfig
+   */
+  void addCloudConfig(String clusterName, CloudConfig cloudConfig);
+
+  /**
+   * Remove the Cloud Config for specific cluster
+   * @param clusterName
+   */
+  void removeCloudConfig(String clusterName);
+
+  /**
    * Get a list of state model definitions in a cluster
    * @param clusterName
    * @return
@@ -573,7 +614,55 @@ public interface HelixAdmin {
   List<String> getInstancesByDomain(String clusterName, String domain);
 
   /**
-   * Release resources
+   * Release resources used in HelixAdmin.
    */
-  void close();
+  default void close() {
+    System.out.println("Default close() was invoked! No operation was executed.");
+  }
+
+  /**
+   * Adds a resource with IdealState and ResourceConfig to be rebalanced by WAGED rebalancer with validation.
+   * Validation includes the following:
+   * 1. Check ResourceConfig has the WEIGHT field
+   * 2. Check that all capacity keys from ClusterConfig are set up in the WEIGHT field
+   * 3. Check that all ResourceConfig's weightMap fields have all of the capacity keys
+   * @param clusterName
+   * @param idealState
+   * @param resourceConfig
+   * @return true if the resource has been added successfully. False otherwise
+   */
+  boolean addResourceWithWeight(String clusterName, IdealState idealState,
+      ResourceConfig resourceConfig);
+
+  /**
+   * Batch-enables Waged rebalance for the names of resources given.
+   * @param clusterName
+   * @param resourceNames
+   * @return
+   */
+  boolean enableWagedRebalance(String clusterName, List<String> resourceNames);
+
+  /**
+   * Validates the resources to see if their weight configs have been set properly.
+   * Validation includes the following:
+   * 1. Check ResourceConfig has the WEIGHT field
+   * 2. Check that all capacity keys from ClusterConfig are set up in the WEIGHT field
+   * 3. Check that all ResourceConfig's weightMap fields have all of the capacity keys
+   * @param resourceNames
+   * @return for each resource, true if the weight configs have been set properly, false otherwise
+   */
+  Map<String, Boolean> validateResourcesForWagedRebalance(String clusterName,
+      List<String> resourceNames);
+
+  /**
+   * Validates the instances to ensure their weights in InstanceConfigs have been set up properly.
+   * Validation includes the following:
+   * 1. If default instance capacity is not set, check that the InstanceConfigs have the CAPACITY field
+   * 2. Check that all capacity keys defined in ClusterConfig are present in the CAPACITY field
+   * @param clusterName
+   * @param instancesNames
+   * @return
+   */
+  Map<String, Boolean> validateInstancesForWagedRebalance(String clusterName,
+      List<String> instancesNames);
 }

@@ -24,7 +24,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
@@ -35,6 +34,8 @@ import javax.ws.rs.PathParam;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Response;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.helix.AccessOption;
 import org.apache.helix.ConfigAccessor;
@@ -43,31 +44,32 @@ import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyPathBuilder;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.manager.zk.ZKUtil;
-import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.model.CloudConfig;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ControllerHistory;
+import org.apache.helix.model.CustomizedStateConfig;
 import org.apache.helix.model.HelixConfigScope;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.MaintenanceSignal;
 import org.apache.helix.model.Message;
+import org.apache.helix.model.RESTConfig;
 import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.model.builder.HelixConfigScopeBuilder;
 import org.apache.helix.rest.server.json.cluster.ClusterTopology;
 import org.apache.helix.rest.server.service.ClusterService;
 import org.apache.helix.rest.server.service.ClusterServiceImpl;
 import org.apache.helix.tools.ClusterSetup;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.codehaus.jackson.type.TypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableMap;
 
 @Path("/clusters")
 public class ClusterAccessor extends AbstractHelixResource {
-  private static Logger _logger = LoggerFactory.getLogger(ClusterAccessor.class.getName());
+  private static Logger LOG = LoggerFactory.getLogger(ClusterAccessor.class.getName());
 
   public enum ClusterProperties {
     controller,
@@ -115,7 +117,8 @@ public class ClusterAccessor extends AbstractHelixResource {
       clusterInfo.put(ClusterProperties.controller.name(), "No Lead Controller!");
     }
 
-    boolean paused = dataAccessor.getBaseDataAccessor().exists(keyBuilder.pause().getPath(), AccessOption.PERSISTENT);
+    boolean paused = dataAccessor.getBaseDataAccessor()
+        .exists(keyBuilder.pause().getPath(), AccessOption.PERSISTENT);
     clusterInfo.put(ClusterProperties.paused.name(), paused);
     boolean maintenance = getHelixAdmin().isInMaintenanceMode(clusterId);
     clusterInfo.put(ClusterProperties.maintenance.name(), maintenance);
@@ -130,21 +133,37 @@ public class ClusterAccessor extends AbstractHelixResource {
     return JSONRepresentation(clusterInfo);
   }
 
-
   @PUT
   @Path("{clusterId}")
   public Response createCluster(@PathParam("clusterId") String clusterId,
-      @DefaultValue("false") @QueryParam("recreate") String recreate) {
-    boolean recreateIfExists = Boolean.valueOf(recreate);
+      @DefaultValue("false") @QueryParam("recreate") String recreate,
+      @DefaultValue("false") @QueryParam("addCloudConfig") String addCloudConfig,
+      String cloudConfigManifest) {
+
+    boolean recreateIfExists = Boolean.parseBoolean(recreate);
+    boolean cloudConfigIncluded = Boolean.parseBoolean(addCloudConfig);
+
     ClusterSetup clusterSetup = getClusterSetup();
 
-    try {
-      clusterSetup.addCluster(clusterId, recreateIfExists);
-    } catch (Exception ex) {
-      _logger.error("Failed to create cluster " + clusterId + ", exception: " + ex);
-      return serverError(ex);
+    CloudConfig cloudConfig = null;
+    if (cloudConfigIncluded) {
+      ZNRecord record;
+      try {
+        record = toZNRecord(cloudConfigManifest);
+        cloudConfig = new CloudConfig.Builder(record).build();
+      } catch (IOException | HelixException e) {
+        String errMsg = "Failed to generate a valid CloudConfig from " + cloudConfigManifest;
+        LOG.error(errMsg, e);
+        return badRequest(errMsg + " Exception: " + e.getMessage());
+      }
     }
 
+    try {
+      clusterSetup.addCluster(clusterId, recreateIfExists, cloudConfig);
+    } catch (Exception ex) {
+      LOG.error("Failed to create cluster {}. Exception: {}.", clusterId, ex);
+      return serverError(ex);
+    }
     return created();
   }
 
@@ -156,11 +175,11 @@ public class ClusterAccessor extends AbstractHelixResource {
     try {
       clusterSetup.deleteCluster(clusterId);
     } catch (HelixException ex) {
-      _logger.info(
-          "Failed to delete cluster " + clusterId + ", cluster is still in use. Exception: " + ex);
+      LOG.info("Failed to delete cluster {}, cluster is still in use. Exception: {}.", clusterId,
+          ex);
       return badRequest(ex.getMessage());
     } catch (Exception ex) {
-      _logger.error("Failed to delete cluster " + clusterId + ", exception: " + ex);
+      LOG.error("Failed to delete cluster {}. Exception: {}.", clusterId, ex);
       return serverError(ex);
     }
 
@@ -183,66 +202,75 @@ public class ClusterAccessor extends AbstractHelixResource {
     HelixAdmin helixAdmin = getHelixAdmin();
 
     switch (command) {
-    case activate:
-      if (superCluster == null) {
-        return badRequest("Super Cluster name is missing!");
-      }
-      try {
-        clusterSetup.activateCluster(clusterId, superCluster, true);
-      } catch (Exception ex) {
-        _logger.error("Failed to add cluster " + clusterId + " to super cluster " + superCluster);
-        return serverError(ex);
-      }
-      break;
+      case activate:
+        if (superCluster == null) {
+          return badRequest("Super Cluster name is missing!");
+        }
+        try {
+          clusterSetup.activateCluster(clusterId, superCluster, true);
+        } catch (Exception ex) {
+          LOG.error("Failed to add cluster {} to super cluster {}.", clusterId, superCluster);
+          return serverError(ex);
+        }
+        break;
 
-    case expand:
-      try {
-        clusterSetup.expandCluster(clusterId);
-      } catch (Exception ex) {
-        _logger.error("Failed to expand cluster " + clusterId);
-        return serverError(ex);
-      }
-      break;
+      case expand:
+        try {
+          clusterSetup.expandCluster(clusterId);
+        } catch (Exception ex) {
+          LOG.error("Failed to expand cluster {}.", clusterId);
+          return serverError(ex);
+        }
+        break;
 
-    case enable:
-      try {
-        helixAdmin.enableCluster(clusterId, true);
-      } catch (Exception ex) {
-        _logger.error("Failed to enable cluster " + clusterId);
-        return serverError(ex);
-      }
-      break;
+      case enable:
+        try {
+          helixAdmin.enableCluster(clusterId, true);
+        } catch (Exception ex) {
+          LOG.error("Failed to enable cluster {}.", clusterId);
+          return serverError(ex);
+        }
+        break;
 
-    case disable:
-      try {
-        helixAdmin.enableCluster(clusterId, false);
-      } catch (Exception ex) {
-        _logger.error("Failed to disable cluster " + clusterId);
-        return serverError(ex);
-      }
-      break;
+      case disable:
+        try {
+          helixAdmin.enableCluster(clusterId, false);
+        } catch (Exception ex) {
+          LOG.error("Failed to disable cluster {}.", clusterId);
+          return serverError(ex);
+        }
+        break;
 
-    case enableMaintenanceMode:
-    case disableMaintenanceMode:
-      // Try to parse the content string. If parseable, use it as a KV mapping. Otherwise, treat it
-      // as a REASON String
-      Map<String, String> customFieldsMap = null;
-      try {
-        // Try to parse content
-        customFieldsMap =
-            OBJECT_MAPPER.readValue(content, new TypeReference<HashMap<String, String>>() {
-            });
-        // content is given as a KV mapping. Nullify content
-        content = null;
-      } catch (Exception e) {
-        // NOP
-      }
-      helixAdmin.manuallyEnableMaintenanceMode(clusterId, command == Command.enableMaintenanceMode,
-          content, customFieldsMap);
-      break;
-
-    default:
-      return badRequest("Unsupported command " + command);
+      case enableMaintenanceMode:
+      case disableMaintenanceMode:
+        // Try to parse the content string. If parseable, use it as a KV mapping. Otherwise, treat it
+        // as a REASON String
+        Map<String, String> customFieldsMap = null;
+        try {
+          // Try to parse content
+          customFieldsMap =
+              OBJECT_MAPPER.readValue(content, new TypeReference<HashMap<String, String>>() {
+              });
+          // content is given as a KV mapping. Nullify content
+          content = null;
+        } catch (Exception e) {
+          // NOP
+        }
+        helixAdmin
+            .manuallyEnableMaintenanceMode(clusterId, command == Command.enableMaintenanceMode,
+                content, customFieldsMap);
+        break;
+      case enableWagedRebalanceForAllResources:
+        // Enable WAGED rebalance for all resources in the cluster
+        List<String> resources = helixAdmin.getResourcesInCluster(clusterId);
+        try {
+          helixAdmin.enableWagedRebalance(clusterId, resources);
+        } catch (HelixException e) {
+          return badRequest(e.getMessage());
+        }
+        break;
+      default:
+        return badRequest("Unsupported command {}." + command);
     }
 
     return OK();
@@ -257,10 +285,10 @@ public class ClusterAccessor extends AbstractHelixResource {
       config = accessor.getClusterConfig(clusterId);
     } catch (HelixException ex) {
       // cluster not found.
-      _logger.info("Failed to get cluster config for cluster " + clusterId
-          + ", cluster not found, Exception: " + ex);
+      LOG.info("Failed to get cluster config for cluster {}, cluster not found. Exception: {}.",
+          clusterId, ex);
     } catch (Exception ex) {
-      _logger.error("Failed to get cluster config for cluster " + clusterId + " Exception: " + ex);
+      LOG.error("Failed to get cluster config for cluster {}. Exception: {}", clusterId, ex);
       return serverError(ex);
     }
     if (config == null) {
@@ -269,11 +297,120 @@ public class ClusterAccessor extends AbstractHelixResource {
     return JSONRepresentation(config.getRecord());
   }
 
+
+  @PUT
+  @Path("{clusterId}/customized-state-config")
+  public Response addCustomizedStateConfig(@PathParam("clusterId") String clusterId,
+      String content) {
+    if (!doesClusterExist(clusterId)) {
+      return notFound(String.format("Cluster %s does not exist", clusterId));
+    }
+
+    HelixAdmin admin = getHelixAdmin();
+    ZNRecord record;
+    try {
+      record = toZNRecord(content);
+    } catch (IOException e) {
+      return badRequest("Input is not a vaild ZNRecord!");
+    }
+
+    try {
+      CustomizedStateConfig customizedStateConfig =
+          new CustomizedStateConfig.Builder(record).build();
+      admin.addCustomizedStateConfig(clusterId, customizedStateConfig);
+    } catch (Exception ex) {
+      LOG.error("Cannot add CustomizedStateConfig to cluster: {} Exception: {}",
+          clusterId, ex);
+      return serverError(ex);
+    }
+
+    return OK();
+  }
+
+  @DELETE
+  @Path("{clusterId}/customized-state-config")
+  public Response removeCustomizedStateConfig(@PathParam("clusterId") String clusterId) {
+    if (!doesClusterExist(clusterId)) {
+      return notFound(String.format("Cluster %s does not exist", clusterId));
+    }
+
+    HelixAdmin admin = getHelixAdmin();
+    try {
+      admin.removeCustomizedStateConfig(clusterId);
+    } catch (Exception ex) {
+      LOG.error(
+          "Cannot remove CustomizedStateConfig from cluster: {}, Exception: {}",
+          clusterId, ex);
+      return serverError(ex);
+    }
+
+    return OK();
+  }
+
+  @GET
+  @Path("{clusterId}/customized-state-config")
+  public Response getCustomizedStateConfig(@PathParam("clusterId") String clusterId) {
+    if (!doesClusterExist(clusterId)) {
+      return notFound(String.format("Cluster %s does not exist", clusterId));
+    }
+
+    ConfigAccessor configAccessor = getConfigAccessor();
+    CustomizedStateConfig customizedStateConfig =
+        configAccessor.getCustomizedStateConfig(clusterId);
+
+    if (customizedStateConfig != null) {
+      return JSONRepresentation(customizedStateConfig.getRecord());
+    }
+
+    return notFound();
+  }
+
+  @POST
+  @Path("{clusterId}/customized-state-config")
+  public Response updateCustomizedStateConfig(@PathParam("clusterId") String clusterId,
+      @QueryParam("command") String commandStr, @QueryParam("type") String type) {
+    if (!doesClusterExist(clusterId)) {
+      return notFound(String.format("Cluster %s does not exist", clusterId));
+    }
+
+    Command command;
+    if (commandStr == null || commandStr.isEmpty()) {
+      command = Command.add; // Default behavior
+    } else {
+      try {
+        command = getCommand(commandStr);
+      } catch (HelixException ex) {
+        return badRequest(ex.getMessage());
+      }
+    }
+
+    HelixAdmin admin = getHelixAdmin();
+
+    try {
+      switch (command) {
+      case delete:
+        admin.removeTypeFromCustomizedStateConfig(clusterId, type);
+        break;
+      case add:
+        admin.addTypeToCustomizedStateConfig(clusterId, type);
+        break;
+      default:
+        return badRequest("Unsupported command " + commandStr);
+      }
+    } catch (Exception ex) {
+      LOG.error("Failed to {} CustomizedStateConfig for cluster {} new type: {}, Exception: {}", command, clusterId, type, ex);
+      return serverError(ex);
+    }
+    return OK();
+  }
+
+
   @GET
   @Path("{clusterId}/topology")
   public Response getClusterTopology(@PathParam("clusterId") String clusterId) throws IOException {
     //TODO reduce the GC by dependency injection
-    ClusterService clusterService = new ClusterServiceImpl(getDataAccssor(clusterId), getConfigAccessor());
+    ClusterService clusterService =
+        new ClusterServiceImpl(getDataAccssor(clusterId), getConfigAccessor());
     ObjectMapper objectMapper = new ObjectMapper();
     ClusterTopology clusterTopology = clusterService.getClusterTopology(clusterId);
 
@@ -282,9 +419,8 @@ public class ClusterAccessor extends AbstractHelixResource {
 
   @POST
   @Path("{clusterId}/configs")
-  public Response updateClusterConfig(
-      @PathParam("clusterId") String clusterId, @QueryParam("command") String commandStr,
-      String content) {
+  public Response updateClusterConfig(@PathParam("clusterId") String clusterId,
+      @QueryParam("command") String commandStr, String content) {
     Command command;
     try {
       command = getCommand(commandStr);
@@ -296,7 +432,7 @@ public class ClusterAccessor extends AbstractHelixResource {
     try {
       record = toZNRecord(content);
     } catch (IOException e) {
-      _logger.error("Failed to deserialize user's input " + content + ", Exception: " + e);
+      LOG.error("Failed to deserialize user's input {}. Exception: {}.", content, e);
       return badRequest("Input is not a valid ZNRecord!");
     }
 
@@ -308,26 +444,26 @@ public class ClusterAccessor extends AbstractHelixResource {
     ConfigAccessor configAccessor = getConfigAccessor();
     try {
       switch (command) {
-      case update:
-        configAccessor.updateClusterConfig(clusterId, config);
-        break;
-      case delete: {
-        HelixConfigScope clusterScope =
-            new HelixConfigScopeBuilder(HelixConfigScope.ConfigScopeProperty.CLUSTER)
-                .forCluster(clusterId).build();
-        configAccessor.remove(clusterScope, config.getRecord());
+        case update:
+          configAccessor.updateClusterConfig(clusterId, config);
+          break;
+        case delete: {
+          HelixConfigScope clusterScope =
+              new HelixConfigScopeBuilder(HelixConfigScope.ConfigScopeProperty.CLUSTER)
+                  .forCluster(clusterId).build();
+          configAccessor.remove(clusterScope, config.getRecord());
         }
         break;
 
-      default:
-        return badRequest("Unsupported command " + commandStr);
+        default:
+          return badRequest("Unsupported command " + commandStr);
       }
     } catch (HelixException ex) {
       return notFound(ex.getMessage());
     } catch (Exception ex) {
-      _logger.error(
-          "Failed to " + command + " cluster config, cluster " + clusterId + " new config: "
-              + content + ", Exception: " + ex);
+      LOG
+          .error("Failed to {} cluster config, cluster {}, new config: {}. Exception: {}.", command,
+              clusterId, content, ex);
       return serverError(ex);
     }
     return OK();
@@ -354,8 +490,8 @@ public class ClusterAccessor extends AbstractHelixResource {
   @GET
   @Path("{clusterId}/controller/history")
   public Response getClusterControllerLeadershipHistory(@PathParam("clusterId") String clusterId) {
-    return JSONRepresentation(getControllerHistory(clusterId,
-        ControllerHistory.HistoryType.CONTROLLER_LEADERSHIP));
+    return JSONRepresentation(
+        getControllerHistory(clusterId, ControllerHistory.HistoryType.CONTROLLER_LEADERSHIP));
   }
 
   @GET
@@ -397,10 +533,11 @@ public class ClusterAccessor extends AbstractHelixResource {
 
   @GET
   @Path("{clusterId}/controller/messages/{messageId}")
-  public Response getClusterControllerMessages(@PathParam("clusterId") String clusterId, @PathParam("messageId") String messageId) {
+  public Response getClusterControllerMessages(@PathParam("clusterId") String clusterId,
+      @PathParam("messageId") String messageId) {
     HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
-    Message message = dataAccessor.getProperty(
-        dataAccessor.keyBuilder().controllerMessage(messageId));
+    Message message =
+        dataAccessor.getProperty(dataAccessor.keyBuilder().controllerMessage(messageId));
     return JSONRepresentation(message.getRecord());
   }
 
@@ -423,7 +560,8 @@ public class ClusterAccessor extends AbstractHelixResource {
   public Response getClusterStateModelDefinition(@PathParam("clusterId") String clusterId,
       @PathParam("statemodel") String statemodel) {
     HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
-    StateModelDefinition stateModelDef = dataAccessor.getProperty(dataAccessor.keyBuilder().stateModelDef(statemodel));
+    StateModelDefinition stateModelDef =
+        dataAccessor.getProperty(dataAccessor.keyBuilder().stateModelDef(statemodel));
 
     if (stateModelDef == null) {
       return badRequest("Statemodel not found!");
@@ -439,15 +577,15 @@ public class ClusterAccessor extends AbstractHelixResource {
     try {
       record = toZNRecord(content);
     } catch (IOException e) {
-      _logger.error("Failed to deserialize user's input " + content + ", Exception: " + e);
+      LOG.error("Failed to deserialize user's input {}. Exception: {}.", content, e);
       return badRequest("Input is not a valid ZNRecord!");
     }
-    HelixZkClient zkClient = getHelixZkClient();
+    RealmAwareZkClient zkClient = getRealmAwareZkClient();
     String path = PropertyPathBuilder.stateModelDef(clusterId);
     try {
       ZKUtil.createChildren(zkClient, path, record);
     } catch (Exception e) {
-      _logger.error("Failed to create zk node with path " + path + ", Exception:" + e);
+      LOG.error("Failed to create zk node with path {}. Exception: {}", path, e);
       return badRequest("Failed to create a Znode for stateModel! " + e);
     }
 
@@ -462,7 +600,7 @@ public class ClusterAccessor extends AbstractHelixResource {
     try {
       record = toZNRecord(content);
     } catch (IOException e) {
-      _logger.error("Failed to deserialize user's input " + content + ", Exception: " + e);
+      LOG.error("Failed to deserialize user's input {}. Exception: {}.", content, e);
       return badRequest("Input is not a valid ZNRecord!");
     }
 
@@ -474,7 +612,7 @@ public class ClusterAccessor extends AbstractHelixResource {
     try {
       retcode = dataAccessor.setProperty(key, stateModelDefinition);
     } catch (Exception e) {
-      _logger.error("Failed to set StateModelDefinition key:" + key + ", Exception: " + e);
+      LOG.error("Failed to set StateModelDefinition key: {}. Exception: {}.", key, e);
       return badRequest("Failed to set the content " + content);
     }
 
@@ -496,7 +634,7 @@ public class ClusterAccessor extends AbstractHelixResource {
     try {
       retcode = dataAccessor.removeProperty(key);
     } catch (Exception e) {
-      _logger.error("Failed to remove StateModelDefinition key:" + key + ", Exception: " + e);
+      LOG.error("Failed to remove StateModelDefinition key: {}. Exception: {}.", key, e);
       retcode = false;
     }
     if (!retcode) {
@@ -505,15 +643,249 @@ public class ClusterAccessor extends AbstractHelixResource {
     return OK();
   }
 
+  @PUT
+  @Path("{clusterId}/restconfig")
+  public Response createRESTConfig(@PathParam("clusterId") String clusterId,
+      String content) {
+    ZNRecord record;
+    try {
+      record = toZNRecord(content);
+    } catch (IOException e) {
+      LOG.error("Failed to deserialize user's input {}. Exception: {}.", content, e);
+      return badRequest("Input is not a valid ZNRecord!");
+    }
+
+    if (!record.getId().equals(clusterId)) {
+      return badRequest("ID does not match the cluster name in input!");
+    }
+
+    RESTConfig config = new RESTConfig(record);
+    ConfigAccessor configAccessor = getConfigAccessor();
+    try {
+      configAccessor.setRESTConfig(clusterId, config);
+    } catch (HelixException ex) {
+      // TODO: Could use a more generic error for HelixException
+      return notFound(ex.getMessage());
+    } catch (Exception ex) {
+      LOG.error("Failed to create rest config, cluster {}, new config: {}. Exception: {}.", clusterId, content, ex);
+      return serverError(ex);
+    }
+    return OK();
+  }
+
+  @POST
+  @Path("{clusterId}/restconfig")
+  public Response updateRESTConfig(@PathParam("clusterId") String clusterId,
+      @QueryParam("command") String commandStr, String content) {
+    //TODO: abstract out the logic that is duplicated from cluster config methods
+    Command command;
+    try {
+      command = getCommand(commandStr);
+    } catch (HelixException ex) {
+      return badRequest(ex.getMessage());
+    }
+
+    ZNRecord record;
+    try {
+      record = toZNRecord(content);
+    } catch (IOException e) {
+      LOG.error("Failed to deserialize user's input {}. Exception: {}", content, e);
+      return badRequest("Input is not a valid ZNRecord!");
+    }
+
+    RESTConfig config = new RESTConfig(record);
+    ConfigAccessor configAccessor = getConfigAccessor();
+    try {
+      switch (command) {
+        case update:
+          configAccessor.updateRESTConfig(clusterId, config);
+          break;
+        case delete: {
+          HelixConfigScope scope =
+              new HelixConfigScopeBuilder(HelixConfigScope.ConfigScopeProperty.REST)
+                  .forCluster(clusterId).build();
+          configAccessor.remove(scope, config.getRecord());
+        }
+        break;
+        default:
+          return badRequest("Unsupported command " + commandStr);
+      }
+    } catch (HelixException ex) {
+      return notFound(ex.getMessage());
+    } catch (Exception ex) {
+      LOG.error(
+          "Failed to {} rest config, cluster {}, new config: {}. Exception: {}", command, clusterId, content, ex);
+      return serverError(ex);
+    }
+    return OK();
+  }
+
+  @GET
+  @Path("{clusterId}/restconfig")
+  public Response getRESTConfig(@PathParam("clusterId") String clusterId) {
+    ConfigAccessor accessor = getConfigAccessor();
+    RESTConfig config = null;
+    try {
+      config = accessor.getRESTConfig(clusterId);
+    } catch (HelixException ex) {
+      LOG.info(
+          "Failed to get rest config for cluster {}, cluster not found. Exception: {}.", clusterId, ex);
+    } catch (Exception ex) {
+      LOG.error("Failed to get rest config for cluster {}. Exception: {}.", clusterId, ex);
+      return serverError(ex);
+    }
+    if (config == null) {
+      return notFound();
+    }
+    return JSONRepresentation(config.getRecord());
+  }
+
+  @DELETE
+  @Path("{clusterId}/restconfig")
+  public Response deleteRESTConfig(@PathParam("clusterId") String clusterId) {
+    ConfigAccessor accessor = getConfigAccessor();
+    try {
+      accessor.deleteRESTConfig(clusterId);
+    } catch (HelixException ex) {
+      LOG.info("Failed to delete rest config for cluster {}, cluster rest config is not found. Exception: {}.", clusterId, ex);
+      return notFound(ex.getMessage());
+    } catch (Exception ex) {
+      LOG.error("Failed to delete rest config, cluster {}, Exception: {}.", clusterId, ex);
+      return serverError(ex);
+    }
+    return OK();
+  }
+
   @GET
   @Path("{clusterId}/maintenance")
   public Response getClusterMaintenanceMode(@PathParam("clusterId") String clusterId) {
-    return JSONRepresentation(
-        ImmutableMap.of(ClusterProperties.maintenance.name(), getHelixAdmin().isInMaintenanceMode(clusterId)));
+    return JSONRepresentation(ImmutableMap
+        .of(ClusterProperties.maintenance.name(), getHelixAdmin().isInMaintenanceMode(clusterId)));
   }
+
   private boolean doesClusterExist(String cluster) {
-    HelixZkClient zkClient = getHelixZkClient();
+    RealmAwareZkClient zkClient = getRealmAwareZkClient();
     return ZKUtil.isClusterSetup(cluster, zkClient);
+  }
+
+  @PUT
+  @Path("{clusterId}/cloudconfig")
+  public Response addCloudConfig(@PathParam("clusterId") String clusterId, String content) {
+
+    RealmAwareZkClient zkClient = getRealmAwareZkClient();
+    if (!ZKUtil.isClusterSetup(clusterId, zkClient)) {
+      return notFound("Cluster is not properly setup!");
+    }
+
+    HelixAdmin admin = getHelixAdmin();
+    ZNRecord record;
+    try {
+      record = toZNRecord(content);
+    } catch (IOException e) {
+      LOG.error("Failed to deserialize user's input " + content + ", Exception: " + e);
+      return badRequest("Input is not a vaild ZNRecord!");
+    }
+
+    try {
+      CloudConfig cloudConfig = new CloudConfig.Builder(record).build();
+      admin.addCloudConfig(clusterId, cloudConfig);
+    } catch (HelixException ex) {
+      LOG.error("Error in adding a CloudConfig to cluster: " + clusterId, ex);
+      return badRequest(ex.getMessage());
+    } catch (Exception ex) {
+      LOG.error("Cannot add CloudConfig to cluster: " + clusterId, ex);
+      return serverError(ex);
+    }
+
+    return OK();
+  }
+
+  @GET
+  @Path("{clusterId}/cloudconfig")
+  public Response getCloudConfig(@PathParam("clusterId") String clusterId) {
+
+    RealmAwareZkClient zkClient = getRealmAwareZkClient();
+    if (!ZKUtil.isClusterSetup(clusterId, zkClient)) {
+      return notFound();
+    }
+
+    ConfigAccessor configAccessor = new ConfigAccessor(zkClient);
+    CloudConfig cloudConfig = configAccessor.getCloudConfig(clusterId);
+
+    if (cloudConfig != null) {
+      return JSONRepresentation(cloudConfig.getRecord());
+    }
+
+    return notFound();
+  }
+
+  @DELETE
+  @Path("{clusterId}/cloudconfig")
+  public Response deleteCloudConfig(@PathParam("clusterId") String clusterId) {
+    HelixAdmin admin = getHelixAdmin();
+    admin.removeCloudConfig(clusterId);
+    return OK();
+  }
+
+  @POST
+  @Path("{clusterId}/cloudconfig")
+  public Response updateCloudConfig(@PathParam("clusterId") String clusterId,
+      @QueryParam("command") String commandStr, String content) {
+
+    RealmAwareZkClient zkClient = getRealmAwareZkClient();
+    if (!ZKUtil.isClusterSetup(clusterId, zkClient)) {
+      return notFound();
+    }
+
+    ConfigAccessor configAccessor = new ConfigAccessor(zkClient);
+    // Here to update cloud config
+    Command command;
+    if (commandStr == null || commandStr.isEmpty()) {
+      command = Command.update; // Default behavior
+    } else {
+      try {
+        command = getCommand(commandStr);
+      } catch (HelixException ex) {
+        return badRequest(ex.getMessage());
+      }
+    }
+
+    ZNRecord record;
+    CloudConfig cloudConfig;
+    try {
+      record = toZNRecord(content);
+      cloudConfig = new CloudConfig(record);
+    } catch (IOException e) {
+      LOG.error("Failed to deserialize user's input " + content + ", Exception: " + e);
+      return badRequest("Input is not a vaild ZNRecord!");
+    }
+    try {
+      switch (command) {
+      case delete: {
+        configAccessor.deleteCloudConfigFields(clusterId, cloudConfig);
+      }
+      break;
+      case update: {
+        try {
+          configAccessor.updateCloudConfig(clusterId, cloudConfig);
+        } catch (HelixException ex) {
+          LOG.error("Error in updating a CloudConfig to cluster: " + clusterId, ex);
+          return badRequest(ex.getMessage());
+        } catch (Exception ex) {
+          LOG.error("Cannot update CloudConfig for cluster: " + clusterId, ex);
+          return serverError(ex);
+        }
+      }
+      break;
+      default:
+        return badRequest("Unsupported command " + commandStr);
+      }
+    } catch (Exception ex) {
+      LOG.error("Failed to " + command + " cloud config, cluster " + clusterId + " new config: "
+          + content + ", Exception: " + ex);
+      return serverError(ex);
+    }
+    return OK();
   }
 
   /**
@@ -533,15 +905,15 @@ public class ClusterAccessor extends AbstractHelixResource {
         dataAccessor.getProperty(dataAccessor.keyBuilder().controllerLeaderHistory());
 
     switch (historyType) {
-    case CONTROLLER_LEADERSHIP:
-      history.put(Properties.history.name(),
-          historyRecord != null ? historyRecord.getHistoryList() : Collections.emptyList());
-      break;
-    case MAINTENANCE:
-      history.put(ClusterProperties.maintenanceHistory.name(),
-          historyRecord != null ? historyRecord.getMaintenanceHistoryList()
-              : Collections.emptyList());
-      break;
+      case CONTROLLER_LEADERSHIP:
+        history.put(Properties.history.name(),
+            historyRecord != null ? historyRecord.getHistoryList() : Collections.emptyList());
+        break;
+      case MAINTENANCE:
+        history.put(ClusterProperties.maintenanceHistory.name(),
+            historyRecord != null ? historyRecord.getMaintenanceHistoryList()
+                : Collections.emptyList());
+        break;
     }
     return history;
   }

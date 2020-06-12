@@ -20,11 +20,13 @@ package org.apache.helix.integration.manager;
  */
 
 import java.util.List;
+
 import org.apache.helix.manager.zk.CallbackHandler;
-import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+
 
 public interface ZkTestManager {
-  HelixZkClient getZkClient();
+  RealmAwareZkClient getZkClient();
 
   List<CallbackHandler> getHandlers();
 

@@ -19,100 +19,100 @@ package org.apache.helix;
  * under the License.
  */
 
-import org.I0Itec.zkclient.exception.ZkNoNodeException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.helix.zookeeper.zkclient.exception.ZkNoNodeException;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 // TODO: move to mananger.zk
 
 /**
  * Support committing updates to data such that they are ordered for each key
  */
-// TODO: 2018/6/4 by zmyer
 public class GroupCommit {
-    private static Logger LOG = LoggerFactory.getLogger(GroupCommit.class);
-    private static int MAX_RETRY = 3;
+  private static Logger LOG = LoggerFactory.getLogger(GroupCommit.class);
+  private static int MAX_RETRY = 3;
 
-    private static class Queue {
-        final AtomicReference<Thread> _running = new AtomicReference<Thread>();
-        final ConcurrentLinkedQueue<Entry> _pending = new ConcurrentLinkedQueue<Entry>();
+  private static class Queue {
+    final AtomicReference<Thread> _running = new AtomicReference<Thread>();
+    final ConcurrentLinkedQueue<Entry> _pending = new ConcurrentLinkedQueue<Entry>();
+  }
+
+  private static class Entry {
+    final String _key;
+    final ZNRecord _record;
+    AtomicBoolean _sent = new AtomicBoolean(false);
+
+    Entry(String key, ZNRecord record) {
+      _key = key;
+      _record = record;
     }
+  }
 
-    private static class Entry {
-        final String _key;
-        final ZNRecord _record;
-        AtomicBoolean _sent = new AtomicBoolean(false);
+  private final Queue[] _queues = new Queue[100];
 
-        Entry(String key, ZNRecord record) {
-            _key = key;
-            _record = record;
-        }
+  /**
+   * Set up a group committer and its associated queues
+   */
+  public GroupCommit() {
+    // Don't use Arrays.fill();
+    for (int i = 0; i < _queues.length; ++i) {
+      _queues[i] = new Queue();
     }
+  }
 
-    private final Queue[] _queues = new Queue[100];
+  private Queue getQueue(String key) {
+    return _queues[(key.hashCode() & Integer.MAX_VALUE) % _queues.length];
+  }
 
-    /**
-     * Set up a group committer and its associated queues
-     */
-    public GroupCommit() {
-        // Don't use Arrays.fill();
-        for (int i = 0; i < _queues.length; ++i) {
-            _queues[i] = new Queue();
-        }
-    }
+  /**
+   * Do a group update for data associated with a given key
+   * @param accessor accessor with the ability to pull from the current data
+   * @param options see {@link AccessOption}
+   * @param key the data identifier
+   * @param record the data to be merged in
+   * @return true if successful, false otherwise
+   */
+  public boolean commit(BaseDataAccessor<ZNRecord> accessor, int options, String key,
+      ZNRecord record) {
+    return commit(accessor, options, key, record, false);
+  }
 
-    private Queue getQueue(String key) {
-        return _queues[(key.hashCode() & Integer.MAX_VALUE) % _queues.length];
-    }
+  public boolean commit(BaseDataAccessor<ZNRecord> accessor, int options, String key,
+      ZNRecord record, boolean removeIfEmpty) {
+    Queue queue = getQueue(key);
+    Entry entry = new Entry(key, record);
 
-    /**
-     * Do a group update for data associated with a given key
-     * @param accessor accessor with the ability to pull from the current data
-     * @param options see {@link AccessOption}
-     * @param key the data identifier
-     * @param record the data to be merged in
-     * @return true if successful, false otherwise
-     */
-    public boolean commit(BaseDataAccessor<ZNRecord> accessor, int options, String key,
-            ZNRecord record) {
-        return commit(accessor, options, key, record, false);
-    }
+    boolean success = true;
+    queue._pending.add(entry);
 
-    public boolean commit(BaseDataAccessor<ZNRecord> accessor, int options, String key,
-            ZNRecord record, boolean removeIfEmpty) {
-        Queue queue = getQueue(key);
-        Entry entry = new Entry(key, record);
+    while (!entry._sent.get()) {
+      if (queue._running.compareAndSet(null, Thread.currentThread())) {
+        ArrayList<Entry> processed = new ArrayList<>();
+        try {
+          if (queue._pending.peek() == null) {
+            return true;
+          }
 
-        boolean success = true;
-        queue._pending.add(entry);
+          // remove from queue
+          Entry first = queue._pending.poll();
+          processed.add(first);
 
-        while (!entry._sent.get()) {
-            if (queue._running.compareAndSet(null, Thread.currentThread())) {
-                ArrayList<Entry> processed = new ArrayList<>();
-                try {
-                    if (queue._pending.peek() == null) {
-                        return true;
-                    }
+          String mergedKey = first._key;
+          ZNRecord merged = null;
 
-                    // remove from queue
-                    Entry first = queue._pending.poll();
-                    processed.add(first);
-
-                    String mergedKey = first._key;
-                    ZNRecord merged = null;
-
-                    try {
-                        // accessor will fallback to zk if not found in cache
-                        merged = accessor.get(mergedKey, null, options);
-                    } catch (ZkNoNodeException e) {
-                        // OK.
-                    }
+          try {
+            // accessor will fallback to zk if not found in cache
+            merged = accessor.get(mergedKey, null, options);
+          } catch (ZkNoNodeException e) {
+            // OK.
+          }
 
           /**
            * If the local cache does not contain a value, need to check if there is a
@@ -126,8 +126,9 @@ public class GroupCommit {
           Iterator<Entry> it = queue._pending.iterator();
           while (it.hasNext()) {
             Entry ent = it.next();
-            if (!ent._key.equals(mergedKey))
+            if (!ent._key.equals(mergedKey)) {
               continue;
+            }
             processed.add(ent);
             merged.merge(ent._record);
             // System.out.println("After merging:" + merged);
@@ -165,7 +166,8 @@ public class GroupCommit {
           try {
             entry.wait(10);
           } catch (InterruptedException e) {
-            LOG.error("Interrupted while committing change, key: " + key + ", record: " + record, e);
+            LOG.error("Interrupted while committing change, key: " + key + ", record: " + record,
+                e);
             // Restore interrupt status
             Thread.currentThread().interrupt();
             return false;
@@ -175,5 +177,4 @@ public class GroupCommit {
     }
     return success;
   }
-
 }

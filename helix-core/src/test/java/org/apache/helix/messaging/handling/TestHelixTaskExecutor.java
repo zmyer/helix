@@ -19,7 +19,8 @@ package org.apache.helix.messaging.handling;
  * under the License.
  */
 
-import com.google.common.collect.ImmutableList;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -27,6 +28,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+
+import com.google.common.collect.ImmutableList;
 import org.apache.helix.HelixConstants;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
@@ -345,7 +348,8 @@ public class TestHelixTaskExecutor {
     }
 
     AssertJUnit
-        .assertEquals(dataAccessor.getChildValues(keyBuilder.messages(instanceName)).size(), nMsgs);
+        .assertEquals(dataAccessor.getChildValues(keyBuilder.messages(instanceName), true).size(),
+            nMsgs);
 
     changeContext.setChangeType(HelixConstants.ChangeType.MESSAGE);
     executor.onMessage(instanceName, msgList, changeContext);
@@ -353,7 +357,8 @@ public class TestHelixTaskExecutor {
     Thread.sleep(200);
 
     // only 1 message is left over - state transition takes 1sec
-    Assert.assertEquals(dataAccessor.getChildValues(keyBuilder.messages(instanceName)).size(), 1);
+    Assert.assertEquals(dataAccessor.getChildValues(keyBuilder.messages(instanceName), true).size(),
+        1);
 
     // While a state transition message is going on, another state transition message for same
     // resource / partition comes in, it should be discarded by message handler
@@ -363,10 +368,12 @@ public class TestHelixTaskExecutor {
     dataAccessor.setProperty(msgList.get(2).getKey(keyBuilder, instanceName), msgList.get(2));
     executor.onMessage(instanceName, Arrays.asList(msgList.get(2)), changeContext);
     Thread.sleep(200);
-    Assert.assertEquals(dataAccessor.getChildValues(keyBuilder.messages(instanceName)).size(), 1);
+    Assert.assertEquals(dataAccessor.getChildValues(keyBuilder.messages(instanceName), true).size(),
+        1);
 
     Thread.sleep(1000);
-    Assert.assertEquals(dataAccessor.getChildValues(keyBuilder.messages(instanceName)).size(), 0);
+    Assert.assertEquals(dataAccessor.getChildValues(keyBuilder.messages(instanceName), true).size(),
+        0);
     System.out.println("END TestHelixTaskExecutor.testDuplicatedMessage()");
   }
 
@@ -793,5 +800,48 @@ public class TestHelixTaskExecutor {
     AssertJUnit.assertEquals(nMsgs1, factory._processedMsgIds.size());
     // After all messages are processed, _knownMessageIds should be empty.
     Assert.assertTrue(executor._knownMessageIds.isEmpty());
+  }
+
+  @Test
+  public void testNoWriteReadStateForRemovedMessage()
+      throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+    HelixTaskExecutor executor = new HelixTaskExecutor();
+    HelixManager manager = new MockClusterManager();
+    TestMessageHandlerFactory factory = new TestMessageHandlerFactory();
+
+    for (String type : factory.getMessageTypes()) {
+      executor.registerMessageHandlerFactory(type, factory);
+    }
+
+    HelixDataAccessor accessor = manager.getHelixDataAccessor();
+    PropertyKey.Builder keyBuilder = accessor.keyBuilder();
+    String instanceName = "someInstance";
+
+    List<String> messageIds = new ArrayList<>();
+    List<Message> messages = new ArrayList<>();
+    int nMsgs1 = 5;
+    for (int i = 0; i < nMsgs1; i++) {
+      Message msg = new Message(factory.getMessageTypes().get(0), UUID.randomUUID().toString());
+      msg.setTgtSessionId(manager.getSessionId());
+      msg.setTgtName("Localhost_1123");
+      msg.setSrcName("127.101.1.23_2234");
+      msg.setCorrelationId(UUID.randomUUID().toString());
+      accessor.setProperty(keyBuilder.message(instanceName, msg.getId()), msg);
+      messageIds.add(msg.getId());
+      messages.add(msg);
+    }
+
+    Method updateMessageState = HelixTaskExecutor.class
+        .getDeclaredMethod("updateMessageState", List.class, HelixDataAccessor.class, String.class);
+    updateMessageState.setAccessible(true);
+
+    updateMessageState.invoke(executor, messages, accessor, instanceName);
+    Assert.assertEquals(accessor.getChildNames(keyBuilder.messages(instanceName)).size(), nMsgs1);
+
+    accessor.removeProperty(keyBuilder.message(instanceName, messageIds.get(0)));
+    System.out.println(accessor.getChildNames(keyBuilder.messages(instanceName)).size());
+    updateMessageState.invoke(executor, messages, accessor, instanceName);
+    Assert
+        .assertEquals(accessor.getChildNames(keyBuilder.messages(instanceName)).size(), nMsgs1 - 1);
   }
 }

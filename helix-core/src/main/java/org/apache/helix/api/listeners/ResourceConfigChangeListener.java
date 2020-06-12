@@ -19,21 +19,20 @@ package org.apache.helix.api.listeners;
  * under the License.
  */
 
+import java.util.List;
+
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.ResourceConfig;
-
-import java.util.List;
 
 /**
  * Interface to implement to listen for changes to resource configurations.
  */
-// TODO: 2018/7/27 by zmyer
 public interface ResourceConfigChangeListener {
-    /**
-     * Invoked when resource config changes
-     * @param resourceConfigs
-     * @param context
-     */
-    void onResourceConfigChange(List<ResourceConfig> resourceConfigs,
-            NotificationContext context);
+  /**
+   * Invoked when resource config changes
+   * @param resourceConfigs
+   * @param context
+   */
+  void onResourceConfigChange(List<ResourceConfig> resourceConfigs,
+      NotificationContext context);
 }

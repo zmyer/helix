@@ -20,6 +20,7 @@ package org.apache.helix.integration.rebalancer.DelayedAutoRebalancer;
  */
 
 import java.util.Date;
+
 import org.apache.helix.controller.rebalancer.strategy.CrushRebalanceStrategy;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
@@ -29,7 +30,7 @@ import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 public class TestDelayedAutoRebalanceWithRackaware extends TestDelayedAutoRebalance {
-  final int NUM_NODE = 9;
+  static final int NUM_NODE = 9;
 
   @BeforeClass
   public void beforeClass() throws Exception {

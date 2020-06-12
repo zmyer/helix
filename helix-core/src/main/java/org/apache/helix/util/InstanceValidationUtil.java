@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.HelixException;
@@ -40,8 +41,6 @@ import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.task.TaskConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.ImmutableSet;
 
 /**
  * Utility class for validating Helix properties
@@ -258,6 +257,9 @@ public class InstanceValidationUtil {
   public static boolean isInstanceStable(HelixDataAccessor dataAccessor, String instanceName) {
     PropertyKey.Builder keyBuilder = dataAccessor.keyBuilder();
     ClusterConfig clusterConfig = dataAccessor.getProperty(keyBuilder.clusterConfig());
+    if (clusterConfig == null) {
+      throw new HelixException("Missing cluster config!");
+    }
     if (!clusterConfig.isPersistIntermediateAssignment()) {
       throw new HelixException("isInstanceStable needs persist assignment on!");
     }
@@ -277,13 +279,25 @@ public class InstanceValidationUtil {
       }
       for (String partition : idealState.getPartitionSet()) {
         Map<String, String> isPartitionMap = idealState.getInstanceStateMap(partition);
-        Map<String, String> evPartitionMap = externalView.getStateMap(partition);
-        if (isPartitionMap.containsKey(instanceName) && (!evPartitionMap.containsKey(instanceName)
-            || !evPartitionMap.get(instanceName).equals(isPartitionMap.get(instanceName)))) {
-          // only checks the state from IS matches EV. Return false when
-          // 1. This partition not has current state on this instance
-          // 2. The state does not match the state on ideal state
-          return false;
+        if (isPartitionMap == null) {
+          throw new HelixException(String
+              .format("Partition %s of resource %s does not have an ideal state partition map",
+                  partition, idealStateName));
+        }
+        if (isPartitionMap.containsKey(instanceName)) {
+          Map<String, String> evPartitionMap = externalView.getStateMap(partition);
+          if (evPartitionMap == null) {
+            throw new HelixException(String
+                .format("Partition %s of resource %s does not have an external view partition map",
+                    partition, idealStateName));
+          }
+          if (!evPartitionMap.containsKey(instanceName)
+              || !evPartitionMap.get(instanceName).equals(isPartitionMap.get(instanceName))) {
+            // only checks the state from IS matches EV. Return false when
+            // 1. This partition not has current state on this instance
+            // 2. The state does not match the state on ideal state
+            return false;
+          }
         }
       }
     }

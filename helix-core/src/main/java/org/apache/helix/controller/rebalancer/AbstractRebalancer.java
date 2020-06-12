@@ -28,10 +28,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixManager;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.controller.dataproviders.BaseControllerDataProvider;
 import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.rebalancer.internal.MappingCalculator;
@@ -45,6 +45,7 @@ import org.apache.helix.model.Resource;
 import org.apache.helix.model.ResourceAssignment;
 import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.util.HelixUtil;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -304,45 +305,60 @@ public abstract class AbstractRebalancer<T extends BaseControllerDataProvider> i
     Set<String> liveAndEnabled = new HashSet<>(liveInstances);
     liveAndEnabled.removeAll(disabledInstancesForPartition);
 
-    for (String state : statesPriorityList) {
-      // Use the the specially ordered preferenceList for choosing instance for top state.
-      if (state.equals(statesPriorityList.get(0))) {
-        List<String> preferenceListForTopState = new ArrayList<>(preferenceList);
-        Collections.sort(preferenceListForTopState,
-            new TopStatePreferenceListComparator(currentStateMap, stateModelDef));
-        preferenceList = preferenceListForTopState;
-      }
+    // Sort the instances based on replicas' state priority in the current state
+    List<String> sortedPreferenceList = new ArrayList<>(preferenceList);
+    sortedPreferenceList.sort(new StatePriorityComparator(currentStateMap, stateModelDef));
 
+    // Assign the state to the instances that appear in the preference list.
+    for (String state : statesPriorityList) {
       int stateCount =
           getStateCount(state, stateModelDef, liveAndEnabled.size(), preferenceList.size());
       for (String instance : preferenceList) {
         if (stateCount <= 0) {
-          break;
+          break; // continue assigning for the next state
         }
-        if (!assigned.contains(instance) && liveAndEnabled.contains(instance)) {
-          if (HelixDefinedState.ERROR.toString().equals(currentStateMap.get(instance))) {
-            bestPossibleStateMap.put(instance, HelixDefinedState.ERROR.toString());
-          } else {
-            bestPossibleStateMap.put(instance, state);
-            stateCount--;
+        if (assigned.contains(instance) || !liveAndEnabled.contains(instance)) {
+          continue; // continue checking for the next available instance
+        }
+        String proposedInstance = instance;
+        // Additional check and alternate the assignment for reducing top state handoff.
+        if (state.equals(stateModelDef.getTopState()) && !stateModelDef.getSecondTopStates()
+            .contains(currentStateMap.getOrDefault(instance, stateModelDef.getInitialState()))) {
+          // If the desired state is the top state, but the instance cannot be transited to the
+          // top state in one hop, try to keep the top state on current host or a host with a closer
+          // state.
+          for (String currentStatePrioritizedInstance : sortedPreferenceList) {
+            if (!assigned.contains(currentStatePrioritizedInstance) && liveAndEnabled
+                .contains(currentStatePrioritizedInstance)) {
+              proposedInstance = currentStatePrioritizedInstance;
+              break;
+            }
           }
-          assigned.add(instance);
+          // Note that if all the current top state instances are not assignable, then we fallback
+          // to the default logic that assigning the state according to preference list order.
         }
+        // Assign the desired state to the proposed instance
+        if (HelixDefinedState.ERROR.toString().equals(currentStateMap.get(proposedInstance))) {
+          bestPossibleStateMap.put(proposedInstance, HelixDefinedState.ERROR.toString());
+        } else {
+          bestPossibleStateMap.put(proposedInstance, state);
+          stateCount--;
+        }
+        assigned.add(proposedInstance);
       }
     }
-
     return bestPossibleStateMap;
   }
 
   /**
-   * Sorter for nodes that sorts according to the CurrentState of the partition. There are only two priorities:
-   * (1) Top-state and second states have priority 0. (2) Other states(or no state) have priority 1.
+   * Sorter for nodes that sorts according to the CurrentState of the partition.
    */
-  protected static class TopStatePreferenceListComparator implements Comparator<String> {
-    protected final Map<String, String> _currentStateMap;
-    protected final StateModelDefinition _stateModelDef;
+  protected static class StatePriorityComparator implements Comparator<String> {
+    private final Map<String, String> _currentStateMap;
+    private final StateModelDefinition _stateModelDef;
 
-    public TopStatePreferenceListComparator(Map<String, String> currentStateMap, StateModelDefinition stateModelDef) {
+    public StatePriorityComparator(Map<String, String> currentStateMap,
+        StateModelDefinition stateModelDef) {
       _currentStateMap = currentStateMap;
       _stateModelDef = stateModelDef;
     }
@@ -351,21 +367,8 @@ public abstract class AbstractRebalancer<T extends BaseControllerDataProvider> i
     public int compare(String ins1, String ins2) {
       String state1 = _currentStateMap.get(ins1);
       String state2 = _currentStateMap.get(ins2);
-
-      String topState = _stateModelDef.getStatesPriorityList().get(0);
-      Set<String> preferredStates = new HashSet<String>(_stateModelDef.getSecondTopStates());
-      preferredStates.add(topState);
-
-      int p1 = 1;
-      int p2 = 1;
-
-      if (state1 != null && preferredStates.contains(state1)) {
-        p1 = 0;
-      }
-      if (state2 != null && preferredStates.contains(state2)) {
-        p2 = 0;
-      }
-
+      int p1 = state1 == null ? Integer.MAX_VALUE : _stateModelDef.getStatePriorityMap().get(state1);
+      int p2 = state2 == null ? Integer.MAX_VALUE : _stateModelDef.getStatePriorityMap().get(state2);
       return p1 - p2;
     }
   }
@@ -415,5 +418,24 @@ public abstract class AbstractRebalancer<T extends BaseControllerDataProvider> i
 
       return p1.compareTo(p2);
     }
+  }
+
+  // This is for a backward compatible workaround to fix
+  // https://github.com/apache/helix/issues/940.
+  // TODO: remove the workaround once we are able to apply the simple fix without majorly
+  // TODO: impacting user's clusters.
+  protected List<String> getStablePartitionList(ResourceControllerDataProvider clusterData,
+      IdealState currentIdealState) {
+    List<String> partitions =
+        clusterData.getStablePartitionList(currentIdealState.getResourceName());
+    if (partitions == null) {
+      Set<String> currentPartitionSet = currentIdealState.getPartitionSet();
+      // In theory, the cached stable partition list must have contains all items in the current
+      // partition set. Add one more check to avoid any intermediate change that modifies the list.
+      LOG.warn("The current partition set {} has not been cached in the stable partition list. "
+              + "Use the IdealState partition set directly.", currentPartitionSet.toString());
+      partitions = new ArrayList<>(currentPartitionSet);
+    }
+    return partitions;
   }
 }

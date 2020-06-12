@@ -32,6 +32,10 @@ import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.model.CurrentState;
@@ -47,11 +51,6 @@ import org.apache.helix.rest.server.json.instance.StoppableCheck;
 import org.apache.helix.util.InstanceValidationUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
 
 public class InstanceServiceImpl implements InstanceService {
   private static final Logger LOG = LoggerFactory.getLogger(InstanceServiceImpl.class);
@@ -88,6 +87,8 @@ public class InstanceServiceImpl implements InstanceService {
         _dataAccessor.getProperty(_dataAccessor.keyBuilder().liveInstance(instanceName));
     if (instanceConfig != null) {
       instanceInfoBuilder.instanceConfig(instanceConfig.getRecord());
+    } else {
+      LOG.warn("Missing instance config for {}", instanceName);
     }
     if (liveInstance != null) {
       instanceInfoBuilder.liveInstance(liveInstance.getRecord());
@@ -102,9 +103,15 @@ public class InstanceServiceImpl implements InstanceService {
             _dataAccessor.keyBuilder().currentState(instanceName, sessionId, resourceName));
         if (currentState != null && currentState.getPartitionStateMap() != null) {
           partitions.addAll(currentState.getPartitionStateMap().keySet());
+        } else {
+          LOG.warn(
+              "Current state is either null or partitionStateMap is missing. InstanceName: {}, SessionId: {}, ResourceName: {}",
+              instanceName, sessionId, resourceName);
         }
       }
       instanceInfoBuilder.partitions(partitions);
+    } else {
+      LOG.warn("Missing live instance for {}", instanceName);
     }
     try {
       Map<String, Boolean> healthStatus =
@@ -234,13 +241,15 @@ public class InstanceServiceImpl implements InstanceService {
     Map<String, Map<String, Boolean>> allPartitionsHealthOnLiveInstance =
         _dataAccessor.getAllPartitionsHealthOnLiveInstance(restConfig, customPayLoads);
     List<ExternalView> externalViews =
-        _dataAccessor.getChildValues(_dataAccessor.keyBuilder().externalViews());
+        _dataAccessor.getChildValues(_dataAccessor.keyBuilder().externalViews(), true);
     Map<String, StoppableCheck> instanceStoppableChecks = new HashMap<>();
     for (String instanceName : instances) {
-      List<String> unHealthyPartitions = InstanceValidationUtil.perPartitionHealthCheck(
-          externalViews, allPartitionsHealthOnLiveInstance, instanceName, _dataAccessor);
-      StoppableCheck stoppableCheck = new StoppableCheck(unHealthyPartitions.isEmpty(),
-          unHealthyPartitions, StoppableCheck.Category.CUSTOM_PARTITION_CHECK);
+      List<String> unHealthyPartitions = InstanceValidationUtil
+          .perPartitionHealthCheck(externalViews, allPartitionsHealthOnLiveInstance, instanceName,
+              _dataAccessor);
+      StoppableCheck stoppableCheck =
+          new StoppableCheck(unHealthyPartitions.isEmpty(), unHealthyPartitions,
+              StoppableCheck.Category.CUSTOM_PARTITION_CHECK);
       instanceStoppableChecks.put(instanceName, stoppableCheck);
     }
 

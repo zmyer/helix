@@ -23,8 +23,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.I0Itec.zkclient.IZkChildListener;
-import org.I0Itec.zkclient.IZkDataListener;
+
 import org.apache.helix.CurrentStateChangeListener;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.PropertyKey;
@@ -35,11 +34,13 @@ import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.integration.manager.ZkTestManager;
 import org.apache.helix.manager.zk.CallbackHandler;
-import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.tools.ClusterStateVerifier;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
 import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
+import org.apache.helix.zookeeper.zkclient.IZkChildListener;
+import org.apache.helix.zookeeper.zkclient.IZkDataListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -97,7 +98,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
         // System.out.println("controller watch paths: " + watchPaths);
 
         // where n is number of nodes and r is number of resources
-        return watchPaths.size() == (7 + r + ( 4 + r) * n);
+        return watchPaths.size() == (8 + r + ( 5 + r) * n);
       }
     }, 2000);
     Assert.assertTrue(result, "Controller has incorrect number of zk-watchers.");
@@ -122,8 +123,8 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
     // printHandlers(participantManagerToExpire);
     int controllerHandlerNb = controller.getHandlers().size();
     int particHandlerNb = participantManagerToExpire.getHandlers().size();
-    Assert.assertEquals(controllerHandlerNb, 11,
-        "HelixController should have 10 (5+2n) callback handlers for 2 (n) participant");
+    Assert.assertEquals(controllerHandlerNb, 14,
+        "HelixController should have 14 (8+3n) callback handlers for 2 (n) participant");
     Assert.assertEquals(particHandlerNb, 1,
         "HelixParticipant should have 1 (msg->HelixTaskExecutor) callback handlers");
 
@@ -134,7 +135,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
     ZkTestHelper.expireSession(participantManagerToExpire.getZkClient());
     String newSessionId = participantManagerToExpire.getSessionId();
     System.out.println(
-        "Expried participant session. oldSessionId: " + oldSessionId + ", newSessionId: "
+        "Expired participant session. oldSessionId: " + oldSessionId + ", newSessionId: "
             + newSessionId);
 
     result =
@@ -152,7 +153,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
         // System.out.println("controller watch paths after session expiry: " + watchPaths);
 
         // where n is number of nodes and r is number of resources
-        return watchPaths.size() == (7 + r + ( 4 + r) * n);
+        return watchPaths.size() == (8 + r + ( 5 + r) * n);
       }
     }, 2000);
     Assert.assertTrue(result, "Controller has incorrect number of zk-watchers after session expiry.");
@@ -246,8 +247,8 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
 
     int controllerHandlerNb = controller.getHandlers().size();
     int particHandlerNb = participantManager.getHandlers().size();
-    Assert.assertEquals(controllerHandlerNb, 7 + 2 * n,
-        "HelixController should have 10 (6+2n) callback handlers for 2 participant, but was "
+    Assert.assertEquals(controllerHandlerNb, 8 + 3 * n,
+        "HelixController should have 14 (8+3n) callback handlers for 2 participant, but was "
             + controllerHandlerNb + ", " + printHandlers(controller));
     Assert.assertEquals(particHandlerNb, 1,
         "HelixParticipant should have 1 (msg->HelixTaskExecutor) callback handler, but was "
@@ -275,7 +276,7 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
         System.err.println("controller watch paths after session expiry: " + watchPaths.size());
 
         // where r is number of resources and n is number of nodes
-        int expected = (7 + r + (4 + r) * n);
+        int expected = (8 + r + (5 + r) * n);
         return watchPaths.size() == expected;
       }
     }, 2000);

@@ -22,6 +22,7 @@ package org.apache.helix.integration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import org.apache.helix.PropertyKey.Builder;
 import org.apache.helix.integration.common.ZkStandAloneCMTestBase;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
@@ -40,7 +41,7 @@ public class TestStatusUpdate extends ZkStandAloneCMTestBase {
         new ZKHelixDataAccessor(CLUSTER_NAME, new ZkBaseDataAccessor(_gZkClient));
     Builder keyBuilder = accessor.keyBuilder();
 
-    List<ExternalView> extViews = accessor.getChildValues(keyBuilder.externalViews());
+    List<ExternalView> extViews = accessor.getChildValues(keyBuilder.externalViews(), true);
     Assert.assertNotNull(extViews);
 
     for (ExternalView extView : extViews) {

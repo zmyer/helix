@@ -20,107 +20,328 @@ package org.apache.helix.rest.server;
  * under the License.
  */
 
-import java.util.HashMap;
+import java.io.IOException;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
+import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
+import org.apache.helix.HelixException;
 import org.apache.helix.InstanceType;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.SystemPropertyKeys;
+import org.apache.helix.manager.zk.ByteArraySerializer;
 import org.apache.helix.manager.zk.ZKHelixAdmin;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
-import org.apache.helix.manager.zk.ZNRecordSerializer;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.ZkClient;
-import org.apache.helix.manager.zk.client.HelixZkClient;
-import org.apache.helix.manager.zk.client.SharedZkClientFactory;
+import org.apache.helix.msdcommon.exception.InvalidRoutingDataException;
+import org.apache.helix.rest.metadatastore.ZkMetadataStoreDirectory;
 import org.apache.helix.task.TaskDriver;
 import org.apache.helix.tools.ClusterSetup;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.serializer.ZNRecordSerializer;
+import org.apache.helix.zookeeper.impl.client.FederatedZkClient;
+import org.apache.helix.zookeeper.impl.client.ZkClient;
+import org.apache.helix.zookeeper.impl.factory.DedicatedZkClientFactory;
+import org.apache.helix.zookeeper.impl.factory.SharedZkClientFactory;
+import org.apache.helix.zookeeper.util.HttpRoutingDataReader;
+import org.apache.helix.zookeeper.zkclient.IZkChildListener;
+import org.apache.helix.zookeeper.zkclient.IZkDataListener;
+import org.apache.helix.zookeeper.zkclient.IZkStateListener;
+import org.apache.zookeeper.Watcher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class ServerContext {
-    private final String _zkAddr;
-    private HelixZkClient _zkClient;
-    private ZKHelixAdmin _zkHelixAdmin;
-    private ClusterSetup _clusterSetup;
-    private ConfigAccessor _configAccessor;
 
-    // 1 Cluster name will correspond to 1 helix data accessor
-    private final Map<String, HelixDataAccessor> _helixDataAccessorPool;
+public class ServerContext implements IZkDataListener, IZkChildListener, IZkStateListener {
+  private static final Logger LOG = LoggerFactory.getLogger(ServerContext.class);
 
-    // 1 Cluster name will correspond to 1 task driver
-    private final Map<String, TaskDriver> _taskDriverPool;
+  private final String _zkAddr;
+  private boolean _isMultiZkEnabled;
+  private final String _msdsEndpoint;
+  private volatile RealmAwareZkClient _zkClient;
 
-    public ServerContext(String zkAddr) {
-        _zkAddr = zkAddr;
+  private volatile ZKHelixAdmin _zkHelixAdmin;
+  private volatile ClusterSetup _clusterSetup;
+  private volatile ConfigAccessor _configAccessor;
+  // A lazily-initialized base data accessor that reads/writes byte array to ZK
+  // TODO: Only read (deserialize) is supported at this time. This baseDataAccessor should support write (serialize) as needs arise
+  private volatile ZkBaseDataAccessor<byte[]> _byteArrayZkBaseDataAccessor;
+  // 1 Cluster name will correspond to 1 helix data accessor
+  private final Map<String, HelixDataAccessor> _helixDataAccessorPool;
+  // 1 Cluster name will correspond to 1 task driver
+  private final Map<String, TaskDriver> _taskDriverPool;
 
-        // We should NOT initiate _zkClient and anything that depends on _zkClient in
-        // constructor, as it is reasonable to start up HelixRestServer first and then
-        // ZooKeeper. In this case, initializing _zkClient will fail and HelixRestServer
-        // cannot be started correctly.
-        _helixDataAccessorPool = new HashMap<>();
-        _taskDriverPool = new HashMap<>();
-    }
+  /**
+   * Multi-ZK support
+   */
+  private ZkMetadataStoreDirectory _zkMetadataStoreDirectory;
+  // Create a dedicated ZkClient for listening to data changes in routing data
+  private RealmAwareZkClient _zkClientForListener;
 
-    public HelixZkClient getHelixZkClient() {
+  public ServerContext(String zkAddr) {
+    this(zkAddr, false, null);
+  }
+
+  /**
+   * Initializes a ServerContext for this namespace.
+   * @param zkAddr routing ZK address (on multi-zk mode)
+   * @param isMultiZkEnabled boolean flag for whether multi-zk mode is enabled
+   * @param msdsEndpoint if given, this server context will try to read routing data from this MSDS.
+   */
+  public ServerContext(String zkAddr, boolean isMultiZkEnabled, String msdsEndpoint) {
+    _zkAddr = zkAddr;
+    _isMultiZkEnabled = isMultiZkEnabled;
+    _msdsEndpoint = msdsEndpoint; // only applicable on multi-zk mode
+
+    // We should NOT initiate _zkClient and anything that depends on _zkClient in
+    // constructor, as it is reasonable to start up HelixRestServer first and then
+    // ZooKeeper. In this case, initializing _zkClient will fail and HelixRestServer
+    // cannot be started correctly.
+    _helixDataAccessorPool = new ConcurrentHashMap<>();
+    _taskDriverPool = new ConcurrentHashMap<>();
+
+    // Initialize the singleton ZkMetadataStoreDirectory instance to allow it to be closed later
+    _zkMetadataStoreDirectory = ZkMetadataStoreDirectory.getInstance();
+  }
+
+  public RealmAwareZkClient getRealmAwareZkClient() {
+    if (_zkClient == null) {
+      synchronized (this) {
         if (_zkClient == null) {
+          // If the multi ZK config is enabled, use FederatedZkClient on multi-realm mode
+          if (_isMultiZkEnabled || Boolean
+              .parseBoolean(System.getProperty(SystemPropertyKeys.MULTI_ZK_ENABLED))) {
+            try {
+              // Make sure the ServerContext is subscribed to routing data change so that it knows
+              // when to reset ZkClient and Helix APIs
+              if (_zkClientForListener == null) {
+                _zkClientForListener = DedicatedZkClientFactory.getInstance()
+                    .buildZkClient(new HelixZkClient.ZkConnectionConfig(_zkAddr),
+                        new HelixZkClient.ZkClientConfig()
+                            .setZkSerializer(new ZNRecordSerializer()));
+              }
+              // Refresh data subscription
+              _zkClientForListener.unsubscribeAll();
+              _zkClientForListener.subscribeRoutingDataChanges(this, this);
+              LOG.info("ServerContext: subscribed to routing data in routing ZK at {}!", _zkAddr);
+
+              RealmAwareZkClient.RealmAwareZkConnectionConfig.Builder connectionConfigBuilder =
+                  new RealmAwareZkClient.RealmAwareZkConnectionConfig.Builder();
+              // If MSDS endpoint is set for this namespace, use that instead.
+              if (_msdsEndpoint != null && !_msdsEndpoint.isEmpty()) {
+                connectionConfigBuilder.setMsdsEndpoint(_msdsEndpoint);
+              }
+              _zkClient = new FederatedZkClient(connectionConfigBuilder.build(),
+                  new RealmAwareZkClient.RealmAwareZkClientConfig()
+                      .setZkSerializer(new ZNRecordSerializer()));
+              LOG.info("ServerContext: FederatedZkClient created successfully!");
+            } catch (IOException | InvalidRoutingDataException | IllegalStateException e) {
+              throw new HelixException("Failed to create FederatedZkClient!", e);
+            }
+          } else {
+            // If multi ZK config is not set, just connect to the ZK address given
             HelixZkClient.ZkClientConfig clientConfig = new HelixZkClient.ZkClientConfig();
             clientConfig.setZkSerializer(new ZNRecordSerializer());
-            _zkClient = SharedZkClientFactory
-                    .getInstance().buildZkClient(new HelixZkClient.ZkConnectionConfig(_zkAddr), clientConfig);
+            _zkClient = SharedZkClientFactory.getInstance()
+                .buildZkClient(new HelixZkClient.ZkConnectionConfig(_zkAddr), clientConfig);
+          }
         }
-        return _zkClient;
+      }
     }
+    return _zkClient;
+  }
 
-    @Deprecated
-    public ZkClient getZkClient() {
-        return (ZkClient) getHelixZkClient();
-    }
+  @Deprecated
+  public ZkClient getZkClient() {
+    return (ZkClient) getRealmAwareZkClient();
+  }
 
-    public HelixAdmin getHelixAdmin() {
+  public HelixAdmin getHelixAdmin() {
+    if (_zkHelixAdmin == null) {
+      synchronized (this) {
         if (_zkHelixAdmin == null) {
-            _zkHelixAdmin = new ZKHelixAdmin(getHelixZkClient());
+          _zkHelixAdmin = new ZKHelixAdmin(getRealmAwareZkClient());
         }
-        return _zkHelixAdmin;
+      }
     }
+    return _zkHelixAdmin;
+  }
 
-    public ClusterSetup getClusterSetup() {
+  public ClusterSetup getClusterSetup() {
+    if (_clusterSetup == null) {
+      synchronized (this) {
         if (_clusterSetup == null) {
-            _clusterSetup = new ClusterSetup(getHelixZkClient(), getHelixAdmin());
+          _clusterSetup = new ClusterSetup(getRealmAwareZkClient(), getHelixAdmin());
         }
-        return _clusterSetup;
+      }
     }
+    return _clusterSetup;
+  }
 
-    public TaskDriver getTaskDriver(String clusterName) {
-        synchronized (_taskDriverPool) {
-            if (!_taskDriverPool.containsKey(clusterName)) {
-                _taskDriverPool.put(clusterName, new TaskDriver(getHelixZkClient(), clusterName));
-            }
-            return _taskDriverPool.get(clusterName);
+  public TaskDriver getTaskDriver(String clusterName) {
+    TaskDriver taskDriver = _taskDriverPool.get(clusterName);
+    if (taskDriver == null) {
+      synchronized (this) {
+        if (!_taskDriverPool.containsKey(clusterName)) {
+          _taskDriverPool.put(clusterName, new TaskDriver(getRealmAwareZkClient(), clusterName));
         }
+        taskDriver = _taskDriverPool.get(clusterName);
+      }
     }
+    return taskDriver;
+  }
 
-    public ConfigAccessor getConfigAccessor() {
+  public ConfigAccessor getConfigAccessor() {
+    if (_configAccessor == null) {
+      synchronized (this) {
         if (_configAccessor == null) {
-            _configAccessor = new ConfigAccessor(getHelixZkClient());
+          _configAccessor = new ConfigAccessor(getRealmAwareZkClient());
         }
-        return _configAccessor;
+      }
     }
+    return _configAccessor;
+  }
 
-    public HelixDataAccessor getDataAccssor(String clusterName) {
-        synchronized (_helixDataAccessorPool) {
-            if (!_helixDataAccessorPool.containsKey(clusterName)) {
-                ZkBaseDataAccessor<ZNRecord> baseDataAccessor = new ZkBaseDataAccessor<>(getHelixZkClient());
-                _helixDataAccessorPool.put(clusterName,
-                        new ZKHelixDataAccessor(clusterName, InstanceType.ADMINISTRATOR, baseDataAccessor));
-            }
-            return _helixDataAccessorPool.get(clusterName);
+  public HelixDataAccessor getDataAccessor(String clusterName) {
+    HelixDataAccessor dataAccessor = _helixDataAccessorPool.get(clusterName);
+    if (dataAccessor == null) {
+      synchronized (this) {
+        if (!_helixDataAccessorPool.containsKey(clusterName)) {
+          ZkBaseDataAccessor<ZNRecord> baseDataAccessor =
+              new ZkBaseDataAccessor<>(getRealmAwareZkClient());
+          _helixDataAccessorPool.put(clusterName,
+              new ZKHelixDataAccessor(clusterName, InstanceType.ADMINISTRATOR, baseDataAccessor));
         }
+        dataAccessor = _helixDataAccessorPool.get(clusterName);
+      }
     }
+    return dataAccessor;
+  }
 
-    public void close() {
-        if (_zkClient != null) {
-            _zkClient.close();
+  /**
+   * Returns a lazily-instantiated ZkBaseDataAccessor for the byte array type.
+   * @return
+   */
+  public BaseDataAccessor<byte[]> getByteArrayZkBaseDataAccessor() {
+    if (_byteArrayZkBaseDataAccessor == null) {
+      synchronized (this) {
+        if (_byteArrayZkBaseDataAccessor == null) {
+          _byteArrayZkBaseDataAccessor =
+              new ZkBaseDataAccessor<>(_zkAddr, new ByteArraySerializer());
         }
+      }
     }
+    return _byteArrayZkBaseDataAccessor;
+  }
+
+  public void close() {
+    if (_zkClient != null) {
+      _zkClient.close();
+    }
+    if (_zkMetadataStoreDirectory != null) {
+      _zkMetadataStoreDirectory.close();
+    }
+    if (_zkClientForListener != null) {
+      _zkClientForListener.close();
+    }
+  }
+
+  @Override
+  public void handleChildChange(String parentPath, List<String> currentChilds) {
+    if (_zkClientForListener == null || _zkClientForListener.isClosed()) {
+      return;
+    }
+    // Resubscribe
+    _zkClientForListener.unsubscribeAll();
+    _zkClientForListener.subscribeRoutingDataChanges(this, this);
+    resetZkResources();
+  }
+
+  @Override
+  public void handleDataChange(String dataPath, Object data) {
+    if (_zkClientForListener == null || _zkClientForListener.isClosed()) {
+      return;
+    }
+    resetZkResources();
+  }
+
+  @Override
+  public void handleDataDeleted(String dataPath) {
+    if (_zkClientForListener == null || _zkClientForListener.isClosed()) {
+      return;
+    }
+    // Resubscribe
+    _zkClientForListener.unsubscribeAll();
+    _zkClientForListener.subscribeRoutingDataChanges(this, this);
+    resetZkResources();
+  }
+
+  @Override
+  public void handleStateChanged(Watcher.Event.KeeperState state) {
+    if (_zkClientForListener == null || _zkClientForListener.isClosed()) {
+      return;
+    }
+    // Resubscribe
+    _zkClientForListener.unsubscribeAll();
+    _zkClientForListener.subscribeRoutingDataChanges(this, this);
+    resetZkResources();
+  }
+
+  @Override
+  public void handleNewSession(String sessionId) {
+    if (_zkClientForListener == null || _zkClientForListener.isClosed()) {
+      return;
+    }
+    // Resubscribe
+    _zkClientForListener.unsubscribeAll();
+    _zkClientForListener.subscribeRoutingDataChanges(this, this);
+    resetZkResources();
+  }
+
+  @Override
+  public void handleSessionEstablishmentError(Throwable error) {
+    if (_zkClientForListener == null || _zkClientForListener.isClosed()) {
+      return;
+    }
+    // Resubscribe
+    _zkClientForListener.unsubscribeAll();
+    _zkClientForListener.subscribeRoutingDataChanges(this, this);
+    resetZkResources();
+  }
+
+  /**
+   * Resets all internally cached routing data by closing and nullifying the ZkClient and Helix APIs.
+   * This is okay because routing data update should be infrequent.
+   */
+  private void resetZkResources() {
+    synchronized (this) {
+      LOG.info("ServerContext: Resetting ZK resources due to routing data change! Routing ZK: {}",
+          _zkAddr);
+      try {
+        // Reset HttpRoutingDataReader's cache
+        HttpRoutingDataReader.reset();
+        // All Helix APIs will be closed implicitly because ZkClient is closed
+        if (_zkClient != null && !_zkClient.isClosed()) {
+          _zkClient.close();
+        }
+        if (_byteArrayZkBaseDataAccessor != null) {
+          _byteArrayZkBaseDataAccessor.close();
+        }
+        _zkClient = null;
+        _zkHelixAdmin = null;
+        _clusterSetup = null;
+        _configAccessor = null;
+        _byteArrayZkBaseDataAccessor = null;
+        _helixDataAccessorPool.clear();
+        _taskDriverPool.clear();
+      } catch (Exception e) {
+        LOG.error("Failed to reset ZkClient and Helix APIs in ServerContext!", e);
+      }
+    }
+  }
 }

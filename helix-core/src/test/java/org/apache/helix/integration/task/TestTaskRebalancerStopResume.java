@@ -19,10 +19,6 @@ package org.apache.helix.integration.task;
  * under the License.
  */
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
@@ -31,6 +27,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyPathBuilder;
@@ -502,7 +503,8 @@ public class TestTaskRebalancerStopResume extends TaskTestBase {
     builder.addJob(job2Name, job2);
 
     _driver.start(builder.build());
-    Thread.sleep(1000);
+    _driver.pollForWorkflowState(workflowName, TaskState.IN_PROGRESS);
+    _driver.pollForJobState(workflowName, TaskUtil.getNamespacedJobName(workflowName, job1Name), TaskState.IN_PROGRESS);
     _driver.stop(workflowName);
     _driver.pollForWorkflowState(workflowName, TaskState.STOPPING);
 

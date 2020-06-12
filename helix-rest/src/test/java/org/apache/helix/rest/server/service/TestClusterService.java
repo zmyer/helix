@@ -1,9 +1,8 @@
 package org.apache.helix.rest.server.service;
 
-import static org.mockito.Mockito.*;
-
 import java.util.List;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixProperty;
@@ -14,7 +13,10 @@ import org.apache.helix.rest.server.json.cluster.ClusterTopology;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import com.google.common.collect.ImmutableList;
+import static org.mockito.Matchers.anyBoolean;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 
 public class TestClusterService {
@@ -30,7 +32,7 @@ public class TestClusterService {
 
     Mock mock = new Mock();
     when(mock.dataAccessor.keyBuilder()).thenReturn(new PropertyKey.Builder(TEST_CLUSTER));
-    when(mock.dataAccessor.getChildValues(any(PropertyKey.class))).thenReturn(instanceConfigs);
+    when(mock.dataAccessor.getChildValues(any(PropertyKey.class), anyBoolean())).thenReturn(instanceConfigs);
 
     ClusterTopology clusterTopology = mock.clusterService.getClusterTopology(TEST_CLUSTER);
 
@@ -46,7 +48,8 @@ public class TestClusterService {
 
     Mock mock = new Mock();
     when(mock.dataAccessor.keyBuilder()).thenReturn(new PropertyKey.Builder(TEST_CLUSTER));
-    when(mock.dataAccessor.getChildValues(any(PropertyKey.class))).thenReturn(instanceConfigs);
+    when(mock.dataAccessor.getChildValues(any(PropertyKey.class), anyBoolean()))
+        .thenReturn(instanceConfigs);
 
     ClusterTopology clusterTopology = mock.clusterService.getClusterTopology(TEST_CLUSTER);
 
@@ -64,7 +67,8 @@ public class TestClusterService {
 
     Mock mock = new Mock();
     when(mock.dataAccessor.keyBuilder()).thenReturn(new PropertyKey.Builder(TEST_CLUSTER));
-    when(mock.dataAccessor.getChildValues(any(PropertyKey.class))).thenReturn(instanceConfigs);
+    when(mock.dataAccessor.getChildValues(any(PropertyKey.class), anyBoolean()))
+        .thenReturn(instanceConfigs);
 
     ClusterTopology clusterTopology = mock.clusterService.getClusterTopology(TEST_CLUSTER);
 

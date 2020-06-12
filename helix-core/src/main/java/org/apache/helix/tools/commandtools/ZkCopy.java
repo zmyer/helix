@@ -37,8 +37,8 @@ import org.apache.helix.AccessOption;
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.manager.zk.ByteArraySerializer;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.client.HelixZkClient;
-import org.apache.helix.manager.zk.client.SharedZkClientFactory;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
+import org.apache.helix.zookeeper.impl.factory.SharedZkClientFactory;
 import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
@@ -108,7 +108,7 @@ public class ZkCopy {
       readPaths.add(concatenate(srcRootPath, path));
     }
     List<Stat> stats = new ArrayList<Stat>();
-    List<Object> readData = srcAccessor.get(readPaths, stats, 0);
+    List<Object> readData = srcAccessor.get(readPaths, stats, 0, true);
 
     List<String> writePaths = new ArrayList<String>();
     List<Object> writeData = new ArrayList<Object>();

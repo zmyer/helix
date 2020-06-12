@@ -2,18 +2,16 @@ package org.apache.helix.rest.server.util;
 
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.Response;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import org.apache.commons.lang3.StringUtils;
 import org.glassfish.jersey.test.JerseyTestNg;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Splitter;
 
 
 /**
@@ -78,7 +76,8 @@ public class JerseyUriRequestBuilder {
     Assert.assertEquals(response.getStatus(), _expectedStatusCode);
 
     // NOT_FOUND will throw text based html
-    if (_expectedStatusCode != Response.Status.NOT_FOUND.getStatusCode()) {
+    if (_expectedStatusCode != Response.Status.NOT_FOUND.getStatusCode()
+        && _expectedStatusCode != Response.Status.BAD_REQUEST.getStatusCode()) {
       Assert.assertEquals(response.getMediaType().getType(), "application");
     } else {
       Assert.assertEquals(response.getMediaType().getType(), "text");
@@ -90,6 +89,10 @@ public class JerseyUriRequestBuilder {
     }
 
     return body;
+  }
+
+  public Response getResponse(JerseyTestNg.ContainerPerClassTest container) {
+    return buildWebTarget(container).request().get();
   }
 
   /**

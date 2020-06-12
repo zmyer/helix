@@ -41,6 +41,76 @@ sed -i "s/${version}/${new_version}/g" pom.xml
 # git diff pom.xml
 grep -C 1 "$new_version" pom.xml
 
+echo "bump up metrics-common/pom.xml"
+sed -i "s/${version}/${new_version}/g" metrics-common/pom.xml
+grep -C 1 "$new_version" metrics-common/pom.xml
+# git diff metrics-common/pom.xml
+
+ivy_file="metrics-common-"$version".ivy"
+new_ivy_file="metrics-common-"$new_version".ivy"
+# echo "$ivy_file"
+if [ -f metrics-common/$ivy_file ]; then
+  echo "bump up metrics-common/$ivy_file"
+  git mv "metrics-common/$ivy_file" "metrics-common/$new_ivy_file"
+  sed -i "s/${version}/${new_version}/g" "metrics-common/$new_ivy_file"
+  grep -C 1 "$new_version" "metrics-common/$new_ivy_file"
+else
+  echo "metrics-common/$ivy_file not exist"
+fi
+
+
+echo "bump up metadata-store-directory-common/pom.xml"
+sed -i "s/${version}/${new_version}/g" metadata-store-directory-common/pom.xml
+grep -C 1 "$new_version" metadata-store-directory-common/pom.xml
+# git diff metadata-store-directory-common/pom.xml
+
+ivy_file="metadata-store-directory-common-"$version".ivy"
+new_ivy_file="metadata-store-directory-common-"$new_version".ivy"
+# echo "$ivy_file"
+if [ -f metadata-store-directory-common/$ivy_file ]; then
+  echo "bump up metadata-store-directory-common/$ivy_file"
+  git mv "metadata-store-directory-common/$ivy_file" "metadata-store-directory-common/$new_ivy_file"
+  sed -i "s/${version}/${new_version}/g" "metadata-store-directory-common/$new_ivy_file"
+  grep -C 1 "$new_version" "metadata-store-directory-common/$new_ivy_file"
+else
+  echo "metadata-store-directory-common/$ivy_file not exist"
+fi
+
+
+echo "bump up zookeeper-api/pom.xml"
+sed -i "s/${version}/${new_version}/g" zookeeper-api/pom.xml
+grep -C 1 "$new_version" zookeeper-api/pom.xml
+# git diff zookeeper-api/pom.xml
+
+ivy_file="zookeeper-api-"$version".ivy"
+new_ivy_file="zookeeper-api-"$new_version".ivy"
+# echo "$ivy_file"
+if [ -f zookeeper-api/$ivy_file ]; then
+  echo "bump up zookeeper-api/$ivy_file"
+  git mv "zookeeper-api/$ivy_file" "zookeeper-api/$new_ivy_file"
+  sed -i "s/${version}/${new_version}/g" "zookeeper-api/$new_ivy_file"
+  grep -C 1 "$new_version" "zookeeper-api/$new_ivy_file"
+else
+  echo "zookeeper-api/$ivy_file not exist"
+fi
+
+echo "bump up helix-common/pom.xml"
+sed -i "s/${version}/${new_version}/g" helix-common/pom.xml
+grep -C 1 "$new_version" helix-common/pom.xml
+# git diff helix-common/pom.xml
+
+ivy_file="helix-common-"$version".ivy"
+new_ivy_file="helix-common-"$new_version".ivy"
+# echo "$ivy_file"
+if [ -f helix-common/$ivy_file ]; then
+  echo "bump up helix-common/$ivy_file"
+  git mv "helix-common/$ivy_file" "helix-common/$new_ivy_file"
+  sed -i "s/${version}/${new_version}/g" "helix-common/$new_ivy_file"
+  grep -C 1 "$new_version" "helix-common/$new_ivy_file"
+else
+  echo "helix-common/$ivy_file not exist"
+fi
+
 echo "bump up helix-core/pom.xml"
 sed -i "s/${version}/${new_version}/g" helix-core/pom.xml
 grep -C 1 "$new_version" helix-core/pom.xml
@@ -92,6 +162,23 @@ else
   echo "helix-rest/$ivy_file not exist"
 fi
 
+echo "bump up helix-lock/pom.xml"
+sed -i "s/${version}/${new_version}/g" helix-lock/pom.xml
+grep -C 1 "$new_version" helix-lock/pom.xml
+# git diff helix-lock/pom.xml
+
+ivy_file="helix-lock-"$version".ivy"
+new_ivy_file="helix-lock-"$new_version".ivy"
+# echo "$ivy_file"
+if [ -f helix-lock/$ivy_file ]; then
+  echo "bump up helix-lock/$ivy_file"
+  git mv "helix-lock/$ivy_file" "helix-lock/$new_ivy_file"
+  sed -i "s/${version}/${new_version}/g" "helix-lock/$new_ivy_file"
+  grep -C 1 "$new_version" "helix-lock/$new_ivy_file"
+else
+  echo "helix-lock/$ivy_file not exist"
+fi
+
 echo "bump up helix-agent/pom.xml"
 sed -i "s/${version}/${new_version}/g" helix-agent/pom.xml
 grep -C 1 "$new_version" helix-agent/pom.xml
@@ -108,6 +195,7 @@ if [ -f helix-agent/$ivy_file ]; then
 else
   echo "helix-agent/$ivy_file not exist"
 fi
+
 
 for POM in helix-agent/pom.xml recipes/task-execution/pom.xml recipes/pom.xml recipes/distributed-lock-manager/pom.xml recipes/rsync-replicated-file-system/pom.xml recipes/rabbitmq-consumer-group/pom.xml recipes/service-discovery/pom.xml
 do

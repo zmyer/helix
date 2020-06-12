@@ -19,11 +19,12 @@ package org.apache.helix.messaging;
  * under the License.
  */
 
-import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import com.google.common.collect.ImmutableList;
 import org.apache.helix.Criteria;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
@@ -33,7 +34,6 @@ import org.apache.helix.MockAccessor;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyType;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.messaging.handling.HelixTaskResult;
 import org.apache.helix.messaging.handling.MessageHandler;
 import org.apache.helix.messaging.handling.MessageHandlerFactory;
@@ -43,6 +43,7 @@ import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.LiveInstance.LiveInstanceProperty;
 import org.apache.helix.model.Message;
 import org.apache.helix.tools.DefaultIdealStateCalculator;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.testng.Assert;
 import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
@@ -62,7 +63,8 @@ public class TestDefaultMessagingService {
       }
 
       @Override
-      public <T extends HelixProperty> List<T> getChildValues(PropertyKey key) {
+      public <T extends HelixProperty> List<T> getChildValues(PropertyKey key,
+          boolean throwException) {
         PropertyType type = key.getType();
         List<T> result = new ArrayList<T>();
         Class<? extends HelixProperty> clazz = key.getTypeClass();

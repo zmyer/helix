@@ -22,6 +22,7 @@ package org.apache.helix.integration;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
+
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyKey.Builder;
@@ -44,7 +45,7 @@ public class TestMessagePartitionStateMismatch extends ZkStandAloneCMTestBase {
     Builder kb = accessor.keyBuilder();
     ExternalView ev = accessor.getProperty(kb.externalView(TEST_DB));
     Map<String, LiveInstance> liveinstanceMap =
-        accessor.getChildValuesMap(accessor.keyBuilder().liveInstances());
+        accessor.getChildValuesMap(accessor.keyBuilder().liveInstances(), true);
 
     for (String instanceName : liveinstanceMap.keySet()) {
       String sessionid = liveinstanceMap.get(instanceName).getEphemeralOwner();

@@ -20,16 +20,36 @@ package org.apache.helix.rest.server.resources.helix;
  */
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
-
-import javax.ws.rs.*;
+import java.util.Map;
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import org.apache.helix.*;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.helix.ConfigAccessor;
+import org.apache.helix.HelixAdmin;
+import org.apache.helix.HelixDataAccessor;
+import org.apache.helix.HelixException;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
-import org.apache.helix.model.*;
+import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.Error;
+import org.apache.helix.model.HealthStat;
+import org.apache.helix.model.HelixConfigScope;
+import org.apache.helix.model.InstanceConfig;
+import org.apache.helix.model.Message;
+import org.apache.helix.model.ParticipantHistory;
 import org.apache.helix.model.builder.HelixConfigScopeBuilder;
 import org.apache.helix.rest.common.HelixDataAccessorWrapper;
 import org.apache.helix.rest.server.json.instance.InstanceInfo;
@@ -43,8 +63,6 @@ import org.codehaus.jackson.node.ObjectNode;
 import org.eclipse.jetty.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Path("/clusters/{clusterId}/instances/{instanceName}")
 public class PerInstanceAccessor extends AbstractHelixResource {
@@ -67,16 +85,47 @@ public class PerInstanceAccessor extends AbstractHelixResource {
 
   @GET
   public Response getInstanceById(@PathParam("clusterId") String clusterId,
-      @PathParam("instanceName") String instanceName) throws IOException {
-    ObjectMapper objectMapper = new ObjectMapper();
-    HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
-    // TODO reduce GC by dependency injection
-    InstanceService instanceService =
-        new InstanceServiceImpl(new HelixDataAccessorWrapper((ZKHelixDataAccessor) dataAccessor), getConfigAccessor());
-    InstanceInfo instanceInfo = instanceService.getInstanceInfo(clusterId, instanceName,
-        InstanceService.HealthCheck.STARTED_AND_HEALTH_CHECK_LIST);
+      @PathParam("instanceName") String instanceName,
+      @DefaultValue("getInstance") @QueryParam("command") String command) {
+    // Get the command. If not provided, the default would be "getInstance"
+    Command cmd;
+    try {
+      cmd = Command.valueOf(command);
+    } catch (Exception e) {
+      return badRequest("Invalid command : " + command);
+    }
 
-    return OK(objectMapper.writeValueAsString(instanceInfo));
+    switch (cmd) {
+    case getInstance:
+      ObjectMapper objectMapper = new ObjectMapper();
+      HelixDataAccessor dataAccessor = getDataAccssor(clusterId);
+      // TODO reduce GC by dependency injection
+      InstanceService instanceService = new InstanceServiceImpl(
+          new HelixDataAccessorWrapper((ZKHelixDataAccessor) dataAccessor), getConfigAccessor());
+      InstanceInfo instanceInfo = instanceService.getInstanceInfo(clusterId, instanceName,
+          InstanceService.HealthCheck.STARTED_AND_HEALTH_CHECK_LIST);
+      String instanceInfoString;
+      try {
+        instanceInfoString = objectMapper.writeValueAsString(instanceInfo);
+      } catch (JsonProcessingException e) {
+        return serverError(e);
+      }
+      return OK(instanceInfoString);
+    case validateWeight:
+      // Validates instanceConfig for WAGED rebalance
+      HelixAdmin admin = getHelixAdmin();
+      Map<String, Boolean> validationResultMap;
+      try {
+        validationResultMap = admin.validateInstancesForWagedRebalance(clusterId,
+            Collections.singletonList(instanceName));
+      } catch (HelixException e) {
+        return badRequest(e.getMessage());
+      }
+      return JSONRepresentation(validationResultMap);
+    default:
+      LOG.error("Unsupported command :" + command);
+      return badRequest("Unsupported command :" + command);
+    }
   }
 
   @POST
@@ -331,7 +380,8 @@ public class PerInstanceAccessor extends AbstractHelixResource {
     return notFound();
   }
 
-  @GET @Path("errors")
+  @GET
+  @Path("errors")
   public Response getErrorsOnInstance(@PathParam("clusterId") String clusterId,
       @PathParam("instanceName") String instanceName) throws IOException {
     HelixDataAccessor accessor = getDataAccssor(clusterId);

@@ -19,22 +19,34 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import org.I0Itec.zkclient.DataUpdater;
-import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.InstanceType;
 import org.apache.helix.PropertyPathBuilder;
-import org.apache.helix.ZNRecord;
-import org.apache.helix.manager.zk.client.HelixZkClient;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.helix.SystemPropertyKeys;
+import org.apache.helix.msdcommon.exception.InvalidRoutingDataException;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.impl.client.FederatedZkClient;
+import org.apache.helix.zookeeper.impl.factory.DedicatedZkClientFactory;
+import org.apache.helix.zookeeper.zkclient.DataUpdater;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+
+/**
+ * Using this ZKUtil class for production purposes is NOT recommended since a lot of the static
+ * methods require a ZkClient instance to be passed in.
+ *
+ * NOTE: Ephemeral operations will not be supported on multi-zk mode!
+ */
 public final class ZKUtil {
   private static Logger logger = LoggerFactory.getLogger(ZKUtil.class);
   private static int RETRYLIMIT = 3;
@@ -42,7 +54,25 @@ public final class ZKUtil {
   private ZKUtil() {
   }
 
-  public static boolean isClusterSetup(String clusterName, HelixZkClient zkClient) {
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param clusterName
+   * @param zkAddress
+   * @return
+   */
+  public static boolean isClusterSetup(String clusterName, String zkAddress) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    boolean result;
+    try {
+      result = isClusterSetup(clusterName, zkClient);
+    } finally {
+      zkClient.close();
+    }
+    return result;
+  }
+
+  public static boolean isClusterSetup(String clusterName, RealmAwareZkClient zkClient) {
     if (clusterName == null) {
       logger.info("Fail to check cluster setup : cluster name is null!");
       return false;
@@ -52,7 +82,7 @@ public final class ZKUtil {
       logger.info("Fail to check cluster setup : zookeeper client is null!");
       return false;
     }
-    ArrayList<String> requiredPaths = new ArrayList<String>();
+    List<String> requiredPaths = new ArrayList<>();
     requiredPaths.add(PropertyPathBuilder.idealState(clusterName));
     requiredPaths.add(PropertyPathBuilder.clusterConfig(clusterName));
     requiredPaths.add(PropertyPathBuilder.instanceConfig(clusterName));
@@ -69,29 +99,56 @@ public final class ZKUtil {
     requiredPaths.add(PropertyPathBuilder.controllerHistory(clusterName));
     boolean isValid = true;
 
-    BaseDataAccessor<Object> baseAccessor = new ZkBaseDataAccessor<Object>(zkClient);
-    boolean[] ret = baseAccessor.exists(requiredPaths, 0);
+    boolean[] ret = new boolean[requiredPaths.size()];
+    for (int i = 0; i < requiredPaths.size(); i++) {
+      try {
+        ret[i] = zkClient.exists(requiredPaths.get(i));
+      } catch (Exception e) {
+        ret[i] = false;
+      }
+    }
     StringBuilder errorMsg = new StringBuilder();
 
     for (int i = 0; i < ret.length; i++) {
       if (!ret[i]) {
         isValid = false;
-        errorMsg
-            .append(("Invalid cluster setup, missing znode path: " + requiredPaths.get(i)) + "\n");
+        errorMsg.append("Invalid cluster setup for cluster: ").append(clusterName)
+            .append(", missing znode path: ").append(requiredPaths.get(i)).append("\n");
       }
     }
 
     if (!isValid) {
-      logger.debug(errorMsg.toString());
+      logger.warn(errorMsg.toString());
     }
 
     return isValid;
   }
 
-  public static boolean isInstanceSetup(HelixZkClient zkclient, String clusterName, String instanceName,
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param clusterName
+   * @param instanceName
+   * @param type
+   * @return
+   */
+  public static boolean isInstanceSetup(String zkAddress, String clusterName, String instanceName,
       InstanceType type) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    boolean result;
+    try {
+      result = isInstanceSetup(zkClient, clusterName, instanceName, type);
+    } finally {
+      zkClient.close();
+    }
+    return result;
+  }
+
+  public static boolean isInstanceSetup(RealmAwareZkClient zkclient, String clusterName,
+      String instanceName, InstanceType type) {
     if (type == InstanceType.PARTICIPANT || type == InstanceType.CONTROLLER_PARTICIPANT) {
-      ArrayList<String> requiredPaths = new ArrayList<>();
+      List<String> requiredPaths = new ArrayList<>();
       requiredPaths.add(PropertyPathBuilder.instanceConfig(clusterName, instanceName));
       requiredPaths.add(PropertyPathBuilder.instanceMessage(clusterName, instanceName));
       requiredPaths.add(PropertyPathBuilder.instanceCurrentState(clusterName, instanceName));
@@ -102,7 +159,7 @@ public final class ZKUtil {
       for (String path : requiredPaths) {
         if (!zkclient.exists(path)) {
           isValid = false;
-          logger.error("Invalid instance setup, missing znode path: {}", path);
+          logger.info("Invalid instance setup, missing znode path: {}", path);
         }
       }
 
@@ -113,7 +170,6 @@ public final class ZKUtil {
         if (!zkclient.exists(historyPath)) {
           zkclient.createPersistent(historyPath, true);
         }
-
       }
       return isValid;
     }
@@ -121,7 +177,24 @@ public final class ZKUtil {
     return true;
   }
 
-  public static void createChildren(HelixZkClient client, String parentPath, List<ZNRecord> list) {
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param parentPath
+   * @param list
+   */
+  public static void createChildren(String zkAddress, String parentPath, List<ZNRecord> list) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      createChildren(zkClient, parentPath, list);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void createChildren(RealmAwareZkClient client, String parentPath,
+      List<ZNRecord> list) {
     client.createPersistent(parentPath, true);
     if (list != null) {
       for (ZNRecord record : list) {
@@ -130,7 +203,24 @@ public final class ZKUtil {
     }
   }
 
-  public static void createChildren(HelixZkClient client, String parentPath, ZNRecord nodeRecord) {
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param parentPath
+   * @param nodeRecord
+   */
+  public static void createChildren(String zkAddress, String parentPath, ZNRecord nodeRecord) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      createChildren(zkClient, parentPath, nodeRecord);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void createChildren(RealmAwareZkClient client, String parentPath,
+      ZNRecord nodeRecord) {
     client.createPersistent(parentPath, true);
 
     String id = nodeRecord.getId();
@@ -138,7 +228,24 @@ public final class ZKUtil {
     client.createPersistent(temp, nodeRecord);
   }
 
-  public static void dropChildren(HelixZkClient client, String parentPath, List<ZNRecord> list) {
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param parentPath
+   * @param list
+   */
+  public static void dropChildren(String zkAddress, String parentPath, List<ZNRecord> list) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      dropChildren(zkClient, parentPath, list);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void dropChildren(RealmAwareZkClient client, String parentPath,
+      List<ZNRecord> list) {
     // TODO: check if parentPath exists
     if (list != null) {
       for (ZNRecord record : list) {
@@ -147,14 +254,49 @@ public final class ZKUtil {
     }
   }
 
-  public static void dropChildren(HelixZkClient client, String parentPath, ZNRecord nodeRecord) {
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param parentPath
+   * @param nodeRecord
+   */
+  public static void dropChildren(String zkAddress, String parentPath, ZNRecord nodeRecord) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      dropChildren(zkClient, parentPath, nodeRecord);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void dropChildren(RealmAwareZkClient client, String parentPath,
+      ZNRecord nodeRecord) {
     // TODO: check if parentPath exists
     String id = nodeRecord.getId();
     String temp = parentPath + "/" + id;
     client.deleteRecursively(temp);
   }
 
-  public static List<ZNRecord> getChildren(HelixZkClient client, String path) {
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param path
+   * @return
+   */
+  public static List<ZNRecord> getChildren(String zkAddress, String path) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    List<ZNRecord> result;
+    try {
+      result = getChildren(zkClient, path);
+    } finally {
+      zkClient.close();
+    }
+    return result;
+  }
+
+  public static List<ZNRecord> getChildren(RealmAwareZkClient client, String path) {
     // parent watch will be set by zkClient
     List<String> children = client.getChildren(path);
     if (children == null || children.size() == 0) {
@@ -177,7 +319,25 @@ public final class ZKUtil {
     return childRecords;
   }
 
-  public static void updateIfExists(HelixZkClient client, String path, final ZNRecord record,
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param path
+   * @param record
+   * @param mergeOnUpdate
+   */
+  public static void updateIfExists(String zkAddress, String path, final ZNRecord record,
+      boolean mergeOnUpdate) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      updateIfExists(zkClient, path, record, mergeOnUpdate);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void updateIfExists(RealmAwareZkClient client, String path, final ZNRecord record,
       boolean mergeOnUpdate) {
     if (client.exists(path)) {
       DataUpdater<Object> updater = new DataUpdater<Object>() {
@@ -190,7 +350,26 @@ public final class ZKUtil {
     }
   }
 
-  public static void createOrMerge(HelixZkClient client, String path, final ZNRecord record,
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param path
+   * @param record
+   * @param persistent
+   * @param mergeOnUpdate
+   */
+  public static void createOrMerge(String zkAddress, String path, final ZNRecord record,
+      final boolean persistent, final boolean mergeOnUpdate) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      createOrMerge(zkClient, path, record, persistent, mergeOnUpdate);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void createOrMerge(RealmAwareZkClient client, String path, final ZNRecord record,
       final boolean persistent, final boolean mergeOnUpdate) {
     int retryCount = 0;
     while (retryCount < RETRYLIMIT) {
@@ -226,14 +405,34 @@ public final class ZKUtil {
     }
   }
 
-  public static void createOrUpdate(HelixZkClient client, String path, final ZNRecord record,
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param path
+   * @param record
+   * @param persistent
+   * @param mergeOnUpdate
+   */
+  public static void createOrUpdate(String zkAddress, String path, final ZNRecord record,
+      final boolean persistent, final boolean mergeOnUpdate) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      createOrUpdate(zkClient, path, record, persistent, mergeOnUpdate);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void createOrUpdate(RealmAwareZkClient client, String path, final ZNRecord record,
       final boolean persistent, final boolean mergeOnUpdate) {
     int retryCount = 0;
     while (retryCount < RETRYLIMIT) {
       try {
         if (client.exists(path)) {
           DataUpdater<ZNRecord> updater = new DataUpdater<ZNRecord>() {
-            @Override public ZNRecord update(ZNRecord currentData) {
+            @Override
+            public ZNRecord update(ZNRecord currentData) {
               if (currentData != null && mergeOnUpdate) {
                 currentData.update(record);
                 return currentData;
@@ -255,8 +454,27 @@ public final class ZKUtil {
     }
   }
 
-  public static void asyncCreateOrMerge(HelixZkClient client, String path, final ZNRecord record,
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param path
+   * @param record
+   * @param persistent
+   * @param mergeOnUpdate
+   */
+  public static void asyncCreateOrMerge(String zkAddress, String path, final ZNRecord record,
       final boolean persistent, final boolean mergeOnUpdate) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      asyncCreateOrMerge(zkClient, path, record, persistent, mergeOnUpdate);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void asyncCreateOrMerge(RealmAwareZkClient client, String path,
+      final ZNRecord record, final boolean persistent, final boolean mergeOnUpdate) {
     try {
       if (client.exists(path)) {
         if (mergeOnUpdate) {
@@ -290,7 +508,25 @@ public final class ZKUtil {
     }
   }
 
-  public static void createOrReplace(HelixZkClient client, String path, final ZNRecord record,
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param path
+   * @param record
+   * @param persistent
+   */
+  public static void createOrReplace(String zkAddress, String path, final ZNRecord record,
+      final boolean persistent) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      createOrReplace(zkClient, path, record, persistent);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void createOrReplace(RealmAwareZkClient client, String path, final ZNRecord record,
       final boolean persistent) {
     int retryCount = 0;
     while (retryCount < RETRYLIMIT) {
@@ -316,7 +552,24 @@ public final class ZKUtil {
     }
   }
 
-  public static void subtract(HelixZkClient client, final String path,
+  /**
+   * Note: this method will create a dedicated ZkClient on the fly. Creating and closing a
+   * ZkConnection is a costly operation - use it at your own risk!
+   * @param zkAddress
+   * @param path
+   * @param recordTosubtract
+   */
+  public static void subtract(String zkAddress, final String path,
+      final ZNRecord recordTosubtract) {
+    RealmAwareZkClient zkClient = getHelixZkClient(zkAddress);
+    try {
+      subtract(zkClient, path, recordTosubtract);
+    } finally {
+      zkClient.close();
+    }
+  }
+
+  public static void subtract(RealmAwareZkClient client, final String path,
       final ZNRecord recordTosubtract) {
     int retryCount = 0;
     while (retryCount < RETRYLIMIT) {
@@ -341,6 +594,42 @@ public final class ZKUtil {
         logger.warn("Exception trying to createOrReplace " + path + ". Will retry.", e);
       }
     }
+  }
 
+  /**
+   * Converts a session id in hexadecimal notation from a long type session id.
+   * Ex. 1000a5ceb930004 is returned.
+   *
+   * @return String representation of session id in hexadecimal notation.
+   */
+  public static String toHexSessionId(long sessionId) {
+    return Long.toHexString(sessionId);
+  }
+
+  /**
+   * Returns a dedicated ZkClient. A federatedZkClient will be used on multi-zk mode.
+   * WARNING: ephemeral operations will not be supported on multi-zk mode!
+   * @return
+   */
+  private static RealmAwareZkClient getHelixZkClient(String zkAddr) {
+    if (Boolean.getBoolean(SystemPropertyKeys.MULTI_ZK_ENABLED)) {
+      try {
+        // Create realm-aware ZkClient.
+        RealmAwareZkClient.RealmAwareZkConnectionConfig connectionConfig =
+            new RealmAwareZkClient.RealmAwareZkConnectionConfig.Builder().build();
+        RealmAwareZkClient.RealmAwareZkClientConfig clientConfig =
+            new RealmAwareZkClient.RealmAwareZkClientConfig();
+        return new FederatedZkClient(connectionConfig, clientConfig);
+      } catch (IllegalArgumentException | IOException | InvalidRoutingDataException e) {
+        throw new HelixException("Not able to connect on realm-aware mode", e);
+      }
+    }
+    if (zkAddr == null || zkAddr.isEmpty()) {
+      throw new HelixException("ZK Address given is either null or empty!");
+    }
+    HelixZkClient.ZkClientConfig clientConfig = new HelixZkClient.ZkClientConfig();
+    clientConfig.setZkSerializer(new ZNRecordSerializer());
+    return DedicatedZkClientFactory.getInstance()
+        .buildZkClient(new HelixZkClient.ZkConnectionConfig(zkAddr), clientConfig);
   }
 }

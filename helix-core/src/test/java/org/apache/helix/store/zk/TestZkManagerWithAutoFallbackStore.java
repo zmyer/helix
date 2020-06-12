@@ -20,10 +20,11 @@ package org.apache.helix.store.zk;
  */
 
 import java.util.Date;
+
 import org.apache.helix.AccessOption;
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.ZkUnitTestBase;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.testng.Assert;

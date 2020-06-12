@@ -21,9 +21,10 @@ package org.apache.helix.integration;
 
 import java.util.Date;
 import java.util.List;
+
 import org.apache.helix.PropertyKey.Builder;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
@@ -96,7 +97,7 @@ public class TestAddStateModelFactoryAfterConnect extends ZkTestBase {
       totalMsgs = 0;
       for (int i = 0; i < n; i++) {
         List<Message> msgs =
-            accessor.getChildValues(keyBuilder.messages(participants[i].getInstanceName()));
+            accessor.getChildValues(keyBuilder.messages(participants[i].getInstanceName()), true);
         totalMsgs += msgs.size();
       }
 

@@ -22,7 +22,7 @@ package org.apache.helix.integration.controller;
 import org.apache.helix.HelixConstants;
 import org.apache.helix.PropertyType;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.integration.common.ZkStandAloneCMTestBase;
 import org.apache.helix.integration.task.WorkflowGenerator;
@@ -49,7 +49,7 @@ public class TestControllerDataProviderSelectiveUpdate extends ZkStandAloneCMTes
     Assert.assertEquals(accessor.getReadCount(PropertyType.EXTERNALVIEW), 1);
     Assert.assertEquals(accessor.getReadCount(PropertyType.LIVEINSTANCES), NODE_NR);
     Assert.assertEquals(accessor.getReadCount(PropertyType.CURRENTSTATES), NODE_NR);
-    Assert.assertEquals(accessor.getReadCount(PropertyType.CONFIGS), NODE_NR + 1);
+    Assert.assertEquals(accessor.getReadCount(PropertyType.CONFIGS), NODE_NR + 2);
 
     accessor.clearReadCounters();
 
@@ -94,7 +94,7 @@ public class TestControllerDataProviderSelectiveUpdate extends ZkStandAloneCMTes
     Assert.assertEquals(accessor.getReadCount(PropertyType.EXTERNALVIEW), 1);
     Assert.assertEquals(accessor.getReadCount(PropertyType.LIVEINSTANCES), NODE_NR);
     Assert.assertEquals(accessor.getReadCount(PropertyType.CURRENTSTATES), NODE_NR);
-    Assert.assertEquals(accessor.getReadCount(PropertyType.CONFIGS), NODE_NR + 1);
+    Assert.assertEquals(accessor.getReadCount(PropertyType.CONFIGS), NODE_NR + 2);
 
     accessor.clearReadCounters();
 

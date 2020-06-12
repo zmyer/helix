@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.net.ssl.SSLContext;
+
 import org.apache.helix.HelixException;
 import org.apache.helix.rest.common.ContextPropertyKeys;
 import org.apache.helix.rest.common.HelixRestNamespace;
@@ -140,7 +141,7 @@ public class HelixRestServer {
     return String.format("%s_%s", type.name(), namespace.getName());
   }
 
-  private ResourceConfig getResourceConfig(HelixRestNamespace namespace, ServletType type) {
+  protected ResourceConfig getResourceConfig(HelixRestNamespace namespace, ServletType type) {
     ResourceConfig cfg = new ResourceConfig();
     cfg.packages(type.getServletPackageArray());
     cfg.setApplicationName(namespace.getName());
@@ -148,7 +149,8 @@ public class HelixRestServer {
     // Enable the default statistical monitoring MBean for Jersey server
     cfg.property(ServerProperties.MONITORING_STATISTICS_MBEANS_ENABLED, true);
     cfg.property(ContextPropertyKeys.SERVER_CONTEXT.name(),
-        new ServerContext(namespace.getMetadataStoreAddress()));
+        new ServerContext(namespace.getMetadataStoreAddress(), namespace.isMultiZkEnabled(),
+            namespace.getMsdsEndpoint()));
     if (type == ServletType.DEFAULT_SERVLET) {
       cfg.property(ContextPropertyKeys.ALL_NAMESPACES.name(), _helixNamespaces);
     } else {

@@ -24,16 +24,24 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+
 
 public class ClusterLiveNodesVerifier extends ZkHelixClusterVerifier {
 
   final Set<String> _expectLiveNodes;
 
-  public ClusterLiveNodesVerifier(HelixZkClient zkclient, String clusterName,
+  @Deprecated
+  public ClusterLiveNodesVerifier(RealmAwareZkClient zkclient, String clusterName,
       List<String> expectLiveNodes) {
     super(zkclient, clusterName);
     _expectLiveNodes = new HashSet<>(expectLiveNodes);
+  }
+
+  private ClusterLiveNodesVerifier(RealmAwareZkClient zkClient, String clusterName,
+      Set<String> expectLiveNodes) {
+    super(zkClient, clusterName);
+    _expectLiveNodes = expectLiveNodes == null ? new HashSet<>() : new HashSet<>(expectLiveNodes);
   }
 
   @Override
@@ -51,4 +59,24 @@ public class ClusterLiveNodesVerifier extends ZkHelixClusterVerifier {
     return _expectLiveNodes.equals(actualLiveNodes);
   }
 
+  public static class Builder extends ZkHelixClusterVerifier.Builder<Builder> {
+    private final String _clusterName; // This is the ZK path sharding key
+    private final Set<String> _expectLiveNodes;
+
+    public Builder(String clusterName, Set<String> expectLiveNodes) {
+      _clusterName = clusterName;
+      _expectLiveNodes = expectLiveNodes;
+    }
+
+    public ClusterLiveNodesVerifier build() {
+      if (_clusterName == null || _clusterName.isEmpty()) {
+        throw new IllegalArgumentException("Cluster name is missing!");
+      }
+
+      validate();
+      return new ClusterLiveNodesVerifier(
+          createZkClient(RealmAwareZkClient.RealmMode.SINGLE_REALM, _realmAwareZkConnectionConfig,
+              _realmAwareZkClientConfig, _zkAddress), _clusterName, _expectLiveNodes);
+    }
+  }
 }

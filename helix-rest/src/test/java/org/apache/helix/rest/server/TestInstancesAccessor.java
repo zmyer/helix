@@ -1,15 +1,39 @@
 package org.apache.helix.rest.server;
 
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.apache.helix.TestHelper;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.InstanceConfig;
@@ -18,11 +42,6 @@ import org.apache.helix.rest.server.util.JerseyUriRequestBuilder;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
 import org.testng.Assert;
 import org.testng.annotations.Test;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 
 public class TestInstancesAccessor extends AbstractTestClass {
   private final static String CLUSTER_NAME = "TestCluster_0";
@@ -48,19 +67,19 @@ public class TestInstancesAccessor extends AbstractTestClass {
     JsonNode nonStoppableInstances = jsonNode
         .get(InstancesAccessor.InstancesProperties.instance_not_stoppable_with_reasons.name());
     Assert.assertEquals(getStringSet(nonStoppableInstances, "instance0"),
-        ImmutableSet.of("Helix:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
+        ImmutableSet.of("HELIX:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
     Assert.assertEquals(getStringSet(nonStoppableInstances, "instance1"),
-        ImmutableSet.of("Helix:EMPTY_RESOURCE_ASSIGNMENT", "Helix:INSTANCE_NOT_ENABLED",
-            "Helix:INSTANCE_NOT_STABLE"));
+        ImmutableSet.of("HELIX:EMPTY_RESOURCE_ASSIGNMENT", "HELIX:INSTANCE_NOT_ENABLED",
+            "HELIX:INSTANCE_NOT_STABLE"));
     Assert.assertEquals(getStringSet(nonStoppableInstances, "instance2"),
-        ImmutableSet.of("Helix:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
+        ImmutableSet.of("HELIX:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
     Assert.assertEquals(getStringSet(nonStoppableInstances, "instance3"),
-        ImmutableSet.of("Helix:HAS_DISABLED_PARTITION", "Helix:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
+        ImmutableSet.of("HELIX:HAS_DISABLED_PARTITION", "HELIX:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
     Assert.assertEquals(getStringSet(nonStoppableInstances, "instance4"),
-        ImmutableSet.of("Helix:EMPTY_RESOURCE_ASSIGNMENT", "Helix:INSTANCE_NOT_ALIVE",
-            "Helix:INSTANCE_NOT_STABLE"));
+        ImmutableSet.of("HELIX:EMPTY_RESOURCE_ASSIGNMENT", "HELIX:INSTANCE_NOT_ALIVE",
+            "HELIX:INSTANCE_NOT_STABLE"));
     Assert.assertEquals(getStringSet(nonStoppableInstances, "invalidInstance"),
-        ImmutableSet.of("Helix:INSTANCE_NOT_EXIST"));
+        ImmutableSet.of("HELIX:INSTANCE_NOT_EXIST"));
     System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
@@ -84,7 +103,7 @@ public class TestInstancesAccessor extends AbstractTestClass {
     JsonNode jsonResult = OBJECT_MAPPER.readTree(response.readEntity(String.class));
     Assert.assertFalse(jsonResult.get("stoppable").asBoolean());
     Assert.assertEquals(getStringSet(jsonResult, "failedChecks"),
-            ImmutableSet.of("Helix:HAS_DISABLED_PARTITION","Helix:INSTANCE_NOT_ENABLED","Helix:INSTANCE_NOT_STABLE","Helix:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
+            ImmutableSet.of("HELIX:HAS_DISABLED_PARTITION","HELIX:INSTANCE_NOT_ENABLED","HELIX:INSTANCE_NOT_STABLE","HELIX:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
 
     // Reenable instance0, it should passed the check
     instanceConfig.setInstanceEnabled(true);
@@ -98,7 +117,7 @@ public class TestInstancesAccessor extends AbstractTestClass {
     jsonResult = OBJECT_MAPPER.readTree(response.readEntity(String.class));
 
     Assert.assertFalse(jsonResult.get("stoppable").asBoolean());
-    Assert.assertEquals(getStringSet(jsonResult, "failedChecks"), ImmutableSet.of("Helix:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
+    Assert.assertEquals(getStringSet(jsonResult, "failedChecks"), ImmutableSet.of("HELIX:MIN_ACTIVE_REPLICA_CHECK_FAILED"));
     System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 
@@ -151,6 +170,62 @@ public class TestInstancesAccessor extends AbstractTestClass {
     clusterConfig = _configAccessor.getClusterConfig(CLUSTER_NAME);
     Assert.assertEquals(clusterConfig.getDisabledInstances().keySet(),
         new HashSet<>(Arrays.asList(CLUSTER_NAME + "localhost_12919")));
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testGetAllInstances")
+  public void testValidateWeightForAllInstances() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+
+    // Empty out ClusterConfig's weight key setting and InstanceConfig's capacity maps for testing
+    ClusterConfig clusterConfig = _configAccessor.getClusterConfig(CLUSTER_NAME);
+    clusterConfig.getRecord().setListField(
+        ClusterConfig.ClusterConfigProperty.INSTANCE_CAPACITY_KEYS.name(), new ArrayList<>());
+    _configAccessor.setClusterConfig(CLUSTER_NAME, clusterConfig);
+    List<String> instances =
+        _gSetupTool.getClusterManagementTool().getInstancesInCluster(CLUSTER_NAME);
+    for (String instance : instances) {
+      InstanceConfig instanceConfig = _configAccessor.getInstanceConfig(CLUSTER_NAME, instance);
+      instanceConfig.setInstanceCapacityMap(Collections.emptyMap());
+      _configAccessor.setInstanceConfig(CLUSTER_NAME, instance, instanceConfig);
+    }
+
+    // Issue a validate call
+    String body = new JerseyUriRequestBuilder("clusters/{}/instances?command=validateWeight")
+        .isBodyReturnExpected(true).format(CLUSTER_NAME).get(this);
+
+    JsonNode node = OBJECT_MAPPER.readTree(body);
+    // Must have the results saying they are all valid (true) because there's no capacity keys set
+    // in ClusterConfig
+    node.iterator().forEachRemaining(child -> Assert.assertTrue(child.booleanValue()));
+
+    clusterConfig = _configAccessor.getClusterConfig(CLUSTER_NAME);
+    clusterConfig.setInstanceCapacityKeys(Arrays.asList("FOO", "BAR"));
+    _configAccessor.setClusterConfig(CLUSTER_NAME, clusterConfig);
+
+    body = new JerseyUriRequestBuilder("clusters/{}/instances?command=validateWeight")
+        .isBodyReturnExpected(true).format(CLUSTER_NAME)
+        .expectedReturnStatusCode(Response.Status.BAD_REQUEST.getStatusCode()).get(this);
+    node = OBJECT_MAPPER.readTree(body);
+    // Since instances do not have weight-related configs, the result should return error
+    Assert.assertTrue(node.has("error"));
+
+    // Now set weight-related configs in InstanceConfigs
+    instances = _gSetupTool.getClusterManagementTool().getInstancesInCluster(CLUSTER_NAME);
+    for (String instance : instances) {
+      InstanceConfig instanceConfig = _configAccessor.getInstanceConfig(CLUSTER_NAME, instance);
+      instanceConfig.setInstanceCapacityMap(ImmutableMap.of("FOO", 1000, "BAR", 1000));
+      _configAccessor.setInstanceConfig(CLUSTER_NAME, instance, instanceConfig);
+    }
+
+    body = new JerseyUriRequestBuilder("clusters/{}/instances?command=validateWeight")
+        .isBodyReturnExpected(true).format(CLUSTER_NAME)
+        .expectedReturnStatusCode(Response.Status.OK.getStatusCode()).get(this);
+    node = OBJECT_MAPPER.readTree(body);
+    // Must have the results saying they are all valid (true) because capacity keys are set
+    // in ClusterConfig
+    node.iterator().forEachRemaining(child -> Assert.assertTrue(child.booleanValue()));
+
     System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 

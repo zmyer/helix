@@ -36,7 +36,10 @@ public class HelixConfigScope {
     RESOURCE(2, 0),
     PARTITION(2, 1),
     CONSTRAINT(2, 0),
-    REST(2, 0);
+    REST(2, 0),
+    CLOUD(2, 0),
+    CUSTOMIZED_STATE_AGGREGATION(2, 0),
+    CUSTOMIZED_STATE(2, 0);
 
     final int _zkPathArgNum;
     final int _mapKeyArgNum;
@@ -78,12 +81,19 @@ public class HelixConfigScope {
         "/{clusterName}/CONFIGS/RESOURCE/{resourceName}");
     template.addEntry(ConfigScopeProperty.PARTITION, 2,
         "/{clusterName}/CONFIGS/RESOURCE/{resourceName}");
+    template.addEntry(ConfigScopeProperty.CLOUD, 2,
+        "/{clusterName}/CONFIGS/CLOUD/{clusterName}");
 
     // get children
     template.addEntry(ConfigScopeProperty.CLUSTER, 1, "/{clusterName}/CONFIGS/CLUSTER");
     template.addEntry(ConfigScopeProperty.PARTICIPANT, 1, "/{clusterName}/CONFIGS/PARTICIPANT");
     template.addEntry(ConfigScopeProperty.RESOURCE, 1, "/{clusterName}/CONFIGS/RESOURCE");
     template.addEntry(ConfigScopeProperty.REST, 2, "/{clusterName}/CONFIGS/REST/{clusterName}");
+    template.addEntry(ConfigScopeProperty.CLOUD, 1, "/{clusterName}/CONFIGS/CLOUD");
+    template.addEntry(ConfigScopeProperty.CUSTOMIZED_STATE_AGGREGATION, 2,
+        "/{clusterName}/CONFIGS/CUSTOMIZED_STATE_AGGREGATION/{clusterName}");
+    template.addEntry(ConfigScopeProperty.CUSTOMIZED_STATE, 2,
+        "/{clusterName}/CONFIGS/CUSTOMIZED_STATE/{clusterName}");
   }
 
   final ConfigScopeProperty _type;

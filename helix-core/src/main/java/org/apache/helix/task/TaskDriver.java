@@ -27,7 +27,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.I0Itec.zkclient.DataUpdater;
+
 import org.apache.helix.AccessOption;
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.ConfigAccessor;
@@ -38,17 +38,18 @@ import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.SystemPropertyKeys;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.manager.zk.ZKHelixAdmin;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.builder.CustomModeISBuilder;
 import org.apache.helix.store.HelixPropertyStore;
 import org.apache.helix.store.zk.ZkHelixPropertyStore;
 import org.apache.helix.util.HelixUtil;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.zkclient.DataUpdater;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,11 +97,13 @@ public class TaskDriver {
         manager.getHelixPropertyStore(), manager.getClusterName());
   }
 
-  public TaskDriver(HelixZkClient client, String clusterName) {
+  @Deprecated
+  public TaskDriver(RealmAwareZkClient client, String clusterName) {
     this(client, new ZkBaseDataAccessor<>(client), clusterName);
   }
 
-  public TaskDriver(HelixZkClient client, ZkBaseDataAccessor<ZNRecord> baseAccessor,
+  @Deprecated
+  public TaskDriver(RealmAwareZkClient client, ZkBaseDataAccessor<ZNRecord> baseAccessor,
       String clusterName) {
     this(new ZKHelixAdmin(client), new ZKHelixDataAccessor(clusterName, baseAccessor),
         new ZkHelixPropertyStore<>(baseAccessor, PropertyPathBuilder.propertyStore(clusterName),
@@ -400,6 +403,14 @@ public class TaskDriver {
       }
     }
 
+    // Fail the operation if adding new jobs will cause the queue to reach its capacity limit
+    workflowConfig = TaskUtil.getWorkflowConfig(_accessor, queue);
+    if (workflowConfig.getJobDag().size() + jobs.size() >= capacity) {
+      throw new IllegalStateException(
+          String.format("Queue %s already reaches its max capacity %d, failed to add %s", queue,
+              capacity, jobs.toString()));
+    }
+
     validateZKNodeLimitation(1);
     final List<JobConfig> jobConfigs = new ArrayList<>();
     final List<String> namespacedJobNames = new ArrayList<>();
@@ -439,6 +450,13 @@ public class TaskDriver {
           .fromJson(currentData.getSimpleField(WorkflowConfig.WorkflowConfigProperty.Dag.name()));
       Set<String> allNodes = jobDag.getAllNodes();
       if (capacity > 0 && allNodes.size() + jobConfigs.size() >= capacity) {
+        // Remove previously added jobConfigs if adding new jobs will cause exceeding capacity
+        // limit. Removing the job configs is necessary to avoid multiple threads adding jobs at the
+        // same time and cause overcapacity queue
+        for (String job : jobs) {
+          String namespacedJobName = TaskUtil.getNamespacedJobName(queue, job);
+          TaskUtil.removeJobConfig(_accessor, namespacedJobName);
+        }
         throw new IllegalStateException(
             String.format("Queue %s already reaches its max capacity %d, failed to add %s", queue,
                 capacity, jobs.toString()));
@@ -851,7 +869,7 @@ public class TaskDriver {
   public Map<String, WorkflowConfig> getWorkflows() {
     Map<String, WorkflowConfig> workflowConfigMap = new HashMap<>();
     Map<String, ResourceConfig> resourceConfigMap =
-        _accessor.getChildValuesMap(_accessor.keyBuilder().resourceConfigs());
+        _accessor.getChildValuesMap(_accessor.keyBuilder().resourceConfigs(), true);
 
     for (Map.Entry<String, ResourceConfig> resource : resourceConfigMap.entrySet()) {
       try {

@@ -20,7 +20,8 @@ package org.apache.helix.store;
  */
 
 import java.util.Date;
-import org.apache.helix.ZNRecord;
+
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.testng.AssertJUnit;
 import org.testng.annotations.Test;
 

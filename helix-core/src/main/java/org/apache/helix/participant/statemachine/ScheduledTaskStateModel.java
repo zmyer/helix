@@ -21,7 +21,7 @@ package org.apache.helix.participant.statemachine;
 
 import org.apache.helix.HelixException;
 import org.apache.helix.NotificationContext;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.messaging.handling.HelixTaskExecutor;
 import org.apache.helix.messaging.handling.MessageHandler;
 import org.apache.helix.model.Message;

@@ -19,7 +19,7 @@ package org.apache.helix.healthcheck;
  * under the License.
  */
 
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 
 // TODO: 2018/7/27 by zmyer
 public interface ParticipantHealthReportCollector {

@@ -20,26 +20,27 @@ package org.apache.helix.manager.zk;
  */
 
 import java.lang.management.ManagementFactory;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import org.I0Itec.zkclient.DataUpdater;
-import org.I0Itec.zkclient.exception.ZkNodeExistsException;
 import org.apache.helix.AccessOption;
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixAdmin;
+import org.apache.helix.HelixCloudProperty;
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixManager;
+import org.apache.helix.HelixManagerProperty;
 import org.apache.helix.InstanceType;
 import org.apache.helix.LiveInstanceInfoProvider;
 import org.apache.helix.PreConnectCallback;
 import org.apache.helix.PropertyKey;
-import org.apache.helix.ZNRecord;
-import org.apache.helix.ZNRecordBucketizer;
-import org.apache.helix.manager.zk.client.HelixZkClient;
+import org.apache.helix.api.cloud.CloudInstanceInformation;
+import org.apache.helix.api.cloud.CloudInstanceInformationProcessor;
 import org.apache.helix.messaging.DefaultMessagingService;
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.model.HelixConfigScope;
@@ -51,6 +52,13 @@ import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.model.builder.HelixConfigScopeBuilder;
 import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.participant.statemachine.ScheduledTaskStateModelFactory;
+import org.apache.helix.util.HelixUtil;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecordBucketizer;
+import org.apache.helix.zookeeper.zkclient.DataUpdater;
+import org.apache.helix.zookeeper.zkclient.exception.ZkNodeExistsException;
+import org.apache.helix.zookeeper.zkclient.exception.ZkSessionMismatchedException;
 import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,13 +68,13 @@ import org.slf4j.LoggerFactory;
  */
 public class ParticipantManager {
   private static Logger LOG = LoggerFactory.getLogger(ParticipantManager.class);
+  private static final String CLOUD_PROCESSOR_PATH_PREFIX = "org.apache.helix.cloud.";
 
-  final HelixZkClient _zkclient;
+  final RealmAwareZkClient _zkclient;
   final HelixManager _manager;
   final PropertyKey.Builder _keyBuilder;
   final String _clusterName;
   final String _instanceName;
-  final String _sessionId;
   final int _sessionTimeout;
   final ConfigAccessor _configAccessor;
   final InstanceType _instanceType;
@@ -76,15 +84,30 @@ public class ParticipantManager {
   final StateMachineEngine _stateMachineEngine;
   final LiveInstanceInfoProvider _liveInstanceInfoProvider;
   final List<PreConnectCallback> _preConnectCallbacks;
+  final HelixManagerProperty _helixManagerProperty;
 
-  public ParticipantManager(HelixManager manager, HelixZkClient zkclient, int sessionTimeout,
-      LiveInstanceInfoProvider liveInstanceInfoProvider, List<PreConnectCallback> preConnectCallbacks) {
+  // zk session id should be immutable after participant manager is created. This is to avoid
+  // session race condition when handling new session for the participant.
+  private final String _sessionId;
+
+  @Deprecated
+  public ParticipantManager(HelixManager manager, RealmAwareZkClient zkclient, int sessionTimeout,
+      LiveInstanceInfoProvider liveInstanceInfoProvider, List<PreConnectCallback> preConnectCallbacks,
+      final String sessionId) {
+    this(manager, zkclient, sessionTimeout, liveInstanceInfoProvider, preConnectCallbacks,
+        sessionId, null);
+  }
+
+  public ParticipantManager(HelixManager manager, RealmAwareZkClient zkclient, int sessionTimeout,
+      LiveInstanceInfoProvider liveInstanceInfoProvider,
+      List<PreConnectCallback> preConnectCallbacks, final String sessionId,
+      HelixManagerProperty helixManagerProperty) {
     _zkclient = zkclient;
     _manager = manager;
     _clusterName = manager.getClusterName();
     _instanceName = manager.getInstanceName();
     _keyBuilder = new PropertyKey.Builder(_clusterName);
-    _sessionId = manager.getSessionId();
+    _sessionId = sessionId;
     _sessionTimeout = sessionTimeout;
     _configAccessor = manager.getConfigAccessor();
     _instanceType = manager.getInstanceType();
@@ -94,13 +117,26 @@ public class ParticipantManager {
     _stateMachineEngine = manager.getStateMachineEngine();
     _liveInstanceInfoProvider = liveInstanceInfoProvider;
     _preConnectCallbacks = preConnectCallbacks;
+    _helixManagerProperty = helixManagerProperty;
   }
 
   /**
-   * Handle new session for a participang.
+   * Handles a new session for a participant. The new session's id is passed in when participant
+   * manager is created, as it is required to prevent ephemeral node creation from session race
+   * condition: ephemeral node is created by an expired or unexpected session.
    * @throws Exception
    */
   public void handleNewSession() throws Exception {
+    // Check zk session of this participant is still valid.
+    // If not, skip handling new session for this participant.
+    final String zkClientHexSession = ZKUtil.toHexSessionId(_zkclient.getSessionId());
+    if (!zkClientHexSession.equals(_sessionId)) {
+      throw new HelixException(
+          "Failed to handle new session for participant. There is a session mismatch: "
+              + "participant manager session = " + _sessionId + ", zk client session = "
+              + zkClientHexSession);
+    }
+
     joinCluster();
 
     /**
@@ -112,6 +148,8 @@ public class ParticipantManager {
 
     // TODO create live instance node after all the init works done --JJ
     // This will help to prevent controller from sending any message prematurely.
+    // Live instance creation also checks if the expected session is valid or not. Live instance
+    // should not be created by an expired zk session.
     createLiveInstance();
     carryOverPreviousCurrentState();
 
@@ -122,18 +160,31 @@ public class ParticipantManager {
   }
 
   private void joinCluster() {
-    // Read cluster config and see if instance can auto join the cluster
+    // Read cluster config and see if an instance can auto join or auto register to the cluster
     boolean autoJoin = false;
+    boolean autoRegistration = false;
+
+    // Read "allowParticipantAutoJoin" flag to see if an instance can auto join to the cluster
     try {
-      HelixConfigScope scope =
-          new HelixConfigScopeBuilder(ConfigScopeProperty.CLUSTER).forCluster(
-              _manager.getClusterName()).build();
-      autoJoin =
-          Boolean.parseBoolean(_configAccessor.get(scope,
-              ZKHelixManager.ALLOW_PARTICIPANT_AUTO_JOIN));
+      HelixConfigScope scope = new HelixConfigScopeBuilder(ConfigScopeProperty.CLUSTER)
+          .forCluster(_manager.getClusterName()).build();
+      autoJoin = Boolean
+          .parseBoolean(_configAccessor.get(scope, ZKHelixManager.ALLOW_PARTICIPANT_AUTO_JOIN));
       LOG.info("instance: " + _instanceName + " auto-joining " + _clusterName + " is " + autoJoin);
     } catch (Exception e) {
-      // autoJoin is false
+      LOG.info("auto join is false for cluster" + _clusterName);
+    }
+
+    // Read cloud config and see if an instance can auto register to the cluster
+    // Difference between auto join and auto registration is that the latter will also populate the
+    // domain information in instance config
+    try {
+      autoRegistration =
+          Boolean.valueOf(_helixManagerProperty.getHelixCloudProperty().getCloudEnabled());
+      LOG.info("instance: " + _instanceName + " auto-register " + _clusterName + " is "
+          + autoRegistration);
+    } catch (Exception e) {
+      LOG.info("auto registration is false for cluster" + _clusterName);
     }
 
     if (!ZKUtil.isInstanceSetup(_zkclient, _clusterName, _instanceName, _instanceType)) {
@@ -141,20 +192,46 @@ public class ParticipantManager {
         throw new HelixException("Initial cluster structure is not set up for instance: "
             + _instanceName + ", instanceType: " + _instanceType);
       } else {
-        LOG.info(_instanceName + " is auto-joining cluster: " + _clusterName);
-        InstanceConfig instanceConfig = new InstanceConfig(_instanceName);
-        String hostName = _instanceName;
-        String port = "";
-        int lastPos = _instanceName.lastIndexOf("_");
-        if (lastPos > 0) {
-          hostName = _instanceName.substring(0, lastPos);
-          port = _instanceName.substring(lastPos + 1);
+        if (!autoRegistration) {
+          LOG.info(_instanceName + " is auto-joining cluster: " + _clusterName);
+          _helixAdmin.addInstance(_clusterName, HelixUtil.composeInstanceConfig(_instanceName));
+        } else {
+          LOG.info(_instanceName + " is auto-registering cluster: " + _clusterName);
+          CloudInstanceInformation cloudInstanceInformation = getCloudInstanceInformation();
+          String domain = cloudInstanceInformation
+              .get(CloudInstanceInformation.CloudInstanceField.FAULT_DOMAIN.name()) + _instanceName;
+
+          InstanceConfig instanceConfig = HelixUtil.composeInstanceConfig(_instanceName);
+          instanceConfig.setDomain(domain);
+          _helixAdmin.addInstance(_clusterName, instanceConfig);
         }
-        instanceConfig.setHostName(hostName);
-        instanceConfig.setPort(port);
-        instanceConfig.setInstanceEnabled(true);
-        _helixAdmin.addInstance(_clusterName, instanceConfig);
       }
+    }
+  }
+
+  private CloudInstanceInformation getCloudInstanceInformation() {
+    String cloudInstanceInformationProcessorName =
+        _helixManagerProperty.getHelixCloudProperty().getCloudInfoProcessorName();
+    try {
+      // fetch cloud instance information for the instance
+      String cloudInstanceInformationProcessorClassName = CLOUD_PROCESSOR_PATH_PREFIX
+          + _helixManagerProperty.getHelixCloudProperty().getCloudProvider().toLowerCase() + "."
+          + cloudInstanceInformationProcessorName;
+      Class processorClass = Class.forName(cloudInstanceInformationProcessorClassName);
+      Constructor constructor = processorClass.getConstructor(HelixCloudProperty.class);
+      CloudInstanceInformationProcessor processor = (CloudInstanceInformationProcessor) constructor
+          .newInstance(_helixManagerProperty.getHelixCloudProperty());
+      List<String> responses = processor.fetchCloudInstanceInformation();
+
+      // parse cloud instance information for the participant
+      CloudInstanceInformation cloudInstanceInformation =
+          processor.parseCloudInstanceInformation(responses);
+      return cloudInstanceInformation;
+    } catch (ClassNotFoundException | NoSuchMethodException | InstantiationException
+        | IllegalAccessException | InvocationTargetException ex) {
+      throw new HelixException(
+          "Failed to create a new instance for the class: " + cloudInstanceInformationProcessorName,
+          ex);
     }
   }
 
@@ -182,11 +259,17 @@ public class ParticipantManager {
     do {
       retry = false;
       try {
-        _zkclient.createEphemeral(liveInstancePath, liveInstance.getRecord());
-        LOG.info("LiveInstance created, path: " + liveInstancePath + ", sessionId: " + liveInstance.getEphemeralOwner());
+        // Zk session ID will be validated in createEphemeral.
+        _zkclient.createEphemeral(liveInstancePath, liveInstance.getRecord(), _sessionId);
+        LOG.info("LiveInstance created, path: {}, sessionId: {}", liveInstancePath,
+            liveInstance.getEphemeralOwner());
+      } catch (ZkSessionMismatchedException e) {
+        throw new HelixException(
+            "Failed to create live instance, path: " + liveInstancePath + ". Caused by: "
+                + e.getMessage());
       } catch (ZkNodeExistsException e) {
-        LOG.warn("found another instance with same instanceName: " + _instanceName + " in cluster "
-            + _clusterName);
+        LOG.warn("Found another instance with same instance name: {} in cluster: {}", _instanceName,
+            _clusterName);
 
         Stat stat = new Stat();
         ZNRecord record = _zkclient.readData(liveInstancePath, stat, true);
@@ -196,41 +279,20 @@ public class ParticipantManager {
            */
           retry = true;
         } else {
-          String ephemeralOwner = Long.toHexString(stat.getEphemeralOwner());
-          if (ephemeralOwner.equals(_sessionId)) {
-            /**
-             * update sessionId field in live-instance if necessary
-             */
-            LiveInstance curLiveInstance = new LiveInstance(record);
-            if (!curLiveInstance.getEphemeralOwner().equals(_sessionId)) {
-              /**
-               * in last handle-new-session,
-               * live-instance is created by new zkconnection with stale session-id inside
-               * just update session-id field
-               */
-              LOG.info("overwriting session-id by ephemeralOwner: " + ephemeralOwner
-                  + ", old-sessionId: " + curLiveInstance.getEphemeralOwner() + ", new-sessionId: "
-                  + _sessionId);
-
-              curLiveInstance.setSessionId(_sessionId);
-              _zkclient.writeData(liveInstancePath, curLiveInstance.getRecord());
-            }
-          } else {
-            /**
-             * wait for a while, in case previous helix-participant exits unexpectedly
-             * and its live-instance still hangs around until session timeout
-             */
-            try {
-              TimeUnit.MILLISECONDS.sleep(_sessionTimeout + 5000);
-            } catch (InterruptedException ex) {
-              LOG.warn("Sleep interrupted while waiting for previous live-instance to go away.", ex);
-            }
-            /**
-             * give a last try after exit while loop
-             */
-            retry = true;
-            break;
+          /**
+           * wait for a while, in case previous helix-participant exits unexpectedly
+           * and its live-instance still hangs around until session timeout
+           */
+          try {
+            TimeUnit.MILLISECONDS.sleep(_sessionTimeout + 5000);
+          } catch (InterruptedException ex) {
+            LOG.warn("Sleep interrupted while waiting for previous live-instance to go away.", ex);
           }
+          /**
+           * give a last try after exit while loop
+           */
+          retry = true;
+          break;
         }
       }
     } while (retry);
@@ -240,27 +302,26 @@ public class ParticipantManager {
      */
     if (retry) {
       try {
-        _zkclient.createEphemeral(liveInstancePath, liveInstance.getRecord());
-        LOG.info("LiveInstance created, path: " + liveInstancePath + ", sessionId: " + liveInstance
-            .getEphemeralOwner());
+        // Zk session ID will be validated in createEphemeral.
+        _zkclient.createEphemeral(liveInstancePath, liveInstance.getRecord(), _sessionId);
+        LOG.info("LiveInstance created, path: {}, sessionId: {}", liveInstancePath,
+            liveInstance.getEphemeralOwner());
+      } catch (ZkSessionMismatchedException e) {
+        throw new HelixException(
+            "Failed to create live instance, path: " + liveInstancePath + ". Caused by: "
+                + e.getMessage());
+      } catch (ZkNodeExistsException e) {
+        throw new HelixException("Failed to create live instance because instance: " + _instanceName
+            + " already has a live-instance in cluster: " + _clusterName + ". Path is: "
+            + liveInstancePath);
       } catch (Exception e) {
-        String errorMessage =
-            "instance: " + _instanceName + " already has a live-instance in cluster "
-                + _clusterName;
-        LOG.error(errorMessage);
-        throw new HelixException(errorMessage);
+        throw new HelixException("Failed to create live instance. " + e.getMessage());
       }
     }
 
     ParticipantHistory history = getHistory();
     history.reportOnline(_sessionId, _manager.getVersion());
     persistHistory(history);
-
-    if (!liveInstance.getEphemeralOwner().equals(liveInstance.getSessionId())) {
-      LOG.warn(
-          "Session ID {} (Deprecated) in the znode does not match the Ephemeral Owner session ID {}. Will use the Ephemeral Owner session ID.",
-          liveInstance.getSessionId(), liveInstance.getEphemeralOwner());
-    }
   }
 
   /**
@@ -275,16 +336,18 @@ public class ParticipantManager {
         continue;
       }
 
+      // Ignore if any current states in the previous folder cannot be read.
       List<CurrentState> lastCurStates =
-          _dataAccessor.getChildValues(_keyBuilder.currentStates(_instanceName, session));
+          _dataAccessor.getChildValues(_keyBuilder.currentStates(_instanceName, session), false);
 
       for (CurrentState lastCurState : lastCurStates) {
         LOG.info("Carrying over old session: " + session + ", resource: " + lastCurState.getId()
             + " to current session: " + _sessionId);
         String stateModelDefRef = lastCurState.getStateModelDefRef();
         if (stateModelDefRef == null) {
-          LOG.error("skip carry-over because previous current state doesn't have a state model definition. previous current-state: "
-              + lastCurState);
+          LOG.error(
+              "skip carry-over because previous current state doesn't have a state model definition. previous current-state: "
+                  + lastCurState);
           continue;
         }
         StateModelDefinition stateModel =

@@ -19,27 +19,30 @@ package org.apache.helix.tools.ClusterVerifiers;
  * under the License.
  */
 
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import org.I0Itec.zkclient.IZkChildListener;
-import org.I0Itec.zkclient.IZkDataListener;
-import org.apache.helix.HelixDataAccessor;
-import org.apache.helix.PropertyKey;
-import org.apache.helix.api.listeners.PreFetch;
-import org.apache.helix.manager.zk.ZKHelixDataAccessor;
-import org.apache.helix.manager.zk.ZNRecordSerializer;
-import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.ZkClient;
-import org.apache.helix.manager.zk.client.DedicatedZkClientFactory;
-import org.apache.helix.manager.zk.client.HelixZkClient;
-import org.apache.helix.model.ResourceConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+
+import org.apache.helix.HelixDataAccessor;
+import org.apache.helix.HelixException;
+import org.apache.helix.PropertyKey;
+import org.apache.helix.SystemPropertyKeys;
+import org.apache.helix.api.listeners.PreFetch;
+import org.apache.helix.manager.zk.GenericZkHelixApiBuilder;
+import org.apache.helix.manager.zk.ZKHelixDataAccessor;
+import org.apache.helix.manager.zk.ZkBaseDataAccessor;
+import org.apache.helix.msdcommon.exception.InvalidRoutingDataException;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.datamodel.serializer.ZNRecordSerializer;
+import org.apache.helix.zookeeper.impl.factory.DedicatedZkClientFactory;
+import org.apache.helix.zookeeper.zkclient.IZkChildListener;
+import org.apache.helix.zookeeper.zkclient.IZkDataListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class ZkHelixClusterVerifier
     implements IZkChildListener, IZkDataListener, HelixClusterVerifier {
@@ -47,7 +50,11 @@ public abstract class ZkHelixClusterVerifier
   protected static int DEFAULT_TIMEOUT = 300 * 1000;
   protected static int DEFAULT_PERIOD = 500;
 
-  protected final HelixZkClient _zkClient;
+  protected final RealmAwareZkClient _zkClient;
+  // true if ZkHelixClusterVerifier was instantiated with a RealmAwareZkClient, false otherwise
+  // This is used for close() to determine how ZkHelixClusterVerifier should close the underlying
+  // ZkClient
+  private final boolean _usesExternalZkClient;
   protected final String _clusterName;
   protected final HelixDataAccessor _accessor;
   protected final PropertyKey.Builder _keyBuilder;
@@ -87,22 +94,45 @@ public abstract class ZkHelixClusterVerifier
     }
   }
 
-  public ZkHelixClusterVerifier(HelixZkClient zkClient, String clusterName) {
+  protected ZkHelixClusterVerifier(RealmAwareZkClient zkClient, String clusterName) {
     if (zkClient == null || clusterName == null) {
       throw new IllegalArgumentException("requires zkClient|clusterName");
     }
     _zkClient = zkClient;
+    _usesExternalZkClient = true;
     _clusterName = clusterName;
     _accessor = new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<>(_zkClient));
     _keyBuilder = _accessor.keyBuilder();
   }
 
+  @Deprecated
   public ZkHelixClusterVerifier(String zkAddr, String clusterName) {
-    if (zkAddr == null || clusterName == null) {
-      throw new IllegalArgumentException("requires zkAddr|clusterName");
+    if (clusterName == null || clusterName.isEmpty()) {
+      throw new IllegalArgumentException("ZkHelixClusterVerifier: clusterName is null or empty!");
     }
-    _zkClient = DedicatedZkClientFactory.getInstance()
-        .buildZkClient(new HelixZkClient.ZkConnectionConfig(zkAddr));
+    // If the multi ZK config is enabled, use DedicatedZkClient on multi-realm mode
+    if (Boolean.parseBoolean(System.getProperty(SystemPropertyKeys.MULTI_ZK_ENABLED))) {
+      try {
+        RealmAwareZkClient.RealmAwareZkConnectionConfig.Builder connectionConfigBuilder =
+            new RealmAwareZkClient.RealmAwareZkConnectionConfig.Builder();
+        connectionConfigBuilder.setZkRealmShardingKey("/" + clusterName);
+        RealmAwareZkClient.RealmAwareZkClientConfig clientConfig =
+            new RealmAwareZkClient.RealmAwareZkClientConfig();
+        _zkClient = DedicatedZkClientFactory.getInstance()
+            .buildZkClient(connectionConfigBuilder.build(), clientConfig);
+      } catch (IOException | InvalidRoutingDataException | IllegalStateException e) {
+        // Note: IllegalStateException is for HttpRoutingDataReader if MSDS endpoint cannot be
+        // found
+        throw new HelixException("ZkHelixClusterVerifier: failed to create ZkClient!", e);
+      }
+    } else {
+      if (zkAddr == null) {
+        throw new IllegalArgumentException("ZkHelixClusterVerifier: ZkAddress is null or empty!");
+      }
+      _zkClient = DedicatedZkClientFactory.getInstance()
+          .buildZkClient(new HelixZkClient.ZkConnectionConfig(zkAddr));
+    }
+    _usesExternalZkClient = false;
     _zkClient.setZkSerializer(new ZNRecordSerializer());
     _clusterName = clusterName;
     _accessor = new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<>(_zkClient));
@@ -162,10 +192,6 @@ public abstract class ZkHelixClusterVerifier
       long start = System.currentTimeMillis();
       boolean success;
       do {
-        // Add a rebalance invoker in case some callbacks got buried - sometimes callbacks get
-        // processed even before changes get fully written to ZK.
-        invokeRebalance(_accessor);
-
         success = verifyState();
         if (success) {
           return true;
@@ -186,6 +212,12 @@ public abstract class ZkHelixClusterVerifier
    */
   public boolean verifyByPolling() {
     return verifyByPolling(DEFAULT_TIMEOUT, DEFAULT_PERIOD);
+  }
+
+  public void close() {
+    if (_zkClient != null && !_usesExternalZkClient) {
+      _zkClient.close();
+    }
   }
 
   protected boolean verifyByCallback(long timeout, List<ClusterVerifyTrigger> triggers) {
@@ -283,27 +315,73 @@ public abstract class ZkHelixClusterVerifier
     }
   }
 
-  public HelixZkClient getHelixZkClient() {
-    return _zkClient;
-  }
-
-  @Deprecated
-  public ZkClient getZkClient() {
-    return (ZkClient) getHelixZkClient();
-  }
-
   public String getClusterName() {
     return _clusterName;
   }
 
-  /**
-   * Invoke a cluster rebalance in case some callbacks get ignored. This is for Helix integration
-   * testing purposes only.
-   */
-  public static synchronized void invokeRebalance(HelixDataAccessor accessor) {
-    String dummyName = UUID.randomUUID().toString();
-    ResourceConfig dummyConfig = new ResourceConfig(dummyName);
-    accessor.updateProperty(accessor.keyBuilder().resourceConfig(dummyName), dummyConfig);
-    accessor.removeProperty(accessor.keyBuilder().resourceConfig(dummyName));
+  protected abstract static class Builder<B extends Builder<B>> extends GenericZkHelixApiBuilder<B> {
+    public Builder() {
+      // Note: ZkHelixClusterVerifier is a single-realm API, so RealmMode is assumed to be
+      // SINGLE-REALM
+      setRealmMode(RealmAwareZkClient.RealmMode.SINGLE_REALM);
+    }
+
+    /**
+     * Use setZkAddress() instead. Deprecated but left here for backward-compatibility.
+     * @param zkAddress
+     * @return
+     */
+    @Deprecated
+    public B setZkAddr(String zkAddress) {
+      return setZkAddress(zkAddress);
+    }
+
+    public String getClusterName() {
+      if (_realmAwareZkConnectionConfig != null && (
+          _realmAwareZkConnectionConfig.getZkRealmShardingKey() != null
+              && !_realmAwareZkConnectionConfig.getZkRealmShardingKey().isEmpty())) {
+        // Need to remove the first "/" from sharding key given
+        return _realmAwareZkConnectionConfig.getZkRealmShardingKey().substring(1);
+      }
+      throw new HelixException(
+          "Failed to get the cluster name! Either RealmAwareZkConnectionConfig is null or its sharding key is null or empty!");
+    }
+
+    protected void validate() {
+      // Validate that either ZkAddress or ZkRealmShardingKey is set
+      if (_zkAddress == null || _zkAddress.isEmpty()) {
+        if (_realmAwareZkConnectionConfig == null
+            || _realmAwareZkConnectionConfig.getZkRealmShardingKey() == null
+            || _realmAwareZkConnectionConfig.getZkRealmShardingKey().isEmpty()) {
+          throw new IllegalArgumentException(
+              "ZkHelixClusterVerifier: one of either ZkAddress or ZkRealmShardingKey must be set! ZkAddress: "
+                  + _zkAddress + " RealmAwareZkConnectionConfig: " + _realmAwareZkConnectionConfig);
+        }
+      }
+      initializeConfigsIfNull();
+    }
+
+    /**
+     * Creates a RealmAwareZkClient for ZkHelixClusterVerifiers.
+     * Note that DedicatedZkClient is used whether it's multi-realm or single-realm.
+     * @return
+     */
+    @Override
+    protected RealmAwareZkClient createZkClient(RealmAwareZkClient.RealmMode realmMode,
+        RealmAwareZkClient.RealmAwareZkConnectionConfig connectionConfig,
+        RealmAwareZkClient.RealmAwareZkClientConfig clientConfig, String zkAddress) {
+      if (Boolean.parseBoolean(System.getProperty(SystemPropertyKeys.MULTI_ZK_ENABLED))) {
+        try {
+          // First, try to create a RealmAwareZkClient that's a DedicatedZkClient
+          return DedicatedZkClientFactory.getInstance()
+              .buildZkClient(connectionConfig, clientConfig);
+        } catch (IOException | InvalidRoutingDataException | IllegalStateException e) {
+          throw new HelixException("ZkHelixClusterVerifier: failed to create ZkClient!", e);
+        }
+      } else {
+        return DedicatedZkClientFactory.getInstance()
+            .buildZkClient(new HelixZkClient.ZkConnectionConfig(zkAddress));
+      }
+    }
   }
 }

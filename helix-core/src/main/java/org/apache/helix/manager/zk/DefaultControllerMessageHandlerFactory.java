@@ -19,6 +19,8 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
+import java.util.List;
+
 import com.google.common.collect.ImmutableList;
 import org.apache.helix.HelixException;
 import org.apache.helix.NotificationContext;
@@ -30,63 +32,58 @@ import org.apache.helix.model.Message.MessageType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-
-// TODO: 2018/7/27 by zmyer
 public class DefaultControllerMessageHandlerFactory implements MultiTypeMessageHandlerFactory {
-    private static Logger _logger = LoggerFactory.getLogger(DefaultControllerMessageHandlerFactory.class);
+  private static Logger _logger = LoggerFactory.getLogger(DefaultControllerMessageHandlerFactory.class);
 
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public MessageHandler createHandler(Message message, NotificationContext context) {
-        String type = message.getMsgType();
+  @Override
+  public MessageHandler createHandler(Message message, NotificationContext context) {
+    String type = message.getMsgType();
 
-        if (!type.equals(getMessageType())) {
-            throw new HelixException("Unexpected msg type for message " + message.getMsgId() + " type:"
-                    + message.getMsgType());
-        }
+    if (!type.equals(getMessageType())) {
+      throw new HelixException("Unexpected msg type for message " + message.getMsgId() + " type:"
+          + message.getMsgType());
+    }
 
-        return new DefaultControllerMessageHandler(message, context);
+    return new DefaultControllerMessageHandler(message, context);
+  }
+
+  @Override
+  public String getMessageType() {
+    return MessageType.CONTROLLER_MSG.name();
+  }
+
+  @Override
+  public List<String> getMessageTypes() {
+    return ImmutableList.of(MessageType.CONTROLLER_MSG.name());
+  }
+
+  @Override
+  public void reset() {
+
+  }
+
+  public static class DefaultControllerMessageHandler extends MessageHandler {
+    public DefaultControllerMessageHandler(Message message, NotificationContext context) {
+      super(message, context);
     }
 
     @Override
-    public String getMessageType() {
-        return MessageType.CONTROLLER_MSG.name();
+    public HelixTaskResult handleMessage() throws InterruptedException {
+      String type = _message.getMsgType();
+      HelixTaskResult result = new HelixTaskResult();
+      if (!type.equals(MessageType.CONTROLLER_MSG.name())) {
+        throw new HelixException("Unexpected msg type for message " + _message.getMsgId()
+            + " type:" + _message.getMsgType());
+      }
+      result.getTaskResultMap().put("ControllerResult",
+          "msg " + _message.getMsgId() + " from " + _message.getMsgSrc() + " processed");
+      result.setSuccess(true);
+      return result;
     }
 
     @Override
-    public List<String> getMessageTypes() {
-        return ImmutableList.of(MessageType.CONTROLLER_MSG.name());
+    public void onError(Exception e, ErrorCode code, ErrorType type) {
+      _logger.error("Message handling pipeline get an exception. MsgId:" + _message.getMsgId(), e);
     }
-
-    @Override
-    public void reset() {
-
-    }
-
-    // TODO: 2018/7/27 by zmyer
-    public static class DefaultControllerMessageHandler extends MessageHandler {
-        public DefaultControllerMessageHandler(Message message, NotificationContext context) {
-            super(message, context);
-        }
-
-        @Override
-        public HelixTaskResult handleMessage() throws InterruptedException {
-            String type = _message.getMsgType();
-            HelixTaskResult result = new HelixTaskResult();
-            if (!type.equals(MessageType.CONTROLLER_MSG.name())) {
-                throw new HelixException("Unexpected msg type for message " + _message.getMsgId()
-                        + " type:" + _message.getMsgType());
-            }
-            result.getTaskResultMap().put("ControllerResult",
-                    "msg " + _message.getMsgId() + " from " + _message.getMsgSrc() + " processed");
-            result.setSuccess(true);
-            return result;
-        }
-
-        @Override
-        public void onError(Exception e, ErrorCode code, ErrorType type) {
-            _logger.error("Message handling pipeline get an exception. MsgId:" + _message.getMsgId(), e);
-        }
-    }
+  }
 }

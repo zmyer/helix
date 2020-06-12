@@ -19,122 +19,116 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
-import org.I0Itec.zkclient.exception.ZkMarshallingError;
-import org.I0Itec.zkclient.serialize.ZkSerializer;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-// TODO: 2018/7/25 by zmyer
+import org.apache.helix.zookeeper.zkclient.exception.ZkMarshallingError;
+import org.apache.helix.zookeeper.zkclient.serialize.ZkSerializer;
+
+
 public class ChainedPathZkSerializer implements PathBasedZkSerializer {
 
-    // TODO: 2018/7/27 by zmyer
-    public static class Builder {
-        private final ZkSerializer _defaultSerializer;
-        private List<ChainItem> _items = new ArrayList<ChainItem>();
+  public static class Builder {
+    private final ZkSerializer _defaultSerializer;
+    private List<ChainItem> _items = new ArrayList<ChainItem>();
 
-        private Builder(ZkSerializer defaultSerializer) {
-            _defaultSerializer = defaultSerializer;
-        }
-
-        /**
-         * Add a serializing strategy for the given path prefix
-         * The most specific path will triumph over a more generic (shorter)
-         * one regardless of the ordering of the calls.
-         */
-        public Builder serialize(String path, ZkSerializer withSerializer) {
-            _items.add(new ChainItem(normalize(path), withSerializer));
-            return this;
-        }
-
-        /**
-         * Builds the serializer with the given strategies and default serializer.
-         */
-        // TODO: 2018/7/27 by zmyer
-        public ChainedPathZkSerializer build() {
-            return new ChainedPathZkSerializer(_defaultSerializer, _items);
-        }
+    private Builder(ZkSerializer defaultSerializer) {
+      _defaultSerializer = defaultSerializer;
     }
 
     /**
-     * Create a builder that will use the given serializer by default
-     * if no other strategy is given to solve the path in question.
+     * Add a serializing strategy for the given path prefix
+     * The most specific path will triumph over a more generic (shorter)
+     * one regardless of the ordering of the calls.
      */
-    // TODO: 2018/7/27 by zmyer
-    public static Builder builder(ZkSerializer defaultSerializer) {
-        return new Builder(defaultSerializer);
+    public Builder serialize(String path, ZkSerializer withSerializer) {
+      _items.add(new ChainItem(normalize(path), withSerializer));
+      return this;
     }
 
-    private final List<ChainItem> _items;
-    private final ZkSerializer _defaultSerializer;
+    /**
+     * Builds the serializer with the given strategies and default serializer.
+     */
+    public ChainedPathZkSerializer build() {
+      return new ChainedPathZkSerializer(_defaultSerializer, _items);
+    }
+  }
 
-    private ChainedPathZkSerializer(ZkSerializer defaultSerializer, List<ChainItem> items) {
-        _items = items;
-        // sort by longest paths first
-        // if two items would match one would be prefix of the other
-        // and the longest must be more specific
-        Collections.sort(_items);
-        _defaultSerializer = defaultSerializer;
+  /**
+   * Create a builder that will use the given serializer by default
+   * if no other strategy is given to solve the path in question.
+   */
+  public static Builder builder(ZkSerializer defaultSerializer) {
+    return new Builder(defaultSerializer);
+  }
+
+  private final List<ChainItem> _items;
+  private final ZkSerializer _defaultSerializer;
+
+  private ChainedPathZkSerializer(ZkSerializer defaultSerializer, List<ChainItem> items) {
+    _items = items;
+    // sort by longest paths first
+    // if two items would match one would be prefix of the other
+    // and the longest must be more specific
+    Collections.sort(_items);
+    _defaultSerializer = defaultSerializer;
+  }
+
+  @Override
+  public byte[] serialize(Object data, String path) throws ZkMarshallingError {
+    for (ChainItem item : _items) {
+      if (item.matches(path))
+        return item._serializer.serialize(data);
+    }
+    return _defaultSerializer.serialize(data);
+  }
+
+  @Override
+  public Object deserialize(byte[] bytes, String path) throws ZkMarshallingError {
+    for (ChainItem item : _items) {
+      if (item.matches(path))
+        return item._serializer.deserialize(bytes);
+    }
+    return _defaultSerializer.deserialize(bytes);
+  }
+
+  private static class ChainItem implements Comparable<ChainItem> {
+    final String _path;
+    final ZkSerializer _serializer;
+
+    ChainItem(String path, ZkSerializer serializer) {
+      _path = path;
+      _serializer = serializer;
+    }
+
+    boolean matches(String path) {
+      if (_path.equals(path)) {
+        return true;
+      } else if (path.length() > _path.length()) {
+        if (path.startsWith(_path) && path.charAt(_path.length()) == '/') {
+          return true;
+        }
+      }
+      return false;
     }
 
     @Override
-    public byte[] serialize(Object data, String path) throws ZkMarshallingError {
-        for (ChainItem item : _items) {
-            if (item.matches(path)) {
-                return item._serializer.serialize(data);
-            }
-        }
-        return _defaultSerializer.serialize(data);
+    public int compareTo(ChainItem o) {
+      return o._path.length() - _path.length();
     }
+  }
 
-    @Override
-    public Object deserialize(byte[] bytes, String path) throws ZkMarshallingError {
-        for (ChainItem item : _items) {
-            if (item.matches(path)) {
-                return item._serializer.deserialize(bytes);
-            }
-        }
-        return _defaultSerializer.deserialize(bytes);
+  private static String normalize(String path) {
+    if (!path.startsWith("/")) {
+      // ensure leading slash
+      path = "/" + path;
     }
-
-    // TODO: 2018/7/27 by zmyer
-    private static class ChainItem implements Comparable<ChainItem> {
-        final String _path;
-        final ZkSerializer _serializer;
-
-        ChainItem(String path, ZkSerializer serializer) {
-            _path = path;
-            _serializer = serializer;
-        }
-
-        boolean matches(String path) {
-            if (_path.equals(path)) {
-                return true;
-            } else if (path.length() > _path.length()) {
-                if (path.startsWith(_path) && path.charAt(_path.length()) == '/') {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        @Override
-        public int compareTo(ChainItem o) {
-            return o._path.length() - _path.length();
-        }
+    if (path.endsWith("/")) {
+      // remove trailing slash
+      path = path.substring(0, path.length() - 1);
     }
-
-    private static String normalize(String path) {
-        if (!path.startsWith("/")) {
-            // ensure leading slash
-            path = "/" + path;
-        }
-        if (path.endsWith("/")) {
-            // remove trailing slash
-            path = path.substring(0, path.length() - 1);
-        }
-        return path;
-    }
+    return path;
+  }
 
 }

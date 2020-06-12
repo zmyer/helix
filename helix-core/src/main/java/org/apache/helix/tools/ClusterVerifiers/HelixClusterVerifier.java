@@ -37,4 +37,11 @@ public interface HelixClusterVerifier {
    *  @return true if succeed, false if not.
    */
   boolean verify();
+
+  /**
+   * Close the underlying metadata store connection.
+   */
+  default void close() {
+    System.out.println("Default close() was invoked! No operation was executed.");
+  }
 }

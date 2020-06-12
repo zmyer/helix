@@ -28,13 +28,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.controller.dataproviders.ResourceControllerDataProvider;
 import org.apache.helix.controller.rebalancer.AbstractRebalancer;
-import org.apache.helix.manager.zk.ZkClient;
-import org.apache.helix.manager.zk.client.HelixZkClient;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
@@ -42,6 +41,7 @@ import org.apache.helix.model.Partition;
 import org.apache.helix.model.StateModelDefinition;
 import org.apache.helix.task.TaskConstants;
 import org.apache.helix.util.HelixUtil;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,39 +55,67 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
 
   private final Set<String> _resources;
   private final Set<String> _expectLiveInstances;
+  private final boolean _isDeactivatedNodeAware;
 
+  @Deprecated
   public StrictMatchExternalViewVerifier(String zkAddr, String clusterName, Set<String> resources,
       Set<String> expectLiveInstances) {
+    this(zkAddr, clusterName, resources, expectLiveInstances, false);
+  }
+
+  @Deprecated
+  public StrictMatchExternalViewVerifier(RealmAwareZkClient zkClient, String clusterName,
+      Set<String> resources, Set<String> expectLiveInstances) {
+    this(zkClient, clusterName, resources, expectLiveInstances, false);
+  }
+
+  @Deprecated
+  private StrictMatchExternalViewVerifier(String zkAddr, String clusterName, Set<String> resources,
+      Set<String> expectLiveInstances, boolean isDeactivatedNodeAware) {
     super(zkAddr, clusterName);
     _resources = resources;
     _expectLiveInstances = expectLiveInstances;
+    _isDeactivatedNodeAware = isDeactivatedNodeAware;
   }
 
-  public StrictMatchExternalViewVerifier(HelixZkClient zkClient, String clusterName,
-      Set<String> resources, Set<String> expectLiveInstances) {
+  private StrictMatchExternalViewVerifier(RealmAwareZkClient zkClient, String clusterName,
+      Set<String> resources, Set<String> expectLiveInstances, boolean isDeactivatedNodeAware) {
     super(zkClient, clusterName);
-    _resources = resources;
-    _expectLiveInstances = expectLiveInstances;
+    _resources = resources == null ? new HashSet<>() : new HashSet<>(resources);
+    _expectLiveInstances =
+        expectLiveInstances == null ? new HashSet<>() : new HashSet<>(expectLiveInstances);
+    _isDeactivatedNodeAware = isDeactivatedNodeAware;
   }
 
-  public static class Builder {
-    private String _clusterName;
+  public static class Builder extends ZkHelixClusterVerifier.Builder<Builder> {
+    private final String _clusterName; // This is the ZK path sharding key
     private Set<String> _resources;
     private Set<String> _expectLiveInstances;
-    private String _zkAddr;
-    private HelixZkClient _zkClient;
+    private RealmAwareZkClient _zkClient;
+    // For backward compatibility, set the default isDeactivatedNodeAware to be false.
+    private boolean _isDeactivatedNodeAware = false;
 
     public StrictMatchExternalViewVerifier build() {
-      if (_clusterName == null || (_zkAddr == null && _zkClient == null)) {
-        throw new IllegalArgumentException("Cluster name or zookeeper info is missing!");
+      if (_clusterName == null) {
+        throw new IllegalArgumentException("Cluster name is missing!");
       }
 
       if (_zkClient != null) {
         return new StrictMatchExternalViewVerifier(_zkClient, _clusterName, _resources,
-            _expectLiveInstances);
+            _expectLiveInstances, _isDeactivatedNodeAware);
       }
-      return new StrictMatchExternalViewVerifier(_zkAddr, _clusterName, _resources,
-          _expectLiveInstances);
+
+      if (_realmAwareZkConnectionConfig == null || _realmAwareZkClientConfig == null) {
+        // For backward-compatibility
+        return new StrictMatchExternalViewVerifier(_zkAddress, _clusterName, _resources,
+            _expectLiveInstances, _isDeactivatedNodeAware);
+      }
+
+      validate();
+      return new StrictMatchExternalViewVerifier(
+          createZkClient(RealmAwareZkClient.RealmMode.SINGLE_REALM, _realmAwareZkConnectionConfig,
+              _realmAwareZkClientConfig, _zkAddress), _clusterName, _resources,
+          _expectLiveInstances, _isDeactivatedNodeAware);
     }
 
     public Builder(String clusterName) {
@@ -116,27 +144,33 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
       return this;
     }
 
-    public String getZkAddr() {
-      return _zkAddr;
-    }
-
-    public Builder setZkAddr(String zkAddr) {
-      _zkAddr = zkAddr;
-      return this;
-    }
-
-    public HelixZkClient getHelixZkClient() {
-      return _zkClient;
+    public String getZkAddress() {
+      return _zkAddress;
     }
 
     @Deprecated
-    public ZkClient getZkClient() {
-      return (ZkClient) getHelixZkClient();
-    }
-
-    public Builder setZkClient(HelixZkClient zkClient) {
+    public Builder setZkClient(RealmAwareZkClient zkClient) {
       _zkClient = zkClient;
       return this;
+    }
+
+    public boolean getDeactivatedNodeAwareness() {
+      return _isDeactivatedNodeAware;
+    }
+
+    public Builder setDeactivatedNodeAwareness(boolean isDeactivatedNodeAware) {
+      _isDeactivatedNodeAware = isDeactivatedNodeAware;
+      return this;
+    }
+
+    protected void validate() {
+      super.validate();
+      if (!_clusterName.equals(_realmAwareZkConnectionConfig.getZkRealmShardingKey())) {
+        throw new IllegalArgumentException(
+            "StrictMatchExternalViewVerifier: Cluster name: " + _clusterName
+                + " and ZK realm sharding key: " + _realmAwareZkConnectionConfig
+                .getZkRealmShardingKey() + " do not match!");
+      }
     }
   }
 
@@ -193,7 +227,8 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
         }
       }
 
-      Map<String, ExternalView> extViews = _accessor.getChildValuesMap(keyBuilder.externalViews());
+      Map<String, ExternalView> extViews =
+          _accessor.getChildValuesMap(keyBuilder.externalViews(), true);
       if (extViews == null) {
         extViews = Collections.emptyMap();
       }
@@ -277,17 +312,21 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
     String stateModelDefName = idealState.getStateModelDefRef();
     StateModelDefinition stateModelDef = cache.getStateModelDef(stateModelDefName);
 
-    Map<String, Map<String, String>> idealPartitionState =
-        new HashMap<String, Map<String, String>>();
-
-    Set<String> liveEnabledInstances = new HashSet<String>(cache.getLiveInstances().keySet());
-    liveEnabledInstances.removeAll(cache.getDisabledInstances());
+    Map<String, Map<String, String>> idealPartitionState = new HashMap<>();
 
     for (String partition : idealState.getPartitionSet()) {
       List<String> preferenceList = AbstractRebalancer
-          .getPreferenceList(new Partition(partition), idealState, liveEnabledInstances);
-      Map<String, String> idealMapping =
-          HelixUtil.computeIdealMapping(preferenceList, stateModelDef, liveEnabledInstances);
+          .getPreferenceList(new Partition(partition), idealState, cache.getEnabledLiveInstances());
+      Map<String, String> idealMapping;
+      if (_isDeactivatedNodeAware) {
+        idealMapping = HelixUtil
+            .computeIdealMapping(preferenceList, stateModelDef, cache.getLiveInstances().keySet(),
+                cache.getDisabledInstancesForPartition(idealState.getResourceName(), partition));
+      } else {
+        idealMapping = HelixUtil
+            .computeIdealMapping(preferenceList, stateModelDef, cache.getEnabledLiveInstances(),
+                Collections.emptySet());
+      }
       idealPartitionState.put(partition, idealMapping);
     }
 
@@ -297,7 +336,8 @@ public class StrictMatchExternalViewVerifier extends ZkHelixClusterVerifier {
   @Override
   public String toString() {
     String verifierName = getClass().getSimpleName();
-    return verifierName + "(" + _clusterName + "@" + _zkClient.getServers() + "@resources["
-        + _resources != null ? Arrays.toString(_resources.toArray()) : "" + "])";
+    return String
+        .format("%s(%s@%s@resources[%s])", verifierName, _clusterName, _zkClient.getServers(),
+            _resources != null ? Arrays.toString(_resources.toArray()) : "");
   }
 }

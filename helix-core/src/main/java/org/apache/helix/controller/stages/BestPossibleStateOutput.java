@@ -19,85 +19,83 @@ package org.apache.helix.controller.stages;
  * under the License.
  */
 
-import org.apache.helix.controller.common.PartitionStateMap;
-import org.apache.helix.controller.common.ResourcesStateMap;
-import org.apache.helix.model.Partition;
-
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.helix.controller.common.PartitionStateMap;
+import org.apache.helix.controller.common.ResourcesStateMap;
+import org.apache.helix.model.Partition;
+
 /**
  * Output for BestPossibleStateCalStage.
  */
-// TODO: 2018/7/25 by zmyer
 public class BestPossibleStateOutput extends ResourcesStateMap {
-    /* resource -> partition -> preference list */
-    private Map<String, Map<String, List<String>>> _preferenceLists;
+  /* resource -> partition -> preference list */
+  private Map<String, Map<String, List<String>>> _preferenceLists;
+  /**
+   * Deprecated, use getResourceStatesMap instead.
+   *
+   * @param resourceName
+   * @return
+   */
+  // TODO: remove this.
+  @Deprecated
+  public Map<Partition, Map<String, String>> getResourceMap(String resourceName) {
+    PartitionStateMap map = _resourceStateMap.get(resourceName);
+    if (map != null) {
+      return map.getStateMap();
+    }
+    return Collections.emptyMap();
+  }
 
-    /**
-     * Deprecated, use getResourceStatesMap instead.
-     *
-     * @param resourceName
-     * @return
-     */
-    // TODO: remove this.
-    @Deprecated
-    public Map<Partition, Map<String, String>> getResourceMap(String resourceName) {
-        PartitionStateMap map = _resourceStateMap.get(resourceName);
-        if (map != null) {
-            return map.getStateMap();
-        }
-        return Collections.emptyMap();
+  /**
+   * Deprecated, use getResourceStatesMap instead.
+   *
+   * @return
+   */
+  // TODO: remove this.
+  @Deprecated
+  public Map<String, Map<Partition, Map<String, String>>> getStateMap() {
+    Map<String, Map<Partition, Map<String, String>>> stateMap =
+        new HashMap<String, Map<Partition, Map<String, String>>>();
+    for (Map.Entry<String, PartitionStateMap> e : _resourceStateMap.entrySet()) {
+      stateMap.put(e.getKey(), e.getValue().getStateMap());
+    }
+    return stateMap;
+  }
+
+  public Map<String, Map<String, List<String>>> getPreferenceLists() {
+    return _preferenceLists;
+  }
+
+  public Map<String, List<String>> getPreferenceLists(String resource) {
+    if (_preferenceLists != null && _preferenceLists.containsKey(resource)) {
+      return _preferenceLists.get(resource);
     }
 
-    /**
-     * Deprecated, use getResourceStatesMap instead.
-     *
-     * @return
-     */
-    // TODO: remove this.
-    @Deprecated
-    public Map<String, Map<Partition, Map<String, String>>> getStateMap() {
-        Map<String, Map<Partition, Map<String, String>>> stateMap =
-                new HashMap<String, Map<Partition, Map<String, String>>>();
-        for (Map.Entry<String, PartitionStateMap> e : _resourceStateMap.entrySet()) {
-            stateMap.put(e.getKey(), e.getValue().getStateMap());
-        }
-        return stateMap;
+    return null;
+  }
+
+  public List<String> getPreferenceList(String resource, String partition) {
+    if (_preferenceLists != null && _preferenceLists.containsKey(resource) && _preferenceLists
+        .get(resource).containsKey(partition)) {
+      return _preferenceLists.get(resource).get(partition);
     }
 
-    public Map<String, Map<String, List<String>>> getPreferenceLists() {
-        return _preferenceLists;
+    return null;
+  }
+
+  public void setPreferenceList(String resource, String partition, List<String> list) {
+    if (_preferenceLists == null) {
+      _preferenceLists = new HashMap<>();
     }
-
-    public Map<String, List<String>> getPreferenceLists(String resource) {
-        if (_preferenceLists != null && _preferenceLists.containsKey(resource)) {
-            return _preferenceLists.get(resource);
-        }
-
-        return null;
+    if (!_preferenceLists.containsKey(resource)) {
+      _preferenceLists.put(resource, new HashMap<String, List<String>>());
     }
-
-    public List<String> getPreferenceList(String resource, String partition) {
-        if (_preferenceLists != null && _preferenceLists.containsKey(resource) && _preferenceLists
-                .get(resource).containsKey(partition)) {
-            return _preferenceLists.get(resource).get(partition);
-        }
-
-        return null;
-    }
-
-    public void setPreferenceList(String resource, String partition, List<String> list) {
-        if (_preferenceLists == null) {
-            _preferenceLists = new HashMap<>();
-        }
-        if (!_preferenceLists.containsKey(resource)) {
-            _preferenceLists.put(resource, new HashMap<String, List<String>>());
-        }
-        _preferenceLists.get(resource).put(partition, list);
-    }
+    _preferenceLists.get(resource).put(partition, list);
+  }
 
   public void setPreferenceLists(String resource,
       Map<String, List<String>> resourcePreferenceLists) {

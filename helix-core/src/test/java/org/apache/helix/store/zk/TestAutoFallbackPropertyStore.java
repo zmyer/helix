@@ -22,13 +22,14 @@ package org.apache.helix.store.zk;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import org.I0Itec.zkclient.DataUpdater;
+
 import org.apache.helix.AccessOption;
 import org.apache.helix.PropertyType;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.ZkUnitTestBase;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
+import org.apache.helix.zookeeper.zkclient.DataUpdater;
 import org.apache.zookeeper.data.Stat;
 import org.testng.Assert;
 import org.testng.annotations.Test;
@@ -446,7 +447,7 @@ public class TestAutoFallbackPropertyStore extends ZkUnitTestBase {
     }
 
     // test multi-get
-    List<ZNRecord> records = store.get(paths, null, 0);
+    List<ZNRecord> records = store.get(paths, null, 0, true);
     Assert.assertNotNull(records);
     Assert.assertEquals(records.size(), 10);
     for (int i = 0; i < 10; i++) {
@@ -554,7 +555,7 @@ public class TestAutoFallbackPropertyStore extends ZkUnitTestBase {
     }
 
     // test multi-get
-    List<ZNRecord> records = store.get(paths, null, 0);
+    List<ZNRecord> records = store.get(paths, null, 0, true);
     Assert.assertNotNull(records);
     Assert.assertEquals(records.size(), 20);
     for (int i = 0; i < 20; i++) {
@@ -627,7 +628,7 @@ public class TestAutoFallbackPropertyStore extends ZkUnitTestBase {
       Assert.assertTrue(childs.contains(child));
     }
 
-    List<ZNRecord> records = store.getChildren("/", null, 0);
+    List<ZNRecord> records = store.getChildren("/", null, 0, 0, 0);
     Assert.assertNotNull(records);
     Assert.assertEquals(records.size(), 20);
     for (int i = 0; i < 20; i++) {

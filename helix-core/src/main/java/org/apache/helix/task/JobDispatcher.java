@@ -19,7 +19,6 @@ package org.apache.helix.task;
  * under the License.
  */
 
-import com.google.common.collect.ImmutableMap;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -29,7 +28,9 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import org.apache.helix.ZNRecord;
+
+import com.google.common.collect.ImmutableMap;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
 import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.model.Message;

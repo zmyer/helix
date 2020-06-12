@@ -19,7 +19,6 @@ package org.apache.helix.task;
  * under the License.
  */
 
-import com.google.common.collect.Lists;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -31,12 +30,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+
+import com.google.common.collect.Lists;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixProperty;
 import org.apache.helix.PropertyKey;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.common.caches.TaskDataCache;
 import org.apache.helix.controller.LogUtil;
 import org.apache.helix.controller.dataproviders.WorkflowControllerDataProvider;
@@ -209,10 +210,16 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
   public WorkflowContext getOrInitializeWorkflowContext(String workflowName, TaskDataCache cache) {
     WorkflowContext workflowCtx = cache.getWorkflowContext(workflowName);
     if (workflowCtx == null) {
-      workflowCtx = new WorkflowContext(new ZNRecord(TaskUtil.WORKFLOW_CONTEXT_KW));
-      workflowCtx.setStartTime(System.currentTimeMillis());
-      workflowCtx.setName(workflowName);
-      LOG.debug("Workflow context is created for " + workflowName);
+      if (cache.getWorkflowConfig(workflowName) != null) {
+        workflowCtx = new WorkflowContext(new ZNRecord(TaskUtil.WORKFLOW_CONTEXT_KW));
+        workflowCtx.setStartTime(System.currentTimeMillis());
+        workflowCtx.setName(workflowName);
+        LOG.debug("Workflow context is created for " + workflowName);
+      } else {
+        // If config is null, do not initialize context
+        LOG.error("Workflow context is not created for {}. Workflow config is missing!",
+            workflowName);
+      }
     }
     return workflowCtx;
   }
@@ -484,7 +491,7 @@ public class WorkflowDispatcher extends AbstractTaskDispatcher {
     HelixDataAccessor accessor = manager.getHelixDataAccessor();
     PropertyKey.Builder keyBuilder = accessor.keyBuilder();
     Map<String, HelixProperty> resourceConfigMap =
-        accessor.getChildValuesMap(keyBuilder.resourceConfigs());
+        accessor.getChildValuesMap(keyBuilder.resourceConfigs(), true);
     if (!resourceConfigMap.containsKey(origWorkflowName)) {
       LOG.error("No such workflow named " + origWorkflowName);
       return null;

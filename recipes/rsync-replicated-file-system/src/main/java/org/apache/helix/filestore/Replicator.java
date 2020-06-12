@@ -20,7 +20,7 @@ package org.apache.helix.filestore;
  */
 
 import org.apache.helix.NotificationContext;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.spectator.RoutingTableProvider;

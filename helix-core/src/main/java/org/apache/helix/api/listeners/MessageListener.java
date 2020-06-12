@@ -19,24 +19,23 @@ package org.apache.helix.api.listeners;
  * under the License.
  */
 
+import java.util.List;
+
 import org.apache.helix.NotificationContext;
 import org.apache.helix.model.Message;
-
-import java.util.List;
 
 /**
  * Interface to implement when there is a change to messages
  */
-// TODO: 2018/7/24 by zmyer
 public interface MessageListener {
 
-    /**
-     * Invoked when message changes
-     * @param instanceName
-     * @param messages
-     * @param changeContext
-     */
-    void onMessage(String instanceName, List<Message> messages,
-            NotificationContext changeContext);
+  /**
+   * Invoked when message changes
+   * @param instanceName
+   * @param messages
+   * @param changeContext
+   */
+  void onMessage(String instanceName, List<Message> messages,
+      NotificationContext changeContext);
 
 }

@@ -19,6 +19,9 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
+import java.util.Arrays;
+import java.util.List;
+
 import com.google.common.collect.ImmutableList;
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixManager;
@@ -30,9 +33,6 @@ import org.apache.helix.model.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Arrays;
-import java.util.List;
-
 /**
  * DefaultParticipantErrorMessageHandlerFactory works on controller side.
  * When the participant detects a critical error, it will send the PARTICIPANT_ERROR_REPORT
@@ -41,102 +41,97 @@ import java.util.List;
  * and then disable the corresponding partition or the instance. More configs per resource will
  * be added to customize the controller behavior.
  */
-// TODO: 2018/7/27 by zmyer
 public class DefaultParticipantErrorMessageHandlerFactory implements MultiTypeMessageHandlerFactory {
-    public enum ActionOnError {
-        DISABLE_PARTITION,
-        DISABLE_RESOURCE,
-        DISABLE_INSTANCE
-    }
+  public enum ActionOnError {
+    DISABLE_PARTITION,
+    DISABLE_RESOURCE,
+    DISABLE_INSTANCE
+  }
 
-    public static final String ACTIONKEY = "ActionOnError";
+  public static final String ACTIONKEY = "ActionOnError";
 
-    private static Logger _logger = LoggerFactory
-            .getLogger(DefaultParticipantErrorMessageHandlerFactory.class);
+  private static Logger _logger = LoggerFactory
+      .getLogger(DefaultParticipantErrorMessageHandlerFactory.class);
+  final HelixManager _manager;
+
+  public DefaultParticipantErrorMessageHandlerFactory(HelixManager manager) {
+    _manager = manager;
+  }
+
+  public static class DefaultParticipantErrorMessageHandler extends MessageHandler {
     final HelixManager _manager;
 
-    // TODO: 2018/7/27 by zmyer
-    public DefaultParticipantErrorMessageHandlerFactory(HelixManager manager) {
-        _manager = manager;
-    }
-
-    // TODO: 2018/7/27 by zmyer
-    public static class DefaultParticipantErrorMessageHandler extends MessageHandler {
-        final HelixManager _manager;
-
-        public DefaultParticipantErrorMessageHandler(Message message, NotificationContext context,
-                HelixManager manager) {
-            super(message, context);
-            _manager = manager;
-        }
-
-        // TODO: 2018/7/27 by zmyer
-        @Override
-        public HelixTaskResult handleMessage() throws InterruptedException {
-            HelixTaskResult result = new HelixTaskResult();
-            result.setSuccess(true);
-            // TODO : consider unify this with StatsAggregationStage.executeAlertActions()
-            try {
-                ActionOnError actionOnError =
-                        ActionOnError.valueOf(_message.getRecord().getSimpleField(ACTIONKEY));
-
-                if (actionOnError == ActionOnError.DISABLE_INSTANCE) {
-                    _manager.getClusterManagmentTool().enableInstance(_manager.getClusterName(),
-                            _message.getMsgSrc(), false);
-                    _logger.info("Instance " + _message.getMsgSrc() + " disabled");
-                } else if (actionOnError == ActionOnError.DISABLE_PARTITION) {
-                    _manager.getClusterManagmentTool().enablePartition(false, _manager.getClusterName(),
-                            _message.getMsgSrc(), _message.getResourceName(),
-                            Arrays.asList(_message.getPartitionName()));
-                    _logger.info("partition " + _message.getPartitionName() + " disabled");
-                } else if (actionOnError == ActionOnError.DISABLE_RESOURCE) {
-                    // NOT IMPLEMENTED, or we can disable all partitions
-                    // _manager.getClusterManagmentTool().en(_manager.getClusterName(),
-                    // _manager.getInstanceName(),
-                    // _message.getResourceName(), _message.getPartitionName(), false);
-                    _logger.info("resource " + _message.getResourceName() + " disabled");
-                }
-            } catch (Exception e) {
-                _logger.error("", e);
-                result.setSuccess(false);
-                result.setException(e);
-            }
-            return result;
-        }
-
-        @Override
-        public void onError(Exception e, ErrorCode code, ErrorType type) {
-            _logger.error("Message handling pipeline get an exception. MsgId:" + _message.getMsgId(), e);
-        }
-
-    }
-
-    // TODO: 2018/7/27 by zmyer
-    @Override
-    public MessageHandler createHandler(Message message, NotificationContext context) {
-        String type = message.getMsgType();
-
-        if (!type.equals(getMessageType())) {
-            throw new HelixException("Unexpected msg type for message " + message.getMsgId() + " type:"
-                    + message.getMsgType());
-        }
-
-        return new DefaultParticipantErrorMessageHandler(message, context, _manager);
+    public DefaultParticipantErrorMessageHandler(Message message, NotificationContext context,
+        HelixManager manager) {
+      super(message, context);
+      _manager = manager;
     }
 
     @Override
-    public String getMessageType() {
-        return Message.MessageType.PARTICIPANT_ERROR_REPORT.name();
+    public HelixTaskResult handleMessage() throws InterruptedException {
+      HelixTaskResult result = new HelixTaskResult();
+      result.setSuccess(true);
+      // TODO : consider unify this with StatsAggregationStage.executeAlertActions()
+      try {
+        ActionOnError actionOnError =
+            ActionOnError.valueOf(_message.getRecord().getSimpleField(ACTIONKEY));
+
+        if (actionOnError == ActionOnError.DISABLE_INSTANCE) {
+          _manager.getClusterManagmentTool().enableInstance(_manager.getClusterName(),
+              _message.getMsgSrc(), false);
+          _logger.info("Instance " + _message.getMsgSrc() + " disabled");
+        } else if (actionOnError == ActionOnError.DISABLE_PARTITION) {
+          _manager.getClusterManagmentTool().enablePartition(false, _manager.getClusterName(),
+              _message.getMsgSrc(), _message.getResourceName(),
+              Arrays.asList(_message.getPartitionName()));
+          _logger.info("partition " + _message.getPartitionName() + " disabled");
+        } else if (actionOnError == ActionOnError.DISABLE_RESOURCE) {
+          // NOT IMPLEMENTED, or we can disable all partitions
+          // _manager.getClusterManagmentTool().en(_manager.getClusterName(),
+          // _manager.getInstanceName(),
+          // _message.getResourceName(), _message.getPartitionName(), false);
+          _logger.info("resource " + _message.getResourceName() + " disabled");
+        }
+      } catch (Exception e) {
+        _logger.error("", e);
+        result.setSuccess(false);
+        result.setException(e);
+      }
+      return result;
     }
 
     @Override
-    public List<String> getMessageTypes() {
-        return ImmutableList.of(Message.MessageType.PARTICIPANT_ERROR_REPORT.name());
+    public void onError(Exception e, ErrorCode code, ErrorType type) {
+      _logger.error("Message handling pipeline get an exception. MsgId:" + _message.getMsgId(), e);
     }
 
-    @Override
-    public void reset() {
+  }
 
+  @Override
+  public MessageHandler createHandler(Message message, NotificationContext context) {
+    String type = message.getMsgType();
+
+    if (!type.equals(getMessageType())) {
+      throw new HelixException("Unexpected msg type for message " + message.getMsgId() + " type:"
+          + message.getMsgType());
     }
+
+    return new DefaultParticipantErrorMessageHandler(message, context, _manager);
+  }
+
+  @Override
+  public String getMessageType() {
+    return Message.MessageType.PARTICIPANT_ERROR_REPORT.name();
+  }
+
+  @Override
+  public List<String> getMessageTypes() {
+    return ImmutableList.of(Message.MessageType.PARTICIPANT_ERROR_REPORT.name());
+  }
+
+  @Override
+  public void reset() {
+
+  }
 
 }

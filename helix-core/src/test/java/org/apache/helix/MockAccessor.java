@@ -23,15 +23,19 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import org.I0Itec.zkclient.DataUpdater;
-import org.I0Itec.zkclient.exception.ZkNoNodeException;
+
 import org.apache.helix.mock.MockBaseDataAccessor;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.MaintenanceSignal;
 import org.apache.helix.model.Message;
 import org.apache.helix.model.PauseSignal;
 import org.apache.helix.model.StateModelDefinition;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecordUpdater;
+import org.apache.helix.zookeeper.zkclient.DataUpdater;
+import org.apache.helix.zookeeper.zkclient.exception.ZkNoNodeException;
 import org.apache.zookeeper.data.Stat;
+
 
 public class MockAccessor implements HelixDataAccessor {
   private final String _clusterName;
@@ -68,11 +72,13 @@ public class MockAccessor implements HelixDataAccessor {
     return false;
   }
 
-  @Override public boolean createMaintenance(MaintenanceSignal maintenanceSignal) {
+  @Override
+  public boolean createMaintenance(MaintenanceSignal maintenanceSignal) {
     return false;
   }
 
-  @Override public boolean setProperty(PropertyKey key, HelixProperty value) {
+  @Override
+  public boolean setProperty(PropertyKey key, HelixProperty value) {
     String path = key.getPath();
     _baseDataAccessor.set(path, value.getRecord(), AccessOption.PERSISTENT);
     return true;
@@ -80,11 +86,12 @@ public class MockAccessor implements HelixDataAccessor {
 
   @Override
   public <T extends HelixProperty> boolean updateProperty(PropertyKey key, T value) {
-    return updateProperty(key, new ZNRecordUpdater(value.getRecord()) , value);
+    return updateProperty(key, new ZNRecordUpdater(value.getRecord()), value);
   }
 
   @Override
-  public <T extends HelixProperty> boolean updateProperty(PropertyKey key, DataUpdater<ZNRecord> updater, T value) {
+  public <T extends HelixProperty> boolean updateProperty(PropertyKey key,
+      DataUpdater<ZNRecord> updater, T value) {
     String path = key.getPath();
     PropertyType type = key.getType();
     if (type.updateOnlyOnExists) {
@@ -142,7 +149,8 @@ public class MockAccessor implements HelixDataAccessor {
     try {
       Stat stat = _baseDataAccessor.getStat(path, 0);
       if (stat != null) {
-        return new HelixProperty.Stat(stat.getVersion(), stat.getCtime(), stat.getMtime(), stat.getEphemeralOwner());
+        return new HelixProperty.Stat(stat.getVersion(), stat.getCtime(), stat.getMtime(),
+            stat.getEphemeralOwner());
       }
     } catch (ZkNoNodeException e) {
 
@@ -169,7 +177,8 @@ public class MockAccessor implements HelixDataAccessor {
       HelixProperty.Stat propertyStat = null;
       if (zkStat != null) {
         propertyStat =
-            new HelixProperty.Stat(zkStat.getVersion(), zkStat.getCtime(), zkStat.getMtime(), zkStat.getEphemeralOwner());
+            new HelixProperty.Stat(zkStat.getVersion(), zkStat.getCtime(), zkStat.getMtime(),
+                zkStat.getEphemeralOwner());
       }
       propertyStats.add(propertyStat);
     }
@@ -184,26 +193,30 @@ public class MockAccessor implements HelixDataAccessor {
   }
 
   @SuppressWarnings("unchecked")
-  @Override public <T extends HelixProperty> List<T> getChildValues(PropertyKey propertyKey) {
-    String path = propertyKey.getPath(); // PropertyPathConfig.getPath(type,
-    List<ZNRecord> children = _baseDataAccessor.getChildren(path, null, 0);
-    return (List<T>) HelixProperty.convertToTypedList(propertyKey.getTypeClass(), children);
-  }
-
-  @Override public <T extends HelixProperty> List<T> getChildValues(PropertyKey key,
-      boolean throwException) {
-    return getChildValues(key);
+  @Deprecated
+  @Override
+  public <T extends HelixProperty> List<T> getChildValues(PropertyKey propertyKey) {
+    return getChildValues(propertyKey, false);
   }
 
   @Override
-  public <T extends HelixProperty> Map<String, T> getChildValuesMap(PropertyKey key) {
-    List<T> list = getChildValues(key);
-    return HelixProperty.convertListToMap(list);
+  public <T extends HelixProperty> List<T> getChildValues(PropertyKey key, boolean throwException) {
+    String path = key.getPath(); // PropertyPathConfig.getPath(type,
+    List<ZNRecord> children = _baseDataAccessor.getChildren(path, null, 0, 0, 0);
+    return (List<T>) HelixProperty.convertToTypedList(key.getTypeClass(), children);
   }
 
-  @Override public <T extends HelixProperty> Map<String, T> getChildValuesMap(PropertyKey key,
+  @Deprecated
+  @Override
+  public <T extends HelixProperty> Map<String, T> getChildValuesMap(PropertyKey key) {
+    return getChildValuesMap(key, false);
+  }
+
+  @Override
+  public <T extends HelixProperty> Map<String, T> getChildValuesMap(PropertyKey key,
       boolean throwException) {
-    return getChildValuesMap(key);
+    List<T> list = getChildValues(key, throwException);
+    return HelixProperty.convertListToMap(list);
   }
 
   @Override
@@ -234,12 +247,18 @@ public class MockAccessor implements HelixDataAccessor {
   @Override
   public <T extends HelixProperty> boolean[] updateChildren(List<String> paths,
       List<DataUpdater<ZNRecord>> updaters, int options) {
-    // TODO Auto-generated method stub
-    throw new HelixException("Method not implemented!");
+    return _baseDataAccessor.updateChildren(paths, updaters, options);
+  }
+
+  @Deprecated
+  @Override
+  public <T extends HelixProperty> List<T> getProperty(List<PropertyKey> keys) {
+    return getProperty(keys, false);
   }
 
   @Override
-  public <T extends HelixProperty> List<T> getProperty(List<PropertyKey> keys) {
+  public <T extends HelixProperty> List<T> getProperty(List<PropertyKey> keys,
+      boolean throwException) {
     List<T> list = new ArrayList<T>();
     for (PropertyKey key : keys) {
       @SuppressWarnings("unchecked")
@@ -247,10 +266,5 @@ public class MockAccessor implements HelixDataAccessor {
       list.add(t);
     }
     return list;
-  }
-
-  @Override public <T extends HelixProperty> List<T> getProperty(List<PropertyKey> keys,
-      boolean throwException) {
-    return getProperty(keys);
   }
 }

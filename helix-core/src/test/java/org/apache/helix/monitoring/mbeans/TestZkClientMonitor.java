@@ -19,14 +19,18 @@ package org.apache.helix.monitoring.mbeans;
  * under the License.
  */
 
+import java.lang.management.ManagementFactory;
+import javax.management.AttributeNotFoundException;
 import javax.management.JMException;
 import javax.management.MBeanServer;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
-import java.lang.management.ManagementFactory;
 
 import org.testng.Assert;
 import org.testng.annotations.Test;
+
+import static org.apache.helix.SystemPropertyKeys.HELIX_MONITOR_TIME_WINDOW_LENGTH_MS;
+
 
 public class TestZkClientMonitor {
   private MBeanServer _beanServer = ManagementFactory.getPlatformMBeanServer();
@@ -114,7 +118,13 @@ public class TestZkClientMonitor {
     requestGauge = (long) _beanServer.getAttribute(name, "OutstandingRequestGauge");
     Assert.assertEquals(requestGauge, 0);
 
-    Assert.assertNull(_beanServer.getAttribute(name, "PendingCallbackGauge"));
+    try {
+      _beanServer.getAttribute(name, "PendingCallbackGauge");
+      Assert.fail();
+    } catch (AttributeNotFoundException ex) {
+      // Expected AttributeNotFoundException because the metric does not exist in
+      // MBean server.
+    }
 
     monitor.record("TEST/IDEALSTATES/myResource", 0, System.currentTimeMillis() - 10,
         ZkClientMonitor.AccessType.READ);
@@ -156,7 +166,8 @@ public class TestZkClientMonitor {
   @Test
   public void testCustomizedResetInterval() throws JMException, InterruptedException {
     // Use a customized reservoir sliding length of 1 ms.
-    System.setProperty("helix.monitor.slidingTimeWindow.ms", "1");
+    String timeWindowBackup = System.getProperty(HELIX_MONITOR_TIME_WINDOW_LENGTH_MS);
+    System.setProperty(HELIX_MONITOR_TIME_WINDOW_LENGTH_MS, "1");
     final String TEST_TAG = "test_tag_x";
     final String TEST_KEY = "test_key_x";
     final String TEST_INSTANCE = "test_instance_x";
@@ -180,5 +191,14 @@ public class TestZkClientMonitor {
     Assert
         .assertEquals((long) _beanServer.getAttribute(rootName, dataPropagationLatencyGaugeAttr),
             4);
+
+    // Reset the customized reservoir sliding length.
+    // Otherwise, reservoir sliding length would be kept to 1 ms for the histogram metrics
+    // in later unit tests and cause later tests' failure.
+    if (timeWindowBackup == null) {
+      System.clearProperty(HELIX_MONITOR_TIME_WINDOW_LENGTH_MS);
+    } else {
+      System.setProperty(HELIX_MONITOR_TIME_WINDOW_LENGTH_MS, timeWindowBackup);
+    }
   }
 }

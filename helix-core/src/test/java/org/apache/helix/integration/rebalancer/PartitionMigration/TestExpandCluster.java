@@ -20,6 +20,7 @@ package org.apache.helix.integration.rebalancer.PartitionMigration;
  */
 
 import java.util.Map;
+
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.IdealState;
@@ -30,14 +31,14 @@ import org.testng.annotations.Test;
 
 
 public class TestExpandCluster extends TestPartitionMigrationBase {
-
   Map<String, IdealState> _resourceMap;
-
 
   @BeforeClass
   public void beforeClass() throws Exception {
     super.beforeClass();
     _resourceMap = createTestDBs(1000000);
+    // TODO remove this sleep after fix https://github.com/apache/helix/issues/526
+    Thread.sleep(1000);
     _migrationVerifier = new MigrationStateVerifier(_resourceMap, _manager);
   }
 

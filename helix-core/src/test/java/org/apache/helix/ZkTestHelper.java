@@ -37,16 +37,18 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import org.I0Itec.zkclient.IZkChildListener;
-import org.I0Itec.zkclient.IZkDataListener;
-import org.I0Itec.zkclient.IZkStateListener;
+
 import org.apache.helix.PropertyKey.Builder;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZkBaseDataAccessor;
-import org.apache.helix.manager.zk.ZkClient;
-import org.apache.helix.manager.zk.client.HelixZkClient;
-import org.apache.helix.manager.zk.zookeeper.ZkConnection;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
 import org.apache.helix.model.ExternalView;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.zkclient.IZkChildListener;
+import org.apache.helix.zookeeper.zkclient.IZkDataListener;
+import org.apache.helix.zookeeper.zkclient.IZkStateListener;
+import org.apache.helix.zookeeper.zkclient.ZkClient;
+import org.apache.helix.zookeeper.zkclient.ZkConnection;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
@@ -56,6 +58,8 @@ import org.apache.zookeeper.ZooKeeper.States;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+
 
 public class ZkTestHelper {
   private static Logger LOG = LoggerFactory.getLogger(ZkTestHelper.class);
@@ -68,7 +72,7 @@ public class ZkTestHelper {
   /**
    * Simulate a zk state change by calling {@link ZkClient#process(WatchedEvent)} directly
    */
-  public static void simulateZkStateReconnected(HelixZkClient client) {
+  public static void simulateZkStateReconnected(RealmAwareZkClient client) {
     ZkClient zkClient = (ZkClient) client;
     WatchedEvent event = new WatchedEvent(EventType.None, KeeperState.Disconnected, null);
     zkClient.process(event);
@@ -81,14 +85,14 @@ public class ZkTestHelper {
    * @param client
    * @return
    */
-  public static String getSessionId(HelixZkClient client) {
+  public static String getSessionId(RealmAwareZkClient client) {
     ZkConnection connection = (ZkConnection) ((ZkClient) client).getConnection();
     ZooKeeper curZookeeper = connection.getZookeeper();
     return Long.toHexString(curZookeeper.getSessionId());
   }
 
   /**
-   * Expire current zk session and wait for {@link IZkStateListener#handleNewSession()} invoked
+   * Expire current zk session and wait for {@link IZkStateListener#handleNewSession(String)} invoked
    * @param client
    * @throws Exception
    */
@@ -102,14 +106,11 @@ public class ZkTestHelper {
       }
 
       @Override
-      public void handleNewSession() throws Exception {
+      public void handleNewSession(final String sessionId) throws Exception {
         // make sure zkclient is connected again
         zkClient.waitUntilConnected(HelixZkClient.DEFAULT_CONNECTION_TIMEOUT, TimeUnit.SECONDS);
 
-        ZkConnection connection = ((ZkConnection) zkClient.getConnection());
-        ZooKeeper curZookeeper = connection.getZookeeper();
-
-        LOG.info("handleNewSession. sessionId: " + Long.toHexString(curZookeeper.getSessionId()));
+        LOG.info("handleNewSession. sessionId: {}.", sessionId);
       }
 
       @Override
@@ -118,7 +119,7 @@ public class ZkTestHelper {
     };
 
     zkClient.subscribeStateChanges(listener);
-    ZkConnection connection = ((ZkConnection) zkClient.getConnection());
+    ZkConnection connection = (ZkConnection) zkClient.getConnection();
     ZooKeeper curZookeeper = connection.getZookeeper();
     LOG.info("Before expiry. sessionId: " + Long.toHexString(curZookeeper.getSessionId()));
 
@@ -146,7 +147,7 @@ public class ZkTestHelper {
     LOG.info("After expiry. sessionId: " + Long.toHexString(curZookeeper.getSessionId()));
   }
 
-  public static void expireSession(HelixZkClient client) throws Exception {
+  public static void expireSession(RealmAwareZkClient client) throws Exception {
     final CountDownLatch waitNewSession = new CountDownLatch(1);
     final ZkClient zkClient = (ZkClient) client;
 
@@ -157,14 +158,11 @@ public class ZkTestHelper {
       }
 
       @Override
-      public void handleNewSession() throws Exception {
+      public void handleNewSession(final String sessionId) throws Exception {
         // make sure zkclient is connected again
         zkClient.waitUntilConnected(HelixZkClient.DEFAULT_CONNECTION_TIMEOUT, TimeUnit.SECONDS);
 
-        ZkConnection connection = ((ZkConnection) zkClient.getConnection());
-        ZooKeeper curZookeeper = connection.getZookeeper();
-
-        LOG.info("handleNewSession. sessionId: " + Long.toHexString(curZookeeper.getSessionId()));
+        LOG.info("handleNewSession. sessionId: {}.", sessionId);
         waitNewSession.countDown();
       }
 
@@ -207,8 +205,8 @@ public class ZkTestHelper {
 
     String newSessionId = Long.toHexString(curZookeeper.getSessionId());
     LOG.info("After session expiry. sessionId: " + newSessionId + ", zk: " + curZookeeper);
-    Assert.assertNotSame(newSessionId, oldSessionId, "Fail to expire current session, zk: "
-        + curZookeeper);
+    Assert.assertFalse(newSessionId.equals(oldSessionId),
+        "Fail to expire current session, zk: " + curZookeeper);
   }
 
   /**
@@ -216,7 +214,7 @@ public class ZkTestHelper {
    * @param client
    * @throws Exception
    */
-  public static void asyncExpireSession(HelixZkClient client) throws Exception {
+  public static void asyncExpireSession(RealmAwareZkClient client) throws Exception {
     final ZkClient zkClient = (ZkClient) client;
     ZkConnection connection = ((ZkConnection) zkClient.getConnection());
     ZooKeeper curZookeeper = connection.getZookeeper();
@@ -248,7 +246,7 @@ public class ZkTestHelper {
   /*
    * stateMap: partition->instance->state
    */
-  public static boolean verifyState(HelixZkClient zkclient, String clusterName, String resourceName,
+  public static boolean verifyState(RealmAwareZkClient zkclient, String clusterName, String resourceName,
       Map<String, Map<String, String>> expectStateMap, String op) {
     boolean result = true;
     ZkBaseDataAccessor<ZNRecord> baseAccessor = new ZkBaseDataAccessor<ZNRecord>(zkclient);
@@ -275,8 +273,9 @@ public class ZkTestHelper {
             String expectState = expectInstanceStateMap.get(expectInstance);
             boolean equals = expectState.equals(actualState);
             if (op.equals("==") && !equals || op.equals("!=") && equals) {
-              System.out.println(partition + "/" + instance + " state mismatch. actual state: "
-                  + actualState + ", but expect: " + expectState + ", op: " + op);
+              System.out.println(
+                  partition + "/" + instance + " state mismatch. actual state: " + actualState
+                      + ", but expect: " + expectState + ", op: " + op);
               result = false;
             }
           }
@@ -350,8 +349,9 @@ public class ZkTestHelper {
         // so add this retry logic
         retry--;
       } finally {
-        if (sock != null)
+        if (sock != null) {
           sock.close();
+        }
       }
     }
     return listenerMap;
@@ -392,7 +392,7 @@ public class ZkTestHelper {
     }
   }
 
-  public static Map<String, List<String>> getZkWatch(HelixZkClient client) throws Exception {
+  public static Map<String, List<String>> getZkWatch(RealmAwareZkClient client) throws Exception {
     Map<String, List<String>> lists = new HashMap<String, List<String>>();
     ZkClient zkClient = (ZkClient) client;
 
@@ -425,7 +425,7 @@ public class ZkTestHelper {
     return lists;
   }
 
-  public static Map<String, Set<IZkDataListener>> getZkDataListener(HelixZkClient client)
+  public static Map<String, Set<IZkDataListener>> getZkDataListener(RealmAwareZkClient client)
       throws Exception {
     java.lang.reflect.Field field = getField(client.getClass(), "_dataListener");
     field.setAccessible(true);
@@ -434,7 +434,7 @@ public class ZkTestHelper {
     return dataListener;
   }
 
-  public static Map<String, Set<IZkChildListener>> getZkChildListener(HelixZkClient client)
+  public static Map<String, Set<IZkChildListener>> getZkChildListener(RealmAwareZkClient client)
       throws Exception {
     java.lang.reflect.Field field = getField(client.getClass(), "_childListener");
     field.setAccessible(true);
@@ -443,7 +443,7 @@ public class ZkTestHelper {
     return childListener;
   }
 
-  public static boolean tryWaitZkEventsCleaned(HelixZkClient zkclient) throws Exception {
+  public static boolean tryWaitZkEventsCleaned(RealmAwareZkClient zkclient) throws Exception {
     java.lang.reflect.Field field = getField(zkclient.getClass(), "_eventThread");
     field.setAccessible(true);
     Object eventThread = field.get(zkclient);
@@ -469,7 +469,7 @@ public class ZkTestHelper {
     return false;
   }
 
-  public static void injectExpire(HelixZkClient client)
+  public static void injectExpire(RealmAwareZkClient client)
       throws ExecutionException, InterruptedException {
     final ZkClient zkClient = (ZkClient) client;
     Future future = _executor.submit(new Runnable() {

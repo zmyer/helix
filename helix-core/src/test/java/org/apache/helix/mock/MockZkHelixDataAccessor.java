@@ -3,11 +3,12 @@ package org.apache.helix.mock;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.HelixProperty;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.PropertyType;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 
 public class MockZkHelixDataAccessor extends ZKHelixDataAccessor {
@@ -17,13 +18,10 @@ public class MockZkHelixDataAccessor extends ZKHelixDataAccessor {
     super(clusterName, null, baseDataAccessor);
   }
 
-
+  @Deprecated
   @Override
   public <T extends HelixProperty> List<T> getProperty(List<PropertyKey> keys) {
-    for (PropertyKey key : keys) {
-      addCount(key);
-    }
-    return super.getProperty(keys);
+    return getProperty(keys, false);
   }
 
   @Override
@@ -40,11 +38,10 @@ public class MockZkHelixDataAccessor extends ZKHelixDataAccessor {
     return super.getProperty(key);
   }
 
+  @Deprecated
   @Override
   public <T extends HelixProperty> Map<String, T> getChildValuesMap(PropertyKey key) {
-    Map<String, T> map = super.getChildValuesMap(key);
-    addCount(key, map.keySet().size());
-    return map;
+    return getChildValuesMap(key, false);
   }
 
   @Override

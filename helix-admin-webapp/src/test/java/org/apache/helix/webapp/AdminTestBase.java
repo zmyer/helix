@@ -19,13 +19,15 @@ package org.apache.helix.webapp;
  * under the License.
  */
 
-import org.I0Itec.zkclient.ZkServer;
+import java.util.logging.Level;
+
 import org.apache.helix.TestHelper;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
-import org.apache.helix.manager.zk.ZkClient;
+import org.apache.helix.zookeeper.impl.client.ZkClient;
 import org.apache.helix.tools.ClusterSetup;
 import org.apache.helix.util.ZKClientPool;
 import org.apache.helix.webapp.AdminTestHelper.AdminThread;
+import org.apache.helix.zookeeper.zkclient.ZkServer;
 import org.restlet.Client;
 import org.restlet.data.Protocol;
 import org.slf4j.Logger;
@@ -33,8 +35,6 @@ import org.slf4j.LoggerFactory;
 import org.testng.AssertJUnit;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeSuite;
-
-import java.util.logging.Level;
 
 public class AdminTestBase {
   private static Logger LOG = LoggerFactory.getLogger(AdminTestBase.class);

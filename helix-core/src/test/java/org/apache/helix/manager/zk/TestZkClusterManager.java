@@ -25,6 +25,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.helix.AccessOption;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixDataAccessor;
@@ -33,7 +34,7 @@ import org.apache.helix.InstanceType;
 import org.apache.helix.LiveInstanceInfoProvider;
 import org.apache.helix.PropertyKey.Builder;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.ZkTestHelper;
 import org.apache.helix.ZkUnitTestBase;
 import org.apache.helix.integration.manager.MockParticipantManager;
@@ -105,7 +106,7 @@ public class TestZkClusterManager extends ZkUnitTestBase {
     controller.getMessagingService();
     controller.getClusterManagmentTool();
 
-    controller.handleNewSession();
+    controller.handleNewSession(controller.getSessionId());
     controller.disconnect();
     AssertJUnit.assertFalse(controller.isConnected());
 

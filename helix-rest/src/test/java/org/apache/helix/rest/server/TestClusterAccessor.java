@@ -27,26 +27,33 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
+import com.google.common.collect.ImmutableMap;
+import com.sun.research.ws.wadl.HTTPMethods;
+import org.apache.helix.ConfigAccessor;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.cloud.azure.AzureConstants;
+import org.apache.helix.cloud.constants.CloudProvider;
 import org.apache.helix.controller.rebalancer.DelayedAutoRebalancer;
 import org.apache.helix.controller.rebalancer.strategy.CrushEdRebalanceStrategy;
+import org.apache.helix.controller.rebalancer.waged.WagedRebalancer;
 import org.apache.helix.integration.manager.ClusterDistributedController;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
 import org.apache.helix.manager.zk.ZKUtil;
+import org.apache.helix.model.CloudConfig;
 import org.apache.helix.model.ClusterConfig;
+import org.apache.helix.model.CustomizedStateConfig;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.MaintenanceSignal;
+import org.apache.helix.model.RESTConfig;
 import org.apache.helix.rest.common.HelixRestNamespace;
 import org.apache.helix.rest.server.auditlog.AuditLog;
 import org.apache.helix.rest.server.resources.AbstractResource;
@@ -54,15 +61,13 @@ import org.apache.helix.rest.server.resources.AbstractResource.Command;
 import org.apache.helix.rest.server.resources.helix.ClusterAccessor;
 import org.apache.helix.rest.server.util.JerseyUriRequestBuilder;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.codehaus.jackson.JsonNode;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.type.TypeReference;
 import org.testng.Assert;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableMap;
-import com.sun.research.ws.wadl.HTTPMethods;
 
 public class TestClusterAccessor extends AbstractTestClass {
 
@@ -562,6 +567,585 @@ public class TestClusterAccessor extends AbstractTestClass {
     }
     _gSetupTool.deleteCluster(ACTIVATE_NORM_CLUSTER);
     _gSetupTool.deleteCluster(ACTIVATE_SUPER_CLUSTER);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testActivateSuperCluster")
+  public void testEnableWagedRebalanceForAllResources() {
+    String cluster = "TestCluster_2";
+    post("clusters/" + cluster, ImmutableMap.of("command", "enableWagedRebalanceForAllResources"),
+        Entity.entity("", MediaType.APPLICATION_JSON_TYPE), Response.Status.OK.getStatusCode());
+    for (String resource : _gSetupTool.getClusterManagementTool().getResourcesInCluster(cluster)) {
+      IdealState idealState =
+          _gSetupTool.getClusterManagementTool().getResourceIdealState(cluster, resource);
+      Assert.assertEquals(idealState.getRebalancerClassName(), WagedRebalancer.class.getName());
+    }
+  }
+
+  @Test
+  public void testCreateRESTConfig() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String cluster = _clusters.iterator().next();
+    RESTConfig restConfigRest = new RESTConfig(cluster);
+    restConfigRest.set(RESTConfig.SimpleFields.CUSTOMIZED_HEALTH_URL, "http://*:00");
+    put("clusters/" + cluster + "/restconfig", null, Entity
+        .entity(OBJECT_MAPPER.writeValueAsString(restConfigRest.getRecord()),
+            MediaType.APPLICATION_JSON_TYPE), Response.Status.OK.getStatusCode());
+    RESTConfig restConfigZK = _configAccessor.getRESTConfig(cluster);
+    Assert.assertEquals(restConfigZK, restConfigRest,
+        "rest config from response: " + restConfigRest + " vs rest config actually: "
+            + restConfigZK);
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testCreateRESTConfig")
+  public void testUpdateRESTConfig() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String cluster = _clusters.iterator().next();
+    RESTConfig restConfigRest = new RESTConfig(cluster);
+    // Update an entry
+    restConfigRest.set(RESTConfig.SimpleFields.CUSTOMIZED_HEALTH_URL, "http://*:01");
+    Entity entity = Entity.entity(OBJECT_MAPPER.writeValueAsString(restConfigRest.getRecord()),
+        MediaType.APPLICATION_JSON_TYPE);
+    post("clusters/" + cluster + "/restconfig", ImmutableMap.of("command", Command.update.name()),
+        entity, Response.Status.OK.getStatusCode());
+    RESTConfig restConfigZK = _configAccessor.getRESTConfig(cluster);
+    Assert.assertEquals(restConfigZK, restConfigRest,
+        "rest config from response: " + restConfigRest + " vs rest config actually: "
+            + restConfigZK);
+
+    // Delete an entry
+    restConfigRest.set(RESTConfig.SimpleFields.CUSTOMIZED_HEALTH_URL, null);
+    entity = Entity.entity(OBJECT_MAPPER.writeValueAsString(restConfigRest.getRecord()),
+        MediaType.APPLICATION_JSON_TYPE);
+    post("clusters/" + cluster + "/restconfig", ImmutableMap.of("command", Command.delete.name()),
+        entity, Response.Status.OK.getStatusCode());
+    restConfigZK = _configAccessor.getRESTConfig(cluster);
+    Assert.assertEquals(restConfigZK, new RESTConfig(cluster),
+        "rest config from response: " + new RESTConfig(cluster) + " vs rest config actually: "
+            + restConfigZK);
+
+    // Update a cluster rest config that the cluster does not exist
+    String wrongClusterId = "wrong_cluster_id";
+    restConfigRest = new RESTConfig(wrongClusterId);
+    restConfigRest.set(RESTConfig.SimpleFields.CUSTOMIZED_HEALTH_URL, "http://*:01");
+    entity = Entity.entity(OBJECT_MAPPER.writeValueAsString(restConfigRest.getRecord()),
+        MediaType.APPLICATION_JSON_TYPE);
+    post("clusters/" + wrongClusterId + "/restconfig",
+        ImmutableMap.of("command", Command.update.name()), entity,
+        Response.Status.NOT_FOUND.getStatusCode());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testUpdateRESTConfig")
+  public void testDeleteRESTConfig() {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String cluster = _clusters.iterator().next();
+    delete("clusters/" + cluster + "/restconfig", Response.Status.OK.getStatusCode());
+    get("clusters/" + cluster + "/restconfig", null, Response.Status.NOT_FOUND.getStatusCode(), true);
+    delete("clusters/" + cluster + "/restconfig", Response.Status.OK.getStatusCode());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testActivateSuperCluster")
+  public void testAddClusterWithCloudConfig() throws Exception {
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+
+    ZNRecord record = new ZNRecord("testZnode");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.AZURE.name());
+
+    Map<String, String> map = new HashMap<>();
+    map.put("addCloudConfig", "true");
+
+    put("clusters/" + clusterName, map,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.CREATED.getStatusCode());
+
+    // Read CloudConfig from Zookeeper and check the content
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CloudConfig cloudConfigFromZk = _configAccessor.getCloudConfig(clusterName);
+    Assert.assertTrue(cloudConfigFromZk.isCloudEnabled());
+    Assert.assertEquals(cloudConfigFromZk.getCloudID(), "TestCloudID");
+    Assert.assertEquals(cloudConfigFromZk.getCloudProvider(), CloudProvider.AZURE.name());
+
+    ClusterConfig clusterConfigFromZk = _configAccessor.getClusterConfig(clusterName);
+    Assert.assertEquals(clusterConfigFromZk.getTopology(), AzureConstants.AZURE_TOPOLOGY);
+    Assert.assertEquals(clusterConfigFromZk.getFaultZoneType(), AzureConstants.AZURE_FAULT_ZONE_TYPE);
+    Assert.assertTrue(clusterConfigFromZk.isTopologyAwareEnabled());
+  }
+
+  @Test(dependsOnMethods = "testAddClusterWithCloudConfig")
+  public void testAddClusterWithInvalidCloudConfig() throws Exception {
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+
+    ZNRecord record = new ZNRecord("testZnode");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+
+    Map<String, String> map = new HashMap<>();
+    map.put("addCloudConfig", "true");
+
+    // Cloud Provider has not been defined. Result of this rest call will be BAD_REQUEST.
+    put("clusters/" + clusterName, map,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.BAD_REQUEST.getStatusCode());
+  }
+
+  @Test(dependsOnMethods = "testAddClusterWithInvalidCloudConfig")
+  public void testAddClusterWithInvalidCustomizedCloudConfig() throws Exception {
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+
+    ZNRecord record = new ZNRecord("testZnode");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.CUSTOMIZED.name());
+
+    Map<String, String> map = new HashMap<>();
+    map.put("addCloudConfig", "true");
+
+    // Cloud Provider is customized. CLOUD_INFO_PROCESSOR_NAME and CLOUD_INFO_SOURCE fields are
+    // required.
+    put("clusters/" + clusterName, map,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.BAD_REQUEST.getStatusCode());
+  }
+
+  @Test(dependsOnMethods = "testAddClusterWithInvalidCustomizedCloudConfig")
+  public void testAddClusterWithValidCustomizedCloudConfig() throws Exception {
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+
+    ZNRecord record = new ZNRecord("testZnode");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.CUSTOMIZED.name());
+    List<String> sourceList = new ArrayList<String>();
+    sourceList.add("TestURL");
+    record.setListField(CloudConfig.CloudConfigProperty.CLOUD_INFO_SOURCE.name(), sourceList);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_INFO_PROCESSOR_NAME.name(),
+        "TestProcessorName");
+
+    Map<String, String> map = new HashMap<>();
+    map.put("addCloudConfig", "true");
+
+    // Cloud Provider is customized. CLOUD_INFO_PROCESSOR_NAME and CLOUD_INFO_SOURCE fields are
+    // required.
+    put("clusters/" + clusterName, map,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.CREATED.getStatusCode());
+
+    // Read CloudConfig from Zookeeper and check the content
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CloudConfig cloudConfigFromZk = _configAccessor.getCloudConfig(clusterName);
+    Assert.assertTrue(cloudConfigFromZk.isCloudEnabled());
+    Assert.assertEquals(cloudConfigFromZk.getCloudID(), "TestCloudID");
+    List<String> listUrlFromZk = cloudConfigFromZk.getCloudInfoSources();
+    Assert.assertEquals(listUrlFromZk.get(0), "TestURL");
+    Assert.assertEquals(cloudConfigFromZk.getCloudInfoProcessorName(), "TestProcessorName");
+    Assert.assertEquals(cloudConfigFromZk.getCloudProvider(), CloudProvider.CUSTOMIZED.name());
+  }
+
+  @Test(dependsOnMethods = "testAddClusterWithValidCustomizedCloudConfig")
+  public void testAddClusterWithCloudConfigDisabledCloud() throws Exception {
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+
+    ZNRecord record = new ZNRecord("testZnode");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), false);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.AZURE.name());
+
+    Map<String, String> map = new HashMap<>();
+    map.put("addCloudConfig", "true");
+
+    put("clusters/" + clusterName, map,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.CREATED.getStatusCode());
+
+    // Read CloudConfig from Zookeeper and check the content
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CloudConfig cloudConfigFromZk = _configAccessor.getCloudConfig(clusterName);
+    Assert.assertFalse(cloudConfigFromZk.isCloudEnabled());
+    Assert.assertEquals(cloudConfigFromZk.getCloudID(), "TestCloudID");
+    Assert.assertEquals(cloudConfigFromZk.getCloudProvider(), CloudProvider.AZURE.name());
+  }
+
+
+  @Test(dependsOnMethods = "testAddClusterWithCloudConfigDisabledCloud")
+  public void testAddCloudConfigNonExistedCluster() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String urlBase = "clusters/TestCloud/cloudconfig/";
+    ZNRecord record = new ZNRecord("TestCloud");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.AZURE.name());
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    List<String> testList = new ArrayList<String>();
+    testList.add("TestURL");
+    record.setListField(CloudConfig.CloudConfigProperty.CLOUD_INFO_SOURCE.name(), testList);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_INFO_PROCESSOR_NAME.name(),
+        "TestProcessor");
+
+    // Not found since the cluster is not setup yet.
+    put(urlBase, null,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.NOT_FOUND.getStatusCode());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testAddCloudConfigNonExistedCluster")
+  public void testAddCloudConfig() throws Exception {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    _gSetupTool.addCluster("TestCloud", true);
+    String urlBase = "clusters/TestCloud/cloudconfig/";
+
+    ZNRecord record = new ZNRecord("TestCloud");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.CUSTOMIZED.name());
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    List<String> testList = new ArrayList<String>();
+    testList.add("TestURL");
+    record.setListField(CloudConfig.CloudConfigProperty.CLOUD_INFO_SOURCE.name(), testList);
+
+    // Bad request since Processor has not been defined.
+    put(urlBase, null,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.BAD_REQUEST.getStatusCode());
+
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_INFO_PROCESSOR_NAME.name(),
+        "TestProcessorName");
+
+    // Now response should be OK since all fields are set
+    put(urlBase, null,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    // Read CloudConfig from Zookeeper and check the content
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CloudConfig cloudConfigFromZk = _configAccessor.getCloudConfig("TestCloud");
+    Assert.assertTrue(cloudConfigFromZk.isCloudEnabled());
+    Assert.assertEquals(cloudConfigFromZk.getCloudID(), "TestCloudID");
+    List<String> listUrlFromZk = cloudConfigFromZk.getCloudInfoSources();
+    Assert.assertEquals(listUrlFromZk.get(0), "TestURL");
+    Assert.assertEquals(cloudConfigFromZk.getCloudInfoProcessorName(), "TestProcessorName");
+    Assert.assertEquals(cloudConfigFromZk.getCloudProvider(), CloudProvider.CUSTOMIZED.name());
+
+    // Now test the getCloudConfig method.
+    String body = get(urlBase, null, Response.Status.OK.getStatusCode(), true);
+
+    ZNRecord recordFromRest = new ObjectMapper().reader(ZNRecord.class).readValue(body);
+    CloudConfig cloudConfigRest = new CloudConfig.Builder(recordFromRest).build();
+    CloudConfig cloudConfigZk = _configAccessor.getCloudConfig("TestCloud");
+
+    // Check that the CloudConfig from Zk and REST get method are equal
+    Assert.assertEquals(cloudConfigRest, cloudConfigZk);
+
+    // Check the fields individually
+    Assert.assertTrue(cloudConfigRest.isCloudEnabled());
+    Assert.assertEquals(cloudConfigRest.getCloudID(), "TestCloudID");
+    Assert.assertEquals(cloudConfigRest.getCloudProvider(), CloudProvider.CUSTOMIZED.name());
+    List<String> listUrlFromRest = cloudConfigRest.getCloudInfoSources();
+    Assert.assertEquals(listUrlFromRest.get(0), "TestURL");
+    Assert.assertEquals(cloudConfigRest.getCloudInfoProcessorName(), "TestProcessorName");
+
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testAddCloudConfig")
+  public void testDeleteCloudConfig() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+
+    ZNRecord record = new ZNRecord("testZnode");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.AZURE.name());
+
+    Map<String, String> map = new HashMap<>();
+    map.put("addCloudConfig", "true");
+    put("clusters/" + clusterName, map,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.CREATED.getStatusCode());
+    // Read CloudConfig from Zookeeper and make sure it has been created
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CloudConfig cloudConfigFromZk = _configAccessor.getCloudConfig(clusterName);
+    Assert.assertNotNull(cloudConfigFromZk);
+    String urlBase = "clusters/" + clusterName + "/cloudconfig/";
+    delete(urlBase, Response.Status.OK.getStatusCode());
+
+    // Read CloudConfig from Zookeeper and make sure it has been removed
+    _configAccessor = new ConfigAccessor(ZK_ADDR);
+    cloudConfigFromZk = _configAccessor.getCloudConfig(clusterName);
+    Assert.assertNull(cloudConfigFromZk);
+
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+
+  @Test(dependsOnMethods = "testDeleteCloudConfig")
+  public void testPartialDeleteCloudConfig() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+
+
+    ZNRecord record = new ZNRecord(clusterName);
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.AZURE.name());
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_INFO_PROCESSOR_NAME.name(), "TestProcessor");
+    _gSetupTool.addCluster(clusterName, true, new CloudConfig.Builder(record).build());
+
+    String urlBase = "clusters/" + clusterName +"/cloudconfig/";
+    Map<String, String> map = new HashMap<>();
+    map.put("addCloudConfig", "true");
+    put("clusters/" + clusterName, map,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.CREATED.getStatusCode());
+    // Read CloudConfig from Zookeeper and make sure it has been created
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CloudConfig cloudConfigFromZk = _configAccessor.getCloudConfig(clusterName);
+    Assert.assertNotNull(cloudConfigFromZk);
+
+    record = new ZNRecord(clusterName);
+    Map<String, String> map1 = new HashMap<>();
+    map1.put("command",  Command.delete.name());
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(), CloudProvider.AZURE.name());
+    post(urlBase, map1, Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    // Read CloudConfig from Zookeeper and make sure it has been removed
+    _configAccessor = new ConfigAccessor(ZK_ADDR);
+    cloudConfigFromZk = _configAccessor.getCloudConfig(clusterName);
+    Assert.assertNull(cloudConfigFromZk.getCloudID());
+    Assert.assertNull(cloudConfigFromZk.getCloudProvider());
+    Assert.assertTrue(cloudConfigFromZk.isCloudEnabled());
+    Assert.assertEquals(cloudConfigFromZk.getCloudInfoProcessorName(),"TestProcessor");
+
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testPartialDeleteCloudConfig")
+  public void testUpdateCloudConfig() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    _gSetupTool.addCluster("TestCloud", true);
+    String urlBase = "clusters/TestCloud/cloudconfig/";
+
+    ZNRecord record = new ZNRecord("TestCloud");
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudID");
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.AZURE.name());
+
+    // Fist add CloudConfig to the cluster
+    put(urlBase, null,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    // Now get the Cloud Config and make sure the information is correct
+    String body = get(urlBase, null, Response.Status.OK.getStatusCode(), true);
+
+    ZNRecord recordFromRest = new ObjectMapper().reader(ZNRecord.class).readValue(body);
+    CloudConfig cloudConfigRest = new CloudConfig.Builder(recordFromRest).build();
+    Assert.assertTrue(cloudConfigRest.isCloudEnabled());
+    Assert.assertEquals(cloudConfigRest.getCloudID(), "TestCloudID");
+    Assert.assertEquals(cloudConfigRest.getCloudProvider(), CloudProvider.AZURE.name());
+
+    // Now put new information in the ZNRecord
+    record.setBooleanField(CloudConfig.CloudConfigProperty.CLOUD_ENABLED.name(), true);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_PROVIDER.name(),
+        CloudProvider.CUSTOMIZED.name());
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_ID.name(), "TestCloudIdNew");
+    List<String> testList = new ArrayList<String>();
+    testList.add("TestURL");
+    record.setListField(CloudConfig.CloudConfigProperty.CLOUD_INFO_SOURCE.name(), testList);
+    record.setSimpleField(CloudConfig.CloudConfigProperty.CLOUD_INFO_PROCESSOR_NAME.name(),
+        "TestProcessorName");
+
+    Map<String, String> map1 = new HashMap<>();
+    map1.put("command", AbstractResource.Command.update.name());
+
+    post(urlBase, map1,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    // Now get the Cloud Config and make sure the information has been updated
+    body = get(urlBase, null, Response.Status.OK.getStatusCode(), true);
+
+    recordFromRest = new ObjectMapper().reader(ZNRecord.class).readValue(body);
+    cloudConfigRest = new CloudConfig.Builder(recordFromRest).build();
+    Assert.assertTrue(cloudConfigRest.isCloudEnabled());
+    Assert.assertEquals(cloudConfigRest.getCloudID(), "TestCloudIdNew");
+    Assert.assertEquals(cloudConfigRest.getCloudProvider(), CloudProvider.CUSTOMIZED.name());
+    List<String> listUrlFromRest = cloudConfigRest.getCloudInfoSources();
+    Assert.assertEquals(listUrlFromRest.get(0), "TestURL");
+    Assert.assertEquals(cloudConfigRest.getCloudInfoProcessorName(), "TestProcessorName");
+
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testUpdateCloudConfig")
+  public void testAddCustomizedConfigNonExistedCluster() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    String urlBase = "clusters/TestCluster/customizedstateconfig/";
+    ZNRecord record = new ZNRecord("TestCustomizedStateConfig");
+    List<String> testList = new ArrayList<String>();
+    testList.add("mockType1");
+    record.setListField(
+        CustomizedStateConfig.CustomizedStateProperty.AGGREGATION_ENABLED_TYPES
+            .name(),
+        testList);
+
+    // Expecting not found response since the cluster is not setup yet.
+    put(urlBase, null,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.NOT_FOUND.getStatusCode());
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testAddCustomizedConfigNonExistedCluster")
+  public void testAddCustomizedConfig() throws Exception {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    _gSetupTool.addCluster("TestClusterCustomized", true);
+    String urlBase = "clusters/TestClusterCustomized/customized-state-config/";
+    ZNRecord record = new ZNRecord("TestCustomizedStateConfig");
+    List<String> testList = new ArrayList<String>();
+    testList.add("mockType1");
+    testList.add("mockType2");
+    record.setListField(
+        CustomizedStateConfig.CustomizedStateProperty.AGGREGATION_ENABLED_TYPES
+            .name(),
+        testList);
+
+    put(urlBase, null,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    // Read CustomizedStateConfig from Zookeeper and check the content
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CustomizedStateConfig customizedConfigFromZk = _configAccessor.getCustomizedStateConfig("TestClusterCustomized");
+    List<String> listTypesFromZk = customizedConfigFromZk.getAggregationEnabledTypes();
+    Assert.assertEquals(listTypesFromZk.get(0), "mockType1");
+    Assert.assertEquals(listTypesFromZk.get(1), "mockType2");
+
+    // Now test the getCustomizedStateConfig method.
+    String body = get(urlBase, null, Response.Status.OK.getStatusCode(), true);
+
+    ZNRecord recordFromRest = new ObjectMapper().reader(ZNRecord.class).readValue(body);
+    CustomizedStateConfig customizedConfigRest = new CustomizedStateConfig.Builder(recordFromRest).build();
+    CustomizedStateConfig customizedConfigZk = _configAccessor.getCustomizedStateConfig("TestClusterCustomized");
+
+    // Check that the CustomizedStateConfig from Zk and REST get method are equal
+    Assert.assertEquals(customizedConfigRest, customizedConfigZk);
+
+    // Check the fields individually
+    List<String> listUrlFromRest = customizedConfigRest.getAggregationEnabledTypes();
+    Assert.assertEquals(listUrlFromRest.get(0), "mockType1");
+    Assert.assertEquals(listUrlFromRest.get(1), "mockType2");
+
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testAddCustomizedConfig")
+  public void testDeleteCustomizedConfig() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    _gSetupTool.addCluster("TestClusterCustomized", true);
+    String urlBase = "clusters/TestClusterCustomized/customized-state-config/";
+    ZNRecord record = new ZNRecord("TestCustomizedStateConfig");
+    List<String> testList = new ArrayList<String>();
+    testList.add("mockType1");
+    record.setListField(
+        CustomizedStateConfig.CustomizedStateProperty.AGGREGATION_ENABLED_TYPES
+            .name(),
+        testList);
+
+    put(urlBase, null,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    // Read CustomizedStateConfig from Zookeeper and make sure it exists
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CustomizedStateConfig customizedConfigFromZk = _configAccessor.getCustomizedStateConfig("TestClusterCustomized");
+    Assert.assertNotNull(customizedConfigFromZk);
+
+    delete(urlBase, Response.Status.OK.getStatusCode());
+
+    customizedConfigFromZk = _configAccessor.getCustomizedStateConfig("TestClusterCustomized");
+    Assert.assertNull(customizedConfigFromZk);
+
+    System.out.println("End test :" + TestHelper.getTestMethodName());
+  }
+
+  @Test(dependsOnMethods = "testDeleteCustomizedConfig")
+  public void testUpdateCustomizedConfig() throws IOException {
+    System.out.println("Start test :" + TestHelper.getTestMethodName());
+    _gSetupTool.addCluster("TestClusterCustomized", true);
+    String urlBase = "clusters/TestClusterCustomized/customized-state-config/";
+    ZNRecord record = new ZNRecord("TestCustomizedStateConfig");
+    List<String> testList = new ArrayList<String>();
+    testList.add("mockType1");
+    record.setListField(
+        CustomizedStateConfig.CustomizedStateProperty.AGGREGATION_ENABLED_TYPES
+            .name(),
+        testList);
+
+    put(urlBase, null,
+        Entity.entity(OBJECT_MAPPER.writeValueAsString(record), MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    // Read CustomizedStateConfig from Zookeeper and make sure it exists
+    ConfigAccessor _configAccessor = new ConfigAccessor(ZK_ADDR);
+    CustomizedStateConfig customizedConfigFromZk = _configAccessor.getCustomizedStateConfig("TestClusterCustomized");
+    Assert.assertNotNull(customizedConfigFromZk);
+
+    // Add new type to CustomizedStateConfig
+    Map<String, String> map1 = new HashMap<>();
+    map1.put("command", Command.add.name());
+    map1.put("type", "mockType2");
+
+    post(urlBase, map1, Entity.entity("", MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    customizedConfigFromZk =
+        _configAccessor.getCustomizedStateConfig("TestClusterCustomized");
+    List<String> listTypesFromZk = customizedConfigFromZk.getAggregationEnabledTypes();
+    Assert.assertEquals(listTypesFromZk.get(0), "mockType1");
+    Assert.assertEquals(listTypesFromZk.get(1), "mockType2");
+
+    // Remove a type to CustomizedStateConfig
+    Map<String, String> map2 = new HashMap<>();
+    map2.put("command", Command.delete.name());
+    map2.put("type", "mockType1");
+
+    post(urlBase, map2, Entity.entity("", MediaType.APPLICATION_JSON_TYPE),
+        Response.Status.OK.getStatusCode());
+
+    customizedConfigFromZk =
+        _configAccessor.getCustomizedStateConfig("TestClusterCustomized");
+    listTypesFromZk = customizedConfigFromZk.getAggregationEnabledTypes();
+    Assert.assertEquals(listTypesFromZk.get(0), "mockType2");
+    Assert.assertFalse(listTypesFromZk.contains("mockType1"));
     System.out.println("End test :" + TestHelper.getTestMethodName());
   }
 

@@ -19,8 +19,6 @@ package org.apache.helix.task;
  * under the License.
  */
 
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -30,6 +28,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.helix.HelixDefinedState;
 import org.apache.helix.HelixManager;
 import org.apache.helix.common.caches.TaskDataCache;
@@ -114,6 +115,12 @@ public abstract class AbstractTaskDispatcher {
         TaskPartitionState currState = updateJobContextAndGetTaskCurrentState(currStateOutput,
             jobResource, pId, pName, instance, jobCtx, jobTgtState);
 
+        if (!instance.equals(jobCtx.getAssignedParticipant(pId))) {
+          LOG.warn(
+              "Instance {} does not match the assigned participant for pId {} in the job context. Skipping task scheduling.",
+              instance, pId);
+          continue;
+        }
         // This avoids a race condition in the case that although currentState is in the following
         // error condition, the pending message (INIT->RUNNNING) might still be present.
         // This is undesirable because this prevents JobContext from getting the proper update of
@@ -303,12 +310,14 @@ public abstract class AbstractTaskDispatcher {
 
             // Also release resources for these tasks
             assignableInstanceManager.release(instance, taskConfig, quotaType);
+            break;
           } else if (jobState == TaskState.IN_PROGRESS
               && (jobTgtState != TargetState.STOP && jobTgtState != TargetState.DELETE)) {
             // Job is in progress, implying that tasks are being re-tried, so set it to RUNNING
             paMap.put(pId,
                 new JobRebalancer.PartitionAssignment(instance, TaskPartitionState.RUNNING.name()));
             assignedPartitions.get(instance).add(pId);
+            break;
           }
         }
 
@@ -380,6 +389,7 @@ public abstract class AbstractTaskDispatcher {
       return stateFromContext == null ? TaskPartitionState.INIT : stateFromContext;
     }
     TaskPartitionState currentState = TaskPartitionState.valueOf(currentStateString);
+    jobCtx.setAssignedParticipant(pId, instance);
     jobCtx.setPartitionState(pId, currentState);
     String taskMsg = currentStateOutput.getInfo(jobResource, new Partition(pName), instance);
     if (taskMsg != null) {
@@ -824,7 +834,9 @@ public abstract class AbstractTaskDispatcher {
               break;
             }
           }
-          if (existsInNewAssignment) {
+          if (existsInNewAssignment
+              && instance.equals(jobContext.getAssignedParticipant(pId))
+          ) {
             // We need to drop this task in the old assignment
             paMap.put(pId, new PartitionAssignment(instance, TaskPartitionState.DROPPED.name()));
             jobContext.setPartitionState(pId, TaskPartitionState.DROPPED);

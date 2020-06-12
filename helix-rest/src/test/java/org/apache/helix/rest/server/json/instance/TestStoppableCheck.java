@@ -19,13 +19,12 @@ package org.apache.helix.rest.server.json.instance;
  * under the License.
  */
 
-import org.testng.Assert;
-import org.testng.annotations.Test;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.testng.Assert;
+import org.testng.annotations.Test;
 
 public class TestStoppableCheck {
 
@@ -37,7 +36,7 @@ public class TestStoppableCheck {
     ObjectMapper mapper = new ObjectMapper();
     String result = mapper.writeValueAsString(stoppableCheck);
 
-    Assert.assertEquals(result, "{\"stoppable\":false,\"failedChecks\":[\"Helix:check\"]}");
+    Assert.assertEquals(result, "{\"stoppable\":false,\"failedChecks\":[\"HELIX:check\"]}");
   }
 
   @Test
@@ -46,6 +45,6 @@ public class TestStoppableCheck {
         new StoppableCheck(ImmutableMap.of("a", true, "c", false, "b", false),
             StoppableCheck.Category.HELIX_OWN_CHECK);
     Assert.assertFalse(stoppableCheck.isStoppable());
-    Assert.assertEquals(stoppableCheck.getFailedChecks(), ImmutableList.of("Helix:b", "Helix:c"));
+    Assert.assertEquals(stoppableCheck.getFailedChecks(), ImmutableList.of("HELIX:b", "HELIX:c"));
   }
 }

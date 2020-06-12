@@ -26,10 +26,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
 import org.apache.helix.AccessOption;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyType;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.common.controllers.ControlContextProvider;
 import org.apache.helix.controller.LogUtil;
 import org.apache.helix.model.ResourceAssignment;
@@ -41,6 +41,7 @@ import org.apache.helix.task.RuntimeJobDag;
 import org.apache.helix.task.TaskConstants;
 import org.apache.helix.task.WorkflowConfig;
 import org.apache.helix.task.WorkflowContext;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -193,9 +194,9 @@ public class TaskDataCache extends AbstractDataCache {
       }
     }
 
-    List<ZNRecord> contexts = accessor.getBaseDataAccessor().get(contextPaths, null, 0);
+    List<ZNRecord> contexts = accessor.getBaseDataAccessor().get(contextPaths, null, 0, true);
     List<ZNRecord> prevAssignments =
-        accessor.getBaseDataAccessor().get(prevAssignmentPaths, null, 0);
+        accessor.getBaseDataAccessor().get(prevAssignmentPaths, null, 0, true);
 
     for (int i = 0; i < contexts.size(); i++) {
       ZNRecord context = contexts.get(i);

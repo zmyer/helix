@@ -22,10 +22,10 @@ package org.apache.helix.tools;
 import java.util.UUID;
 
 import org.apache.helix.PropertyPathBuilder;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.manager.zk.ZNRecordSerializer;
-import org.apache.helix.manager.zk.client.HelixZkClient;
-import org.apache.helix.manager.zk.client.SharedZkClientFactory;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
+import org.apache.helix.zookeeper.impl.factory.SharedZkClientFactory;
 import org.apache.helix.model.LiveInstance.LiveInstanceProperty;
 import org.apache.helix.model.Message;
 import org.apache.helix.model.Message.MessageState;
@@ -35,14 +35,18 @@ public class MessagePoster {
   public void post(String zkServer, Message message, String clusterName, String instanceName) {
     HelixZkClient client = SharedZkClientFactory.getInstance().buildZkClient(new HelixZkClient.ZkConnectionConfig(
         zkServer));
-    client.setZkSerializer(new ZNRecordSerializer());
-    String path = PropertyPathBuilder.instanceMessage(clusterName, instanceName, message.getId());
-    client.delete(path);
-    ZNRecord record = client.readData(PropertyPathBuilder.liveInstance(clusterName, instanceName));
-    message.setTgtSessionId(record.getSimpleField(LiveInstanceProperty.SESSION_ID.toString()));
-    message.setTgtName(record.getId());
-    // System.out.println(message);
-    client.createPersistent(path, message.getRecord());
+    try {
+      client.setZkSerializer(new ZNRecordSerializer());
+      String path = PropertyPathBuilder.instanceMessage(clusterName, instanceName, message.getId());
+      client.delete(path);
+      ZNRecord record = client.readData(PropertyPathBuilder.liveInstance(clusterName, instanceName));
+      message.setTgtSessionId(record.getSimpleField(LiveInstanceProperty.SESSION_ID.toString()));
+      message.setTgtName(record.getId());
+      // System.out.println(message);
+      client.createPersistent(path, message.getRecord());
+    } finally {
+      client.close();
+    }
   }
 
   public void postFaultInjectionMessage(String zkServer, String clusterName, String instanceName,

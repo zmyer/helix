@@ -20,7 +20,7 @@ package org.apache.helix.model;
  */
 
 import org.apache.helix.HelixDefinedState;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.manager.zk.DefaultSchedulerMessageHandlerFactory;
 import org.apache.helix.model.builder.StateTransitionTableBuilder;
 

@@ -22,11 +22,11 @@ package org.apache.helix.integration.messaging;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.I0Itec.zkclient.IZkChildListener;
+
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
@@ -39,6 +39,7 @@ import org.apache.helix.model.builder.ConstraintItemBuilder;
 import org.apache.helix.tools.ClusterStateVerifier;
 import org.apache.helix.tools.ClusterStateVerifier.BestPossAndExtViewZkVerifier;
 import org.apache.helix.tools.ClusterStateVerifier.MasterNbInExtViewVerifier;
+import org.apache.helix.zookeeper.zkclient.IZkChildListener;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -93,7 +94,7 @@ public class TestMessageThrottle extends ZkTestBase {
             throws Exception {
           if (currentChilds != null && currentChilds.size() > 1) {
             List<ZNRecord> records =
-                accessor.getBaseDataAccessor().getChildren(parentPath, null, 0);
+                accessor.getBaseDataAccessor().getChildren(parentPath, null, 0, 0, 0);
             int transitionMsgCount = 0;
             for (ZNRecord record : records) {
               Message msg = new Message(record);

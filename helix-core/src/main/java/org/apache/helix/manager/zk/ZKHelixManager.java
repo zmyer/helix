@@ -19,7 +19,7 @@ package org.apache.helix.manager.zk;
  * under the License.
  */
 
-import com.google.common.collect.Sets;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -30,8 +30,9 @@ import java.util.Set;
 import java.util.Timer;
 import java.util.concurrent.TimeUnit;
 import javax.management.JMException;
-import org.I0Itec.zkclient.IZkStateListener;
-import org.I0Itec.zkclient.exception.ZkInterruptedException;
+
+import com.google.common.collect.Sets;
+
 import org.apache.helix.BaseDataAccessor;
 import org.apache.helix.ClusterMessagingService;
 import org.apache.helix.ConfigAccessor;
@@ -41,6 +42,8 @@ import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.HelixException;
 import org.apache.helix.HelixManager;
 import org.apache.helix.HelixManagerProperties;
+import org.apache.helix.HelixManagerProperty;
+import org.apache.helix.HelixPropertyFactory;
 import org.apache.helix.HelixTimerTask;
 import org.apache.helix.InstanceType;
 import org.apache.helix.LiveInstanceInfoProvider;
@@ -50,11 +53,15 @@ import org.apache.helix.PropertyKey.Builder;
 import org.apache.helix.PropertyPathBuilder;
 import org.apache.helix.PropertyType;
 import org.apache.helix.SystemPropertyKeys;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.api.listeners.ClusterConfigChangeListener;
 import org.apache.helix.api.listeners.ConfigChangeListener;
 import org.apache.helix.api.listeners.ControllerChangeListener;
 import org.apache.helix.api.listeners.CurrentStateChangeListener;
+import org.apache.helix.api.listeners.CustomizedStateChangeListener;
+import org.apache.helix.api.listeners.CustomizedStateConfigChangeListener;
+import org.apache.helix.api.listeners.CustomizedStateRootChangeListener;
+import org.apache.helix.api.listeners.CustomizedViewChangeListener;
+import org.apache.helix.api.listeners.CustomizedViewRootChangeListener;
 import org.apache.helix.api.listeners.ExternalViewChangeListener;
 import org.apache.helix.api.listeners.IdealStateChangeListener;
 import org.apache.helix.api.listeners.InstanceConfigChangeListener;
@@ -67,9 +74,6 @@ import org.apache.helix.controller.pipeline.Pipeline;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollector;
 import org.apache.helix.healthcheck.ParticipantHealthReportCollectorImpl;
 import org.apache.helix.healthcheck.ParticipantHealthReportTask;
-import org.apache.helix.manager.zk.client.DedicatedZkClientFactory;
-import org.apache.helix.manager.zk.client.HelixZkClient;
-import org.apache.helix.manager.zk.client.SharedZkClientFactory;
 import org.apache.helix.messaging.DefaultMessagingService;
 import org.apache.helix.model.BuiltInStateModelDefinitions;
 import org.apache.helix.model.HelixConfigScope.ConfigScopeProperty;
@@ -77,15 +81,26 @@ import org.apache.helix.model.LiveInstance;
 import org.apache.helix.monitoring.ZKPathDataDumpTask;
 import org.apache.helix.monitoring.mbeans.HelixCallbackMonitor;
 import org.apache.helix.monitoring.mbeans.MonitorLevel;
+import org.apache.helix.msdcommon.exception.InvalidRoutingDataException;
 import org.apache.helix.participant.HelixStateMachineEngine;
 import org.apache.helix.participant.StateMachineEngine;
 import org.apache.helix.store.zk.AutoFallbackPropertyStore;
 import org.apache.helix.store.zk.ZkHelixPropertyStore;
 import org.apache.helix.util.HelixUtil;
+import org.apache.helix.zookeeper.api.client.HelixZkClient;
+import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
+import org.apache.helix.zookeeper.impl.factory.DedicatedZkClientFactory;
+import org.apache.helix.zookeeper.impl.factory.HelixZkClientFactory;
+import org.apache.helix.zookeeper.impl.factory.SharedZkClientFactory;
+import org.apache.helix.zookeeper.zkclient.IZkStateListener;
+import org.apache.helix.zookeeper.zkclient.exception.ZkInterruptedException;
+import org.apache.helix.zookeeper.zkclient.serialize.PathBasedZkSerializer;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 public class ZKHelixManager implements HelixManager, IZkStateListener {
   private static Logger LOG = LoggerFactory.getLogger(ZKHelixManager.class);
@@ -105,6 +120,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   private final List<PreConnectCallback> _preConnectCallbacks;
   protected final List<CallbackHandler> _handlers;
   private final HelixManagerProperties _properties;
+  private final HelixManagerProperty _helixManagerProperty;
   private final HelixManagerStateListener _stateListener;
 
   /**
@@ -113,7 +129,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   private final String _version;
   private int _reportLatency;
 
-  protected HelixZkClient _zkclient = null;
+  protected RealmAwareZkClient _zkclient;
   private final DefaultMessagingService _messagingService;
   private Map<ChangeType, HelixCallbackMonitor> _callbackMonitors;
 
@@ -158,8 +174,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   /**
    * status dump timer-task
    */
-  static class StatusDumpTask extends HelixTimerTask {
-    Timer _timer = null;
+  protected static class StatusDumpTask extends HelixTimerTask {
     final HelixManager helixController;
 
     public StatusDumpTask(HelixManager helixController) {
@@ -201,9 +216,16 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
 
   public ZKHelixManager(String clusterName, String instanceName, InstanceType instanceType,
       String zkAddress, HelixManagerStateListener stateListener) {
+    this(clusterName, instanceName, instanceType, zkAddress, stateListener,
+        HelixPropertyFactory.getInstance().getHelixManagerProperty(zkAddress, clusterName));
+  }
 
-    LOG.info(
-        "Create a zk-based cluster manager. zkSvr: " + zkAddress + ", clusterName: " + clusterName + ", instanceName: " + instanceName + ", type: " + instanceType);
+  public ZKHelixManager(String clusterName, String instanceName, InstanceType instanceType,
+      String zkAddress, HelixManagerStateListener stateListener,
+      HelixManagerProperty helixManagerProperty) {
+
+    LOG.info("Create a zk-based cluster manager. zkSvr: " + zkAddress + ", clusterName: "
+        + clusterName + ", instanceName: " + instanceName + ", type: " + instanceType);
 
     _zkAddress = zkAddress;
     _clusterName = clusterName;
@@ -243,6 +265,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     }
 
     _stateListener = stateListener;
+    _helixManagerProperty = helixManagerProperty;
 
     /**
      * use system property if available
@@ -468,6 +491,15 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   }
 
   @Override
+  public void addCustomizedStateConfigChangeListener(
+      CustomizedStateConfigChangeListener listener) throws Exception {
+    addListener(listener, new Builder(_clusterName).customizedStateConfig(),
+        ChangeType.CUSTOMIZED_STATE_CONFIG, new EventType[] {
+            EventType.NodeDataChanged
+        });
+  }
+
+  @Override
   public void addClusterfigChangeListener(ClusterConfigChangeListener listener) throws Exception{
     addListener(listener, new Builder(_clusterName).clusterConfig(), ChangeType.CLUSTER_CONFIG,
         new EventType[] { EventType.NodeDataChanged
@@ -557,9 +589,41 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   }
 
   @Override
+  public void addCustomizedStateRootChangeListener(CustomizedStateRootChangeListener listener,
+      String instanceName) throws Exception {
+    addListener(listener, new Builder(_clusterName).customizedStatesRoot(instanceName),
+        ChangeType.CUSTOMIZED_STATE_ROOT, new EventType[]{EventType.NodeChildrenChanged});
+  }
+
+  @Override
+  public void addCustomizedStateChangeListener(CustomizedStateChangeListener listener,
+      String instanceName, String customizedStateType) throws Exception {
+    addListener(listener,
+        new Builder(_clusterName).customizedStates(instanceName, customizedStateType),
+        ChangeType.CUSTOMIZED_STATE, new EventType[]{EventType.NodeChildrenChanged});
+  }
+
+  @Override
   public void addExternalViewChangeListener(ExternalViewChangeListener listener) throws Exception {
     addListener(listener, new Builder(_clusterName).externalViews(), ChangeType.EXTERNAL_VIEW,
         new EventType[] { EventType.NodeChildrenChanged });
+  }
+
+  @Override
+  public void addCustomizedViewChangeListener(CustomizedViewChangeListener listener, String customizedStateType)
+      throws Exception {
+    addListener(listener, new Builder(_clusterName).customizedView(customizedStateType),
+        ChangeType.CUSTOMIZED_VIEW, new EventType[] {
+            EventType.NodeChildrenChanged
+        });
+  }
+
+  @Override
+  public void addCustomizedViewRootChangeListener(CustomizedViewRootChangeListener listener) throws Exception {
+    addListener(listener, new Builder(_clusterName).customizedViews(),
+        ChangeType.CUSTOMIZED_VIEW_ROOT, new EventType[] {
+            EventType.NodeChildrenChanged
+        });
   }
 
   @Override
@@ -649,30 +713,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   }
 
   void createClient() throws Exception {
-    PathBasedZkSerializer zkSerializer =
-        ChainedPathZkSerializer.builder(new ZNRecordSerializer()).build();
-
-    HelixZkClient.ZkConnectionConfig connectionConfig = new HelixZkClient.ZkConnectionConfig(_zkAddress);
-    connectionConfig.setSessionTimeout(_sessionTimeout);
-    HelixZkClient.ZkClientConfig clientConfig = new HelixZkClient.ZkClientConfig();
-    clientConfig
-        .setZkSerializer(zkSerializer)
-        .setConnectInitTimeout(_connectionInitTimeout)
-        .setMonitorType(_instanceType.name())
-        .setMonitorKey(_clusterName)
-        .setMonitorInstanceName(_instanceName)
-        .setMonitorRootPathOnly(isMonitorRootPathOnly());
-
-    HelixZkClient newClient;
-    switch (_instanceType) {
-    case ADMINISTRATOR:
-      newClient = SharedZkClientFactory.getInstance().buildZkClient(connectionConfig, clientConfig);
-      break;
-    default:
-      newClient = DedicatedZkClientFactory
-          .getInstance().buildZkClient(connectionConfig, clientConfig);
-      break;
-    }
+    final RealmAwareZkClient newClient = createSingleRealmZkClient();
 
     synchronized (this) {
       if (_zkclient != null) {
@@ -696,9 +737,15 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     int retryCount = 0;
     while (retryCount < 3) {
       try {
-        _zkclient.waitUntilConnected(_connectionInitTimeout, TimeUnit.MILLISECONDS);
+        final long sessionId =
+            _zkclient.waitForEstablishedSession(_connectionInitTimeout, TimeUnit.MILLISECONDS);
         handleStateChanged(KeeperState.SyncConnected);
-        handleNewSession();
+        /*
+         * This listener is subscribed after SyncConnected and firing new session events,
+         * which means this listener has not yet handled new session, so we have to handle new
+         * session here just for this listener.
+         */
+        handleNewSession(ZKUtil.toHexSessionId(sessionId));
         break;
       } catch (HelixException e) {
         LOG.error("fail to createClient.", e);
@@ -821,6 +868,8 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   @Override
   public String getSessionId() {
     checkConnected(_waitForConnectedTimeout);
+    // TODO: session id should be updated after zk client is connected.
+    // Otherwise, this session id might be an expired one.
     return _sessionId;
   }
 
@@ -978,7 +1027,7 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
         continue;
       }
 
-      _sessionId = Long.toHexString(_zkclient.getSessionId());
+      _sessionId = ZKUtil.toHexSessionId(_zkclient.getSessionId());
 
       /**
        * at the time we read session-id, zkconnection might be lost again
@@ -993,7 +1042,10 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   void initHandlers(List<CallbackHandler> handlers) {
     synchronized (this) {
       if (handlers != null) {
-        for (CallbackHandler handler : handlers) {
+        // get a copy of the list and iterate over the copy list
+        // in case handler.init() modifies the original handler list
+        List<CallbackHandler> tmpHandlers = new ArrayList<>(handlers);
+        for (CallbackHandler handler : tmpHandlers) {
           handler.init();
           LOG.info("init handler: " + handler.getPath() + ", " + handler.getListener());
         }
@@ -1005,10 +1057,8 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     synchronized (this) {
       if (_handlers != null) {
         // get a copy of the list and iterate over the copy list
-        // in case handler.reset() modify the original handler list
-        List<CallbackHandler> tmpHandlers = new ArrayList<>();
-        tmpHandlers.addAll(_handlers);
-
+        // in case handler.reset() modifies the original handler list
+        List<CallbackHandler> tmpHandlers = new ArrayList<>(_handlers);
         for (CallbackHandler handler : tmpHandlers) {
           handler.reset(isShutdown);
           LOG.info("reset handler: " + handler.getPath() + ", " + handler.getListener());
@@ -1096,11 +1146,79 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     }
   }
 
-  @Override
+  /**
+   * Called after zookeeper session has expired and a new session has been established. This method
+   * may cause session race condition when creating ephemeral nodes. Internally, this method calls
+   * {@link #handleNewSession(String)} with a null value as the sessionId parameter, which results
+   * in later creating the ephemeral node in the session of the latest zk connection.
+   * But please note that the session of the latest zk connection might not be the expected session.
+   * This is the session race condition issue.
+   *
+   * To avoid the race condition issue, please use {@link #handleNewSession(String)}.
+   *
+   * @deprecated
+   * This method is deprecated, because it may cause session race condition when creating ephemeral
+   * nodes. It is kept for backward compatibility in case a user class extends this class.
+   *
+   * Please use {@link #handleNewSession(String)} instead, which takes care of race condition.
+   *
+   * @throws Exception If any error occurs.
+   */
+  @Deprecated
   public void handleNewSession() throws Exception {
-    LOG.info(
-        "Handle new session, instance: " + _instanceName + ", type: " + _instanceType);
+    handleNewSession(null);
+  }
+
+  /**
+   * Called after the zookeeper session has expired and a new session has been established. This
+   * methods handles a new session with its session id passed in. Before handling, this method
+   * waits until zk client is connected to zk service and gets a non-zero session id(current actual
+   * session id). If the passed-in(expected) session id does not match current actual session id,
+   * the expected session id is expired and will NOT be handled.
+   *
+   * @param sessionId the new session's id. The ephemeral nodes are expected to be created in this
+   *                  session. If this session id is expired, ephemeral nodes should not be created.
+   * @throws Exception if any error occurs during handling new session
+   */
+  @Override
+  public void handleNewSession(String sessionId) throws Exception {
+    /*
+     * TODO: after removing I0ItecIZkStateListenerImpl, null session should be checked and
+     *  discarded.
+     * Null session is still a special case here, which is treated as non-session aware operation.
+     * This special case could still potentially cause race condition, so null session should NOT
+     * be acceptable, once I0ItecIZkStateListenerImpl is removed. Currently this special case
+     * is kept for backward compatibility.
+     */
+
+    // Wait until we get a non-zero session id. Otherwise, getSessionId() might be null.
     waitUntilConnected();
+
+    /*
+     * Filter out stale sessions. If a session id is not null and not the same as current session
+     * id, this session is expired. With this filtering, expired sessions are NOT handled,
+     * so performance is expected to improve.
+     */
+    if (sessionId != null && !getSessionId().equals(sessionId)) {
+      LOG.warn("Session is expired and not handled. Expected: {}. Actual: {}.", sessionId,
+          getSessionId());
+      return;
+    }
+
+    /*
+     * When a null session id is passed in, we will take current session's id for following
+     * operations. Please note that current session might not be the one we expect to handle,
+     * because the one we expect might be already expired when the zk event is waiting in the
+     * event queue. Why we use current session here is for backward compatibility with the old
+     * method handleNewSession().
+     */
+    if (sessionId == null) {
+      sessionId = getSessionId();
+      LOG.debug("Session id: <null> is passed in. Current session id: {} will be used.", sessionId);
+    }
+
+    LOG.info("Handle new session, instance: {}, type: {}, session id: {}.", _instanceName,
+        _instanceType,  sessionId);
 
     /**
      * stop all timer tasks, reset all handlers, make sure cleanup completed for previous session
@@ -1128,13 +1246,13 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
 
     switch (_instanceType) {
     case PARTICIPANT:
-      handleNewSessionAsParticipant();
+      handleNewSessionAsParticipant(sessionId);
       break;
     case CONTROLLER:
       handleNewSessionAsController();
       break;
     case CONTROLLER_PARTICIPANT:
-      handleNewSessionAsParticipant();
+      handleNewSessionAsParticipant(sessionId);
       handleNewSessionAsController();
       break;
     case ADMINISTRATOR:
@@ -1161,16 +1279,18 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
     }
   }
 
-  void handleNewSessionAsParticipant() throws Exception {
+  void handleNewSessionAsParticipant(final String sessionId) throws Exception {
     if (_participantManager != null) {
       _participantManager.reset();
     }
     _participantManager =
         new ParticipantManager(this, _zkclient, _sessionTimeout, _liveInstanceInfoProvider,
-            _preConnectCallbacks);
+            _preConnectCallbacks, sessionId, _helixManagerProperty);
     _participantManager.handleNewSession();
   }
 
+  // TODO: pass in session id and make this method session aware to avoid potential session race
+  //  condition.
   void handleNewSessionAsController() {
     if (_leaderElectionHandler != null) {
       _leaderElectionHandler.init();
@@ -1202,5 +1322,76 @@ public class ZKHelixManager implements HelixManager, IZkStateListener {
   @Override
   public Long getSessionStartTime() {
     return _sessionStartTime;
+  }
+
+  /*
+   * Prepares connection config and client config based on the internal parameters given to
+   * HelixManager in order to create a ZkClient instance to use. Note that a shared ZkClient
+   * instance will be created if connecting as an ADMINISTRATOR to minimize the cost of creating
+   * ZkConnections.
+   */
+  private RealmAwareZkClient createSingleRealmZkClient() {
+    final String shardingKey = buildShardingKey();
+    PathBasedZkSerializer zkSerializer =
+        ChainedPathZkSerializer.builder(new ZNRecordSerializer()).build();
+
+    RealmAwareZkClient.RealmAwareZkConnectionConfig connectionConfig =
+        new RealmAwareZkClient.RealmAwareZkConnectionConfig.Builder()
+            .setRealmMode(RealmAwareZkClient.RealmMode.SINGLE_REALM)
+            .setZkRealmShardingKey(shardingKey)
+            .setSessionTimeout(_sessionTimeout).build();
+
+    RealmAwareZkClient.RealmAwareZkClientConfig clientConfig =
+        new RealmAwareZkClient.RealmAwareZkClientConfig();
+
+    clientConfig.setZkSerializer(zkSerializer)
+        .setConnectInitTimeout(_connectionInitTimeout)
+        .setMonitorType(_instanceType.name())
+        .setMonitorKey(_clusterName)
+        .setMonitorInstanceName(_instanceName)
+        .setMonitorRootPathOnly(isMonitorRootPathOnly());
+
+    if (_instanceType == InstanceType.ADMINISTRATOR) {
+      return resolveZkClient(SharedZkClientFactory.getInstance(), connectionConfig,
+          clientConfig);
+    }
+
+    return resolveZkClient(DedicatedZkClientFactory.getInstance(), connectionConfig,
+        clientConfig);
+  }
+
+  /*
+   * Resolves what type of ZkClient this HelixManager should use based on whether MULTI_ZK_ENABLED
+   * System config is set or not. Two types of ZkClients are available:
+   * 1) If MULTI_ZK_ENABLED is set to true, we create a dedicated RealmAwareZkClient
+   * that provides full ZkClient functionalities and connects to the correct ZK by querying
+   * MetadataStoreDirectoryService.
+   * 2) Otherwise, we create a dedicated HelixZkClient which plainly connects to
+   * the ZK address given.
+   */
+  private RealmAwareZkClient resolveZkClient(HelixZkClientFactory zkClientFactory,
+      RealmAwareZkClient.RealmAwareZkConnectionConfig connectionConfig,
+      RealmAwareZkClient.RealmAwareZkClientConfig clientConfig) {
+    if (Boolean.getBoolean(SystemPropertyKeys.MULTI_ZK_ENABLED)) {
+      try {
+        // Create realm-aware ZkClient.
+        return zkClientFactory.buildZkClient(connectionConfig, clientConfig);
+      } catch (IllegalArgumentException | IOException | InvalidRoutingDataException e) {
+        throw new HelixException("Not able to connect on realm-aware mode for sharding key: "
+            + connectionConfig.getZkRealmShardingKey(), e);
+      }
+    }
+
+    // If multi-zk mode is not enabled, create HelixZkClient with the provided zk address.
+    HelixZkClient.ZkClientConfig helixZkClientConfig = clientConfig.createHelixZkClientConfig();
+    HelixZkClient.ZkConnectionConfig helixZkConnectionConfig =
+        new HelixZkClient.ZkConnectionConfig(_zkAddress)
+            .setSessionTimeout(connectionConfig.getSessionTimeout());
+
+    return zkClientFactory.buildZkClient(helixZkConnectionConfig, helixZkClientConfig);
+  }
+
+  private String buildShardingKey() {
+    return _clusterName.charAt(0) == '/' ? _clusterName : "/" + _clusterName;
   }
 }

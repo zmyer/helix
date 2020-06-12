@@ -21,6 +21,7 @@ package org.apache.helix.common.caches;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
 import org.apache.helix.HelixConstants;
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
@@ -106,13 +107,14 @@ public class BasicClusterDataCache implements ControlContextProvider {
     long startTime = System.currentTimeMillis();
 
     if (_propertyDataChangedMap.get(HelixConstants.ChangeType.EXTERNAL_VIEW)) {
-      _propertyDataChangedMap.put(HelixConstants.ChangeType.EXTERNAL_VIEW, Boolean.valueOf(false));
+      _propertyDataChangedMap.put(HelixConstants.ChangeType.EXTERNAL_VIEW, false);
       _externalViewCache.refresh(accessor);
     }
 
     if (_propertyDataChangedMap.get(HelixConstants.ChangeType.LIVE_INSTANCE)) {
       long start = System.currentTimeMillis();
-      _propertyDataChangedMap.put(HelixConstants.ChangeType.LIVE_INSTANCE, Boolean.valueOf(false));
+      _propertyDataChangedMap.put(HelixConstants.ChangeType.LIVE_INSTANCE, false);
+      _propertyDataChangedMap.put(HelixConstants.ChangeType.CURRENT_STATE, true);
       _liveInstancePropertyCache.refresh(accessor);
       LOG.info("Reload LiveInstances: " + _liveInstancePropertyCache.getPropertyMap().keySet()
           + ". Takes " + (System.currentTimeMillis() - start) + " ms");
@@ -120,8 +122,7 @@ public class BasicClusterDataCache implements ControlContextProvider {
 
     if (_propertyDataChangedMap.get(HelixConstants.ChangeType.INSTANCE_CONFIG)) {
       long start = System.currentTimeMillis();
-      _propertyDataChangedMap.put(HelixConstants.ChangeType.INSTANCE_CONFIG,
-          Boolean.valueOf(false));
+      _propertyDataChangedMap.put(HelixConstants.ChangeType.INSTANCE_CONFIG, false);
       _instanceConfigPropertyCache.refresh(accessor);
       LOG.info("Reload InstanceConfig: " + _instanceConfigPropertyCache.getPropertyMap().keySet()
           + ". Takes " + (System.currentTimeMillis() - start) + " ms");
@@ -182,7 +183,7 @@ public class BasicClusterDataCache implements ControlContextProvider {
    * @param changeType
    */
   public void notifyDataChange(HelixConstants.ChangeType changeType) {
-    _propertyDataChangedMap.put(changeType, Boolean.valueOf(true));
+    _propertyDataChangedMap.put(changeType, true);
   }
 
   /**

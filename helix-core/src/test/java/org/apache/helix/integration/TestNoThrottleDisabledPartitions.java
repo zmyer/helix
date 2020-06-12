@@ -22,10 +22,10 @@ package org.apache.helix.integration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.helix.HelixDataAccessor;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.TestHelper;
-import org.apache.helix.ZNRecord;
 import org.apache.helix.api.config.StateTransitionThrottleConfig;
 import org.apache.helix.common.ZkTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
@@ -39,6 +39,7 @@ import org.apache.helix.model.InstanceConfig;
 import org.apache.helix.model.LiveInstance;
 import org.apache.helix.model.builder.FullAutoModeISBuilder;
 import org.apache.helix.tools.ClusterVerifiers.BestPossibleExternalViewVerifier;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
@@ -89,7 +90,8 @@ public class TestNoThrottleDisabledPartitions extends ZkTestBase {
     if (liveInstance != null) {
       String sessionId = liveInstance.getEphemeralOwner();
       List<CurrentState> currentStates = _accessor.getChildValues(
-          _accessor.keyBuilder().currentStates(_participants[0].getInstanceName(), sessionId));
+          _accessor.keyBuilder().currentStates(_participants[0].getInstanceName(), sessionId),
+          true);
       for (CurrentState currentState : currentStates) {
         for (Map.Entry<String, String> partitionState : currentState.getPartitionStateMap()
             .entrySet()) {
@@ -143,7 +145,8 @@ public class TestNoThrottleDisabledPartitions extends ZkTestBase {
     if (liveInstance != null) {
       String sessionId = liveInstance.getEphemeralOwner();
       List<CurrentState> currentStates = _accessor.getChildValues(
-          _accessor.keyBuilder().currentStates(_participants[0].getInstanceName(), sessionId));
+          _accessor.keyBuilder().currentStates(_participants[0].getInstanceName(), sessionId),
+          true);
       for (CurrentState currentState : currentStates) {
         for (Map.Entry<String, String> partitionState : currentState.getPartitionStateMap()
             .entrySet()) {
@@ -202,7 +205,8 @@ public class TestNoThrottleDisabledPartitions extends ZkTestBase {
     if (liveInstance != null) {
       String sessionId = liveInstance.getEphemeralOwner();
       List<CurrentState> currentStates = _accessor.getChildValues(
-          _accessor.keyBuilder().currentStates(_participants[0].getInstanceName(), sessionId));
+          _accessor.keyBuilder().currentStates(_participants[0].getInstanceName(), sessionId),
+          true);
       for (CurrentState currentState : currentStates) {
         for (Map.Entry<String, String> partitionState : currentState.getPartitionStateMap()
             .entrySet()) {
