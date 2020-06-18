@@ -34,14 +34,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.helix.HelixConstants;
 import org.apache.helix.HelixDataAccessor;
+import org.apache.helix.HelixException;
 import org.apache.helix.HelixProperty;
 import org.apache.helix.PropertyKey;
+import org.apache.helix.api.rebalancer.constraint.AbnormalStateResolver;
 import org.apache.helix.common.caches.AbstractDataCache;
 import org.apache.helix.common.caches.CurrentStateCache;
 import org.apache.helix.common.caches.InstanceMessagesCache;
 import org.apache.helix.common.caches.PropertyCache;
 import org.apache.helix.common.controllers.ControlContextProvider;
 import org.apache.helix.controller.LogUtil;
+import org.apache.helix.controller.rebalancer.constraint.MonitoredAbnormalResolver;
 import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ClusterConstraints;
 import org.apache.helix.model.CurrentState;
@@ -53,6 +56,7 @@ import org.apache.helix.model.Message;
 import org.apache.helix.model.ParticipantHistory;
 import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.StateModelDefinition;
+import org.apache.helix.util.HelixUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -103,6 +107,7 @@ public class BaseControllerDataProvider implements ControlContextProvider {
   private Map<String, Map<String, String>> _idealStateRuleMap;
   private Map<String, Map<String, Set<String>>> _disabledInstanceForPartitionMap = new HashMap<>();
   private Set<String> _disabledInstanceSet = new HashSet<>();
+  private final Map<String, MonitoredAbnormalResolver> _abnormalStateResolverMap = new HashMap<>();
 
   public BaseControllerDataProvider() {
     this(AbstractDataCache.UNKNOWN_CLUSTER, AbstractDataCache.UNKNOWN_PIPELINE);
@@ -225,6 +230,7 @@ public class BaseControllerDataProvider implements ControlContextProvider {
     if (_propertyDataChangedMap.get(HelixConstants.ChangeType.CLUSTER_CONFIG).getAndSet(false)) {
       _clusterConfig = accessor.getProperty(accessor.keyBuilder().clusterConfig());
       refreshedType.add(HelixConstants.ChangeType.CLUSTER_CONFIG);
+      refreshAbnormalStateResolverMap(_clusterConfig);
     } else {
       LogUtil.logInfo(logger, getClusterEventId(), String.format(
           "No ClusterConfig change for cluster %s, pipeline %s", _clusterName, getPipelineName()));
@@ -372,6 +378,7 @@ public class BaseControllerDataProvider implements ControlContextProvider {
 
   public void setClusterConfig(ClusterConfig clusterConfig) {
     _clusterConfig = clusterConfig;
+    refreshAbnormalStateResolverMap(_clusterConfig);
   }
 
   @Override
@@ -384,7 +391,6 @@ public class BaseControllerDataProvider implements ControlContextProvider {
   public String getPipelineName() {
     return _pipelineName;
   }
-
 
   @Override
   public String getClusterEventId() {
@@ -729,6 +735,64 @@ public class BaseControllerDataProvider implements ControlContextProvider {
    */
   public void setAsyncTasksThreadPool(ExecutorService asyncTasksThreadPool) {
     _asyncTasksThreadPool = asyncTasksThreadPool;
+  }
+
+  public MonitoredAbnormalResolver getAbnormalStateResolver(String stateModel) {
+    return _abnormalStateResolverMap
+        .getOrDefault(stateModel, MonitoredAbnormalResolver.DUMMY_STATE_RESOLVER);
+  }
+
+  private void refreshAbnormalStateResolverMap(ClusterConfig clusterConfig) {
+    if (clusterConfig == null) {
+      logger.debug("Skip refreshing abnormal state resolvers because the ClusterConfig is missing");
+      return;
+    }
+
+    Map<String, String> resolverMap = clusterConfig.getAbnormalStateResolverMap();
+    logger.info("Start loading the abnormal state resolvers with configuration {}", resolverMap);
+    // Calculate all the resolvers to be removed.
+    Map<String, MonitoredAbnormalResolver> removingResolverWraps =
+        new HashMap<>(_abnormalStateResolverMap);
+    removingResolverWraps.keySet().removeAll(resolverMap.keySet());
+    for (MonitoredAbnormalResolver monitoredAbnormalResolver : removingResolverWraps.values()) {
+      monitoredAbnormalResolver.close();
+    }
+
+    // Reload the resolver classes into cache based on the configuration.
+    _abnormalStateResolverMap.keySet().retainAll(resolverMap.keySet());
+    for (String stateModel : resolverMap.keySet()) {
+      String resolverClassName = resolverMap.get(stateModel);
+      if (resolverClassName == null || resolverClassName.isEmpty()) {
+        // skip the empty definition.
+        continue;
+      }
+
+      MonitoredAbnormalResolver currentMonitoredResolver =
+          _abnormalStateResolverMap.get(stateModel);
+      if (currentMonitoredResolver == null || !resolverClassName
+          .equals(currentMonitoredResolver.getResolverClass().getName())) {
+
+        if (currentMonitoredResolver != null) {
+          // Clean up the existing monitored resolver.
+          // We must close the existing object first to ensure the metric being removed before the
+          // new one can be registered normally.
+          currentMonitoredResolver.close();
+        }
+
+        try {
+          AbnormalStateResolver newResolver = AbnormalStateResolver.class
+              .cast(HelixUtil.loadClass(getClass(), resolverClassName).newInstance());
+          _abnormalStateResolverMap.put(stateModel,
+              new MonitoredAbnormalResolver(newResolver, _clusterName, stateModel));
+        } catch (Exception e) {
+          throw new HelixException(String
+              .format("Failed to instantiate the abnormal state resolver %s for state model %s",
+                  resolverClassName, stateModel));
+        }
+      } // else, nothing to update since the same resolver class has been loaded.
+    }
+
+    logger.info("Finish loading the abnormal state resolvers {}", _abnormalStateResolverMap);
   }
 
   public boolean isMaintenanceModeEnabled() {
