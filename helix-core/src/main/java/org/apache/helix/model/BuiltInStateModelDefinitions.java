@@ -22,22 +22,22 @@ package org.apache.helix.model;
 /**
  * Helix Built-in State Model Definitions
  */
-// TODO: 2018/6/15 b yzmyer
 public enum BuiltInStateModelDefinitions {
-    MasterSlave(new MasterSlaveSMD()),
-    LeaderStandby(new LeaderStandbySMD()),
-    StorageSchemata(new StorageSchemataSMD()),
-    OnlineOffline(new OnlineOfflineSMD()),
-    ScheduledTask(new ScheduledTaskSMD()),
-    Task(new TaskSMD());
+  MasterSlave(new MasterSlaveSMD()),
+  LeaderStandby(new LeaderStandbySMD()),
+  StorageSchemata(new StorageSchemataSMD()),
+  OnlineOffline(new OnlineOfflineSMD()),
+  OnlineOfflineWithBootstrap(OnlineOfflineWithBootstrapSMD.build()),
+  ScheduledTask(new ScheduledTaskSMD()),
+  Task(new TaskSMD());
 
-    private final StateModelDefinition def;
+  private final StateModelDefinition def;
 
-    private BuiltInStateModelDefinitions(StateModelDefinition def) {
-        this.def = def;
-    }
+  private BuiltInStateModelDefinitions(StateModelDefinition def) {
+    this.def = def;
+  }
 
-    public StateModelDefinition getStateModelDefinition() {
-        return def;
-    }
+  public StateModelDefinition getStateModelDefinition() {
+    return def;
+  }
 }
