@@ -25,15 +25,22 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.helix.CurrentStateChangeListener;
+import org.apache.helix.HelixDataAccessor;
+import org.apache.helix.HelixManager;
+import org.apache.helix.HelixManagerFactory;
+import org.apache.helix.InstanceType;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.PropertyKey;
+import org.apache.helix.PropertyType;
 import org.apache.helix.TestHelper;
 import org.apache.helix.ZkTestHelper;
 import org.apache.helix.ZkUnitTestBase;
 import org.apache.helix.integration.manager.ClusterControllerManager;
+import org.apache.helix.integration.manager.ClusterSpectatorManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.integration.manager.ZkTestManager;
 import org.apache.helix.manager.zk.CallbackHandler;
+import org.apache.helix.spectator.RoutingTableProvider;
 import org.apache.helix.zookeeper.api.client.HelixZkClient;
 import org.apache.helix.model.CurrentState;
 import org.apache.helix.tools.ClusterStateVerifier;
@@ -319,6 +326,149 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
   }
 
   @Test
+  public void testDanglingCallbackHanlderFix() throws Exception {
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+    final int n = 3;
+
+    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
+
+    TestHelper.setupCluster(clusterName, ZK_ADDR, 12918, "localhost", "TestDB", 1, // resource
+        32, // partitions
+        n, // nodes
+        2, // replicas
+        "MasterSlave", true);
+
+    final ClusterControllerManager controller =
+        new ClusterControllerManager(ZK_ADDR, clusterName, "controller_0");
+    controller.syncStart();
+
+    MockParticipantManager[] participants = new MockParticipantManager[n];
+    for (int i = 0; i < n; i++) {
+      String instanceName = "localhost_" + (12918 + i);
+      participants[i] = new MockParticipantManager(ZK_ADDR, clusterName, instanceName);
+      participants[i].syncStart();
+    }
+
+    boolean result = ClusterStateVerifier.verifyByZkCallback(
+        new ClusterStateVerifier.BestPossAndExtViewZkVerifier(ZK_ADDR, clusterName));
+    Assert.assertTrue(result);
+
+    // Routing provider is a spectator in Helix. Currentstate based RP listens on all the
+    // currentstate changes of all the clusters. They are a source of leaking of watch in
+    // Zookeeper server.
+    ClusterSpectatorManager rpManager = new ClusterSpectatorManager(ZK_ADDR, clusterName, "router");
+    rpManager.syncStart();
+    RoutingTableProvider rp = new RoutingTableProvider(rpManager, PropertyType.CURRENTSTATES);
+
+    //TODO: The following three sleep() is not the best practice. On the other hand, we don't have the testing
+    // facilities to avoid them yet. We will enhance later.
+    Thread.sleep(5000);
+
+    // expire RoutingProvider would create dangling CB
+    LOG.info("expire rp manager session:", rpManager.getSessionId());
+    ZkTestHelper.expireSession(rpManager.getZkClient());
+    LOG.info("rp manager new session:", rpManager.getSessionId());
+
+    Thread.sleep(5000);
+
+    MockParticipantManager participantToExpire = participants[0];
+    String oldSessionId = participantToExpire.getSessionId();
+    PropertyKey.Builder keyBuilder = new PropertyKey.Builder(clusterName);
+
+    // expire participant session; leaked callback handler used to be not reset() and be removed from ZkClient
+    LOG.info("Expire participant: " + participantToExpire.getInstanceName() + ", session: "
+        + participantToExpire.getSessionId());
+    ZkTestHelper.expireSession(participantToExpire.getZkClient());
+    String newSessionId = participantToExpire.getSessionId();
+    LOG.info(participantToExpire.getInstanceName() + " oldSessionId: " + oldSessionId
+        + ", newSessionId: " + newSessionId);
+
+    Thread.sleep(5000);
+    Map<String, Set<IZkChildListener>> childListeners =
+        ZkTestHelper.getZkChildListener(rpManager.getZkClient());
+    for (String path : childListeners.keySet()) {
+      Assert.assertTrue(childListeners.get(path).size() <= 1);
+    }
+
+    Map<String, List<String>> rpWatchPaths = ZkTestHelper.getZkWatch(rpManager.getZkClient());
+    List<String> existWatches = rpWatchPaths.get("existWatches");
+    Assert.assertTrue(existWatches.isEmpty());
+  }
+
+  @Test
+  public void testCurrentStatePathLeakingByAsycRemoval() throws Exception {
+    String className = TestHelper.getTestClassName();
+    String methodName = TestHelper.getTestMethodName();
+    String clusterName = className + "_" + methodName;
+    final int n = 3;
+    final String zkAddr = ZK_ADDR;
+    final int mJobUpdateCnt = 500;
+
+    System.out.println("START " + clusterName + " at " + new Date(System.currentTimeMillis()));
+
+    TestHelper.setupCluster(clusterName, zkAddr, 12918, "localhost", "TestDB", 1, // resource
+        32, // partitions
+        n, // nodes
+        2, // replicas
+        "MasterSlave", true);
+
+    final ClusterControllerManager controller =
+        new ClusterControllerManager(zkAddr, clusterName, "controller_0");
+    controller.syncStart();
+
+    MockParticipantManager[] participants = new MockParticipantManager[n];
+    for (int i = 0; i < n; i++) {
+      String instanceName = "localhost_" + (12918 + i);
+      participants[i] = new MockParticipantManager(zkAddr, clusterName, instanceName);
+      participants[i].syncStart();
+    }
+
+    Boolean result = ClusterStateVerifier.verifyByZkCallback(
+        new ClusterStateVerifier.BestPossAndExtViewZkVerifier(zkAddr, clusterName));
+    Assert.assertTrue(result);
+
+    ClusterSpectatorManager rpManager = new ClusterSpectatorManager(ZK_ADDR, clusterName, "router");
+    rpManager.syncStart();
+    RoutingTableProvider rp = new RoutingTableProvider(rpManager, PropertyType.CURRENTSTATES);
+
+    LOG.info("add job");
+    MockParticipantManager jobParticipant = participants[0];
+    String jobSessionId = jobParticipant.getSessionId();
+    HelixDataAccessor jobAccesor = jobParticipant.getHelixDataAccessor();
+    PropertyKey.Builder jobKeyBuilder = new PropertyKey.Builder(clusterName);
+    PropertyKey db0key =
+        jobKeyBuilder.currentState(jobParticipant.getInstanceName(), jobSessionId, "TestDB0");
+    CurrentState db0 = jobAccesor.getProperty(db0key);
+    PropertyKey jobKey =
+        jobKeyBuilder.currentState(jobParticipant.getInstanceName(), jobSessionId, "BackupQueue");
+    CurrentState cs = new CurrentState("BackupQueue");
+    cs.setSessionId(jobSessionId);
+    cs.setStateModelDefRef(db0.getStateModelDefRef());
+
+    LOG.info("add job");
+    boolean rtJob = false;
+    for (int i = 0; i < mJobUpdateCnt; i++) {
+      rtJob = jobAccesor.setProperty(jobKey, cs);
+    }
+
+    LOG.info("remove job");
+    rtJob = jobParticipant.getZkClient().delete(jobKey.getPath());
+
+    // validate the job watch is not leaked.
+    Thread.sleep(5000);
+
+    Map<String, Set<String>> listenersByZkPath = ZkTestHelper.getListenersByZkPath(ZK_ADDR);
+    boolean jobKeyExists = listenersByZkPath.keySet().contains(jobKey.getPath());
+    Assert.assertFalse(jobKeyExists);
+
+    Map<String, List<String>> rpWatchPaths = ZkTestHelper.getZkWatch(rpManager.getZkClient());
+    List<String> existWatches = rpWatchPaths.get("existWatches");
+    Assert.assertTrue(existWatches.isEmpty());
+  }
+
+  @Test
   public void testRemoveUserCbHandlerOnPathRemoval() throws Exception {
     String className = TestHelper.getTestClassName();
     String methodName = TestHelper.getTestMethodName();
@@ -455,9 +605,23 @@ public class TestZkCallbackHandlerLeak extends ZkUnitTestBase {
         "Should have 1 data-watches: MESSAGES");
     Assert.assertEquals(watchPaths.get("childWatches").size(), 1,
         "Should have 1 child-watches: MESSAGES");
-    Assert
-        .assertEquals(watchPaths.get("existWatches").size(), 2,
-            "Should have 2 exist-watches: CURRENTSTATE/{oldSessionId} and CURRENTSTATE/{oldSessionId}/TestDB0");
+
+    // In this test participant0 also register to its own cocurrent state with a callbackhandler
+    // When session expiration happens, the current state parent path would also changes. However,
+    // an exists watch would still be installed by event pushed to ZkCLient event thread by
+    // fireAllEvent() children even path on behalf of old session callbackhandler. By the time this
+    // event gets invoked, the old session callbackhandler was removed, but the event would still
+    // install a exist watch for old session.
+    // The closest similar case in production is that router/controller has an session expiration at
+    // the same time as participant.
+    // Currently there are many places to register watch in Zookeeper over the evolution of Helix
+    // and ZkClient. We plan for further simplify the logic of watch installation next.
+    result = TestHelper.verify(()-> {
+      Map<String, List<String>> wPaths = ZkTestHelper.getZkWatch(participantToExpire.getZkClient());
+      return wPaths.get("existWatches").size() == 1;
+    }, 10000);
+    Assert.assertTrue(result,
+        "Should have 1 exist-watches: CURRENTSTATE/{oldSessionId}");
 
     // another session expiry on localhost_12918 should clear the two exist-watches on
     // CURRENTSTATE/{oldSessionId}
