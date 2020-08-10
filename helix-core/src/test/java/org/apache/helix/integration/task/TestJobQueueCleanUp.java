@@ -9,7 +9,7 @@ package org.apache.helix.integration.task;
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *   http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an
@@ -80,7 +80,7 @@ public class TestJobQueueCleanUp extends TaskTestBase {
   }
 
   @Test
-  public void testJobQueueAutoCleanUp() throws InterruptedException {
+  public void testJobQueueAutoCleanUp() throws Exception {
     int capacity = 10;
     String queueName = TestHelper.getTestMethodName();
     JobQueue.Builder builder = TaskTestUtil.buildJobQueue(queueName, capacity);
@@ -105,14 +105,18 @@ public class TestJobQueueCleanUp extends TaskTestBase {
     }
     _driver.start(builder.build());
     _driver.pollForJobState(queueName, TaskUtil.getNamespacedJobName(queueName, "JOB" + (capacity - 1)), TaskState.FAILED);
-    Thread.sleep(2000);
 
-    WorkflowConfig config = _driver.getWorkflowConfig(queueName);
-    Assert.assertEquals(config.getJobDag().getAllNodes(), remainJobs);
+    Assert
+        .assertTrue(TestHelper.verify(() -> {
+          WorkflowConfig config = _driver.getWorkflowConfig(queueName);
+          return config.getJobDag().getAllNodes().equals(remainJobs);
+        }, TestHelper.WAIT_DURATION));
 
-    WorkflowContext context = _driver.getWorkflowContext(queueName);
-    Assert.assertEquals(context.getJobStates().keySet(), remainJobs);
-    Assert.assertTrue(remainJobs.containsAll(context.getJobStartTimes().keySet()));
+    Assert.assertTrue(TestHelper.verify(() -> {
+      WorkflowContext context = _driver.getWorkflowContext(queueName);
+      return context.getJobStates().keySet().equals(remainJobs) && remainJobs
+          .containsAll(context.getJobStartTimes().keySet());
+    }, TestHelper.WAIT_DURATION));
 
     for (String job : deletedJobs) {
       JobConfig cfg = _driver.getJobConfig(job);

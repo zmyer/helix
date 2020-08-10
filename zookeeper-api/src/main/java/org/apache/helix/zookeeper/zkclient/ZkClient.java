@@ -1,14 +1,23 @@
-/**
- * Copyright 2010 the original author or authors.
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- * in compliance with the License. You may obtain a copy of the License at
- * http://www.apache.org/licenses/LICENSE-2.0
- * Unless required by applicable law or agreed to in writing, software distributed under the License
- * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
- * or implied. See the License for the specific language governing permissions and limitations under
- * the License.
- */
 package org.apache.helix.zookeeper.zkclient;
+
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -21,14 +30,11 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.management.JMException;
 
 import org.apache.helix.zookeeper.api.client.ChildrenSubscribeResult;
-import org.apache.helix.zookeeper.api.client.RealmAwareZkClient;
 import org.apache.helix.zookeeper.constant.ZkSystemPropertyKeys;
 import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.apache.helix.zookeeper.exception.ZkClientException;
@@ -50,7 +56,6 @@ import org.apache.helix.zookeeper.zkclient.serialize.BasicZkSerializer;
 import org.apache.helix.zookeeper.zkclient.serialize.PathBasedZkSerializer;
 import org.apache.helix.zookeeper.zkclient.serialize.ZkSerializer;
 import org.apache.helix.zookeeper.zkclient.util.ExponentialBackoffStrategy;
-import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.ConnectionLossException;
@@ -68,7 +73,6 @@ import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * "Native ZkClient": not to be used directly.
  *
@@ -83,11 +87,16 @@ public class ZkClient implements Watcher {
 
   // If number of children exceeds this limit, getChildren() should not retry on connection loss.
   // This is a workaround for exiting retry on connection loss because of large number of children.
+  // 100K is specific for helix messages which use UUID, making packet length just below 4 MB.
   // TODO: remove it once we have a better way to exit retry for this case
-  private static final int NUM_CHILDREN_LIMIT;
+  private static final int NUM_CHILDREN_LIMIT = 100 * 1000;
 
+  private static final boolean SYNC_ON_SESSION = Boolean.parseBoolean(
+      System.getProperty(ZkSystemPropertyKeys.ZK_AUTOSYNC_ENABLED, "true"));
+  private static final String SYNC_PATH = "/";
 
-  private static final String ZK_AUTOSYNC_ENABLED_DEFAULT = "true";
+  private static AtomicLong UID = new AtomicLong(0);
+  private long _uid;
 
   private final IZkConnection _connection;
   private final long _operationRetryTimeoutInMillis;
@@ -118,19 +127,6 @@ public class ZkClient implements Watcher {
   // To automatically retry the async operation, we need a separate thread other than the
   // ZkEventThread. Otherwise the retry request might block the normal event processing.
   protected final ZkAsyncRetryThread _asyncCallRetryThread;
-
-  static {
-    // 100K is specific for helix messages which use UUID, making packet length just below 4 MB.
-    // Set it here for unit test to use reflection to change value
-    // because compilers optimize constants by replacing them inline.
-    NUM_CHILDREN_LIMIT = 100 * 1000;
-  }
-
-  private static final boolean SYNC_ON_SESSION = Boolean.parseBoolean(
-      System.getProperty(ZkSystemPropertyKeys.ZK_AUTOSYNC_ENABLED, ZK_AUTOSYNC_ENABLED_DEFAULT));
-  ;
-
-  private static final String SYNC_PATH = "/";
 
   private class IZkDataListenerEntry {
     final IZkDataListener _dataListener;
@@ -215,6 +211,8 @@ public class ZkClient implements Watcher {
       throw new NullPointerException("Zookeeper connection is null!");
     }
 
+    _uid = UID.getAndIncrement();
+
     _connection = zkConnection;
     _pathBasedZkSerializer = zkSerializer;
     _operationRetryTimeoutInMillis = operationRetryTimeout;
@@ -222,6 +220,7 @@ public class ZkClient implements Watcher {
 
     _asyncCallRetryThread = new ZkAsyncRetryThread(zkConnection.getServers());
     _asyncCallRetryThread.start();
+    LOG.debug("ZkClient created with _uid {}, _asyncCallRetryThread id {}", _uid, _asyncCallRetryThread.getId());
 
     connect(connectionTimeout, this);
 
@@ -1271,8 +1270,6 @@ public class ZkClient implements Watcher {
     }
   }
 
-
-
   private void doAsyncSync(final ZooKeeper zk, final String path, final long startT,
       final ZkAsyncCallbacks.SyncCallbackHandler cb) {
     zk.sync(path, cb,
@@ -1331,7 +1328,7 @@ public class ZkClient implements Watcher {
         @Override
         public void run() throws Exception {
           if (issueSync(zk) == false) {
-            LOG.warn("\"Failed to call sync() on new session {}", sessionId);
+            LOG.warn("Failed to call sync() on new session {}", sessionId);
           }
         }
       });
@@ -2156,6 +2153,8 @@ public class ZkClient implements Watcher {
       IZkConnection zkConnection = getConnection();
       _eventThread = new ZkEventThread(zkConnection.getServers());
       _eventThread.start();
+
+      LOG.debug("ZkClient created with _uid {}, _eventThread {}", _uid, _eventThread.getId());
 
       if (isManagingZkConnection()) {
         zkConnection.connect(watcher);
